@@ -2774,6 +2774,67 @@ def import_skill_from_folder(data):
     })
 
 
+TRUSTED_SKILL_ORGS = {
+    "anthropics", "vercel-labs", "vercel", "cloudflare", "openai", "google", "google-gemini",
+    "modelcontextprotocol", "microsoft", "aws", "supabase", "stripe", "ponytail", "obra",
+}
+
+CURATED_TRUSTED_SKILLS = [
+    {"name": "Anthropic Official Skills", "repo": "anthropics/skills", "url": "https://github.com/anthropics/skills", "stars": 15000, "trusted": True, "description": "Katalog resmi Agent Skills dari Anthropic (dokumen, frontend design, QA, dll.)."},
+    {"name": "Vercel Agent Skills", "repo": "vercel-labs/agent-skills", "url": "https://github.com/vercel-labs/agent-skills", "stars": 4500, "trusted": True, "description": "Skill resmi Vercel untuk React, Next.js, web design guidelines & performa web."},
+    {"name": "Cloudflare Official Skills", "repo": "cloudflare/skills", "url": "https://github.com/cloudflare/skills", "stars": 1200, "trusted": True, "description": "Skill resmi Cloudflare Workers, R2, D1, Turnstile, dan keamanan edge."},
+    {"name": "Superpowers Agent Skills (obra)", "repo": "obra/superpowers", "url": "https://github.com/obra/superpowers", "stars": 18000, "trusted": True, "description": "Koleksi skill engineering, debugging sistematis, TDD & brainstorming terpercaya."},
+]
+
+
+def search_trusted_skills_online(query=""):
+    """Searches curated official skill catalogs + GitHub public repositories for trusted SKILL.md repos."""
+    q = str(query or "").strip()
+    low_q = q.lower()
+    results = []
+    seen_repos = set()
+
+    # 1. Match curated official catalogs first
+    for item in CURATED_TRUSTED_SKILLS:
+        hay = f"{item['name']} {item['repo']} {item['description']}".lower()
+        if not low_q or any(tok in hay for tok in low_q.split()):
+            results.append(dict(item))
+            seen_repos.add(item["repo"].lower())
+
+    # 2. Live GitHub Repo Search for SKILL.md / agent-skills matching query
+    if q:
+        try:
+            search_q = urllib.parse.quote(f"{q} skill OR skills OR SKILL.md")
+            gh_url = f"https://api.github.com/search/repositories?q={search_q}&sort=stars&order=desc&per_page=8"
+            req = urllib.request.Request(gh_url, headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "AI-Virtual-HQ-Skills/1.0",
+            })
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                body = json.loads(resp.read().decode("utf-8", errors="ignore"))
+            for repo in (body.get("items") or []):
+                full_name = str(repo.get("full_name") or "").strip()
+                if not full_name or full_name.lower() in seen_repos:
+                    continue
+                owner_l = full_name.split("/")[0].lower()
+                stars = int(repo.get("stargazers_count") or 0)
+                is_trusted = (owner_l in TRUSTED_SKILL_ORGS) or (stars >= 50)
+                results.append({
+                    "name": repo.get("name") or full_name,
+                    "repo": full_name,
+                    "url": repo.get("html_url") or f"https://github.com/{full_name}",
+                    "stars": stars,
+                    "trusted": is_trusted,
+                    "description": str(repo.get("description") or "Repositori GitHub Agent Skill")[:200],
+                })
+                seen_repos.add(full_name.lower())
+        except Exception:
+            pass
+
+    results.sort(key=lambda r: (1 if r.get("trusted") else 0, int(r.get("stars") or 0)), reverse=True)
+    return {"ok": True, "query": q, "results": results[:10]}
+
+
 def build_skills_context_for_agent(user_prompt="", room="", agent_id=None):
     """Progressive Disclosure Skills Engine:
     - Stage 1: Injects ONLY compact 1-line index of ENABLED skills assigned to this agent/dept (~15 tokens/skill).
@@ -2797,7 +2858,13 @@ def build_skills_context_for_agent(user_prompt="", room="", agent_id=None):
                 eligible.append(sk)
 
     if not eligible:
-        return "", []
+        return (
+            "KEMAMPUAN SKILL MANDIRI (WAJIB PERSETUJUAN CEO): Jika kamu membutuhkan skill/SOP baru atau ingin mencari skill terpercaya (seperti PonyTail / GitHub Agent Skills), "
+            "kamu boleh mencari via [[SEARCH_SKILLS:\"kata kunci\"]] lalu mengusulkannya ke CEO. "
+            "HANYA setelah CEO menyetujui/memerintahkan, simpan skill baru ke folder skills/ via "
+            f"[[SAVE_SKILL:{{\"name\":\"...\",\"description\":\"...\",\"triggers\":[],\"scope\":\"DEPT\",\"depts\":[\"{room_u or 'ADMIN'}\"],\"content\":\"# ...\"}}]] "
+            f"atau import dari URL terpercaya via [[IMPORT_SKILL_URL:{{\"url\":\"https://...\",\"scope\":\"DEPT\",\"depts\":[\"{room_u or 'ADMIN'}\"]}}]]."
+        ), []
 
     low = str(user_prompt or "").lower()
     prompt_words = set(re.findall(r"[a-z0-9_-]{3,}", low))
@@ -2841,6 +2908,11 @@ def build_skills_context_for_agent(user_prompt="", room="", agent_id=None):
                 pass
 
     parts = ["\n".join(index_lines)]
+    parts.append(
+        "KEMAMPUAN SKILL MANDIRI (WAJIB PERSETUJUAN CEO): Jika butuh skill tambahan/terpercaya, cari via [[SEARCH_SKILLS:\"kata kunci\"]] lalu usulkan ke CEO. "
+        "Setelah CEO menyetujui/memerintahkan, buat skill via [[SAVE_SKILL:{\"name\":\"...\",\"description\":\"...\",\"triggers\":[],\"scope\":\"DEPT\",\"depts\":[\"" + (room_u or "ADMIN") + "\"],\"content\":\"# ...\"}]] "
+        "atau import URL via [[IMPORT_SKILL_URL:{\"url\":\"https://...\",\"scope\":\"DEPT\",\"depts\":[\"" + (room_u or "ADMIN") + "\"]}]]."
+    )
     if loaded_blocks:
         parts.append("\n\n".join(loaded_blocks))
     return "\n\n".join(parts), activated_badges
@@ -6228,6 +6300,11 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             self._send_json(200, pick_native_os_folder())
             return
 
+        if self.path.startswith("/api/skills/search-trusted"):
+            res = search_trusted_skills_online(body.get("query") or "")
+            self._send_json(200, res)
+            return
+
         if self.path.startswith("/api/skills/delete"):
             res = delete_hq_skill(body.get("id"))
             self._send_json(200 if res.get("ok") else 400, res)
@@ -6652,10 +6729,17 @@ def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, p
         )
         matches = re.findall(r"\[\[TOOL_CALL:(\{[\s\S]*?\})\]\]", str(reply or ""))
         skill_loads = re.findall(r"\[\[LOAD_SKILL:\s*\"?([A-Za-z0-9_.:-]+)\"?\s*\]\]", str(reply or ""))
-        if (not matches and not skill_loads) or step_idx >= max_steps:
+        skill_searches = re.findall(r"\[\[SEARCH_SKILLS:\s*\"?([^\]]+?)\"?\s*\]\]", str(reply or ""))
+        skill_saves = re.findall(r"\[\[SAVE_SKILL:\s*(\{[\s\S]*?\})\s*\]\]", str(reply or ""))
+        skill_imports = re.findall(r"\[\[IMPORT_SKILL_URL:\s*(\{[\s\S]*?\})\s*\]\]", str(reply or ""))
+
+        if (not matches and not skill_loads and not skill_searches and not skill_saves and not skill_imports) or step_idx >= max_steps:
             # Strip raw tags cleanly before showing to user
             clean_final = re.sub(r"\[\[TOOL_CALL:\{[\s\S]*?\}\]\]", "", str(reply or ""))
-            clean_final = re.sub(r"\[\[LOAD_SKILL:\s*\"?[A-Za-z0-9_.:-]+\"?\s*\]\]", "", clean_final).strip()
+            clean_final = re.sub(r"\[\[LOAD_SKILL:\s*\"?[A-Za-z0-9_.:-]+\"?\s*\]\]", "", clean_final)
+            clean_final = re.sub(r"\[\[SEARCH_SKILLS:\s*\"?[^\]]+?\"?\s*\]\]", "", clean_final)
+            clean_final = re.sub(r"\[\[SAVE_SKILL:\s*\{[\s\S]*?\}\s*\]\]", "", clean_final)
+            clean_final = re.sub(r"\[\[IMPORT_SKILL_URL:\s*\{[\s\S]*?\}\s*\]\]", "", clean_final).strip()
             return clean_final or reply, used_engine
 
         tool_results_lines = []
@@ -6666,11 +6750,59 @@ def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, p
                 executed_tools.append({
                     "tool": sk_meta["name"],
                     "source": "SKILL",
-                    "summary": f"On-Demand SKILL.md",
+                    "summary": "On-Demand SKILL.md",
                 })
                 tool_results_lines.append(f"- ISI LENGKAP SKILL `{sk_meta['name']}` (`{sk_meta['slug']}`):\n{sk_res['content'][:5000]}")
             else:
                 tool_results_lines.append(f"- Skill `{sk_slug}` tidak ditemukan.")
+
+        for sq in skill_searches[:2]:
+            sr = search_trusted_skills_online(sq.strip().strip("\"'"))
+            executed_tools.append({
+                "tool": f"Cari Skill: {sq.strip()[:28]}",
+                "source": "SKILL",
+                "summary": f"{len(sr.get('results') or [])} hasil terpercaya",
+            })
+            tool_results_lines.append(f"- HASIL PENCARIAN SKILL TERPERCAYA ('{sq}'): {json.dumps(sr.get('results') or [], ensure_ascii=False)[:2400]}")
+
+        for raw_sv in skill_saves[:2]:
+            try:
+                sv_obj = json.loads(raw_sv)
+                if room and not sv_obj.get("scope"):
+                    sv_obj["scope"] = "DEPT"
+                    sv_obj["depts"] = [room]
+                sv_obj["origin"] = "agent_created"
+                sv_res = save_hq_skill(sv_obj)
+                if sv_res.get("ok"):
+                    executed_tools.append({
+                        "tool": f"Buat Skill: {sv_obj.get('name', sv_res.get('slug', ''))}",
+                        "source": "SKILL",
+                        "summary": f"skills/{sv_res.get('slug')}/SKILL.md",
+                    })
+                    tool_results_lines.append(f"- SKILL BARU TERSIMPAN: skills/{sv_res.get('slug')}/SKILL.md (aktif di tab 🧠 Skills)")
+                else:
+                    tool_results_lines.append(f"- Gagal menyimpan skill: {sv_res.get('error')}")
+            except Exception as sve:
+                tool_results_lines.append(f"- Parse error SAVE_SKILL: {sve}")
+
+        for raw_im in skill_imports[:2]:
+            try:
+                im_obj = json.loads(raw_im)
+                if room and not im_obj.get("scope"):
+                    im_obj["scope"] = "DEPT"
+                    im_obj["depts"] = [room]
+                im_res = import_skill_from_url(im_obj)
+                if im_res.get("ok"):
+                    executed_tools.append({
+                        "tool": f"Import Skill: {im_res.get('slug', '')}",
+                        "source": "SKILL",
+                        "summary": f"skills/{im_res.get('slug')}/SKILL.md",
+                    })
+                    tool_results_lines.append(f"- SKILL TERPERCAYA BERHASIL DIIMPOR: skills/{im_res.get('slug')}/SKILL.md")
+                else:
+                    tool_results_lines.append(f"- Gagal import skill URL: {im_res.get('error')}")
+            except Exception as ime:
+                tool_results_lines.append(f"- Parse error IMPORT_SKILL_URL: {ime}")
 
         for raw_json in matches[:4]:
             try:

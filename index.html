@@ -1858,12 +1858,24 @@
             </button>
           </div>
 
-          <!-- Form Import URL / GitHub (Siap PonyTail / SKILL.md) -->
-          <div id="skill-import-url-wrap" class="hidden rounded-xl bg-[#0e0e16] border border-sky-500/40 p-3.5 space-y-2.5">
+          <!-- Form Import URL / GitHub (Siap PonyTail / SKILL.md) + Pencarian Skill Terpercaya -->
+          <div id="skill-import-url-wrap" class="hidden rounded-xl bg-[#0e0e16] border border-sky-500/40 p-3.5 space-y-3">
             <div class="flex items-center justify-between">
-              <span class="font-bold text-sky-300 text-[11px]">🌐 Import Skill dari URL / Repo GitHub (PonyTail, Agent Skills, Raw SKILL.md)</span>
+              <span class="font-bold text-sky-300 text-[11px]">🌐 Cari &amp; Import Skill Terpercaya (PonyTail, Anthropic, Vercel, Cloudflare, GitHub SKILL.md)</span>
               <button type="button" onclick="closeSkillForms()" class="text-slate-400 hover:text-white text-xs cursor-pointer">✕</button>
             </div>
+
+            <!-- Live Trusted Skill Search Bar -->
+            <div class="p-2.5 rounded-lg bg-[#141422] border border-white/10 space-y-2">
+              <div class="flex items-center gap-2">
+                <input id="sk-trusted-search-input" type="text" onkeydown="if(event.key==='Enter') searchTrustedSkillsUI()" placeholder="Cari skill terpercaya (mis: ponytail, ui design, copywriting, seo, vercel)..." class="flex-1 px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-[11px]" />
+                <button type="button" onclick="searchTrustedSkillsUI()" class="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-semibold text-[10.5px] cursor-pointer shrink-0">
+                  🔍 Cari Terpercaya
+                </button>
+              </div>
+              <div id="sk-trusted-search-results" class="grid grid-cols-1 md:grid-cols-2 gap-1.5 max-h-36 overflow-y-auto"></div>
+            </div>
+
             <div class="grid grid-cols-1 md:grid-cols-12 gap-2">
               <div class="md:col-span-6">
                 <label class="block text-[10px] text-slate-300 mb-1">URL GitHub Repo / Folder / Raw SKILL.md *</label>
@@ -7245,7 +7257,50 @@
     function openSkillUrlImportForm() {
       closeSkillForms();
       document.getElementById("skill-import-url-wrap")?.classList.remove("hidden");
-      setTimeout(() => document.getElementById("sk-imp-url")?.focus(), 50);
+      searchTrustedSkillsUI();
+      setTimeout(() => document.getElementById("sk-trusted-search-input")?.focus(), 50);
+    }
+
+    async function searchTrustedSkillsUI() {
+      const q = (document.getElementById("sk-trusted-search-input")?.value || "").trim();
+      const box = document.getElementById("sk-trusted-search-results");
+      if (box) box.innerHTML = `<div class="md:col-span-2 text-[10px] text-slate-400 p-1">⏳ Mencari katalog skill terpercaya...</div>`;
+      try {
+        const res = await fetch("/api/skills/search-trusted", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: q }),
+        });
+        const data = await res.json();
+        const items = (data && Array.isArray(data.results)) ? data.results : [];
+        if (!box) return;
+        if (!items.length) {
+          box.innerHTML = `<div class="md:col-span-2 text-[10px] text-slate-400 p-1">Tidak ditemukan hasil untuk "${escapeHtmlSafe(q)}". Anda tetap bisa menempel URL GitHub / Raw SKILL.md langsung di bawah.</div>`;
+          return;
+        }
+        box.innerHTML = items.map(it => {
+          const safeUrl = String(it.url || "").replace(/'/g, "\\'");
+          const safeName = String(it.name || "").replace(/'/g, "\\'");
+          return `
+            <div class="p-2 rounded-lg bg-[#1c1c28] border ${it.trusted ? 'border-emerald-500/35' : 'border-white/10'} flex items-start justify-between gap-2">
+              <div class="min-w-0">
+                <div class="flex items-center gap-1">
+                  ${it.trusted ? `<span class="text-emerald-400 text-[9.5px]" title="Sumber Terpercaya / Bintang Tinggi">✓</span>` : ""}
+                  <span class="font-semibold text-white text-[10.5px] truncate">${escapeHtmlSafe(it.name)}</span>
+                  <span class="text-[9px] font-mono text-amber-300 shrink-0">★ ${Number(it.stars || 0).toLocaleString()}</span>
+                </div>
+                <div class="text-[9.5px] text-slate-400 truncate">${escapeHtmlSafe(it.repo || '')}</div>
+                <div class="text-[9.5px] text-slate-300 line-clamp-1">${escapeHtmlSafe(it.description || '')}</div>
+              </div>
+              <button type="button" onclick="document.getElementById('sk-imp-url').value='${safeUrl}'; document.getElementById('sk-imp-name').value='${safeName}'; updateToast('URL skill terpercaya siap diunduh — klik Unduh & Simpan!')" class="px-2 py-1 rounded bg-sky-600/30 hover:bg-sky-600/50 text-sky-200 text-[9.5px] font-semibold cursor-pointer shrink-0">
+                Pilih
+              </button>
+            </div>
+          `;
+        }).join("");
+      } catch (e) {
+        if (box) box.innerHTML = `<div class="md:col-span-2 text-[10px] text-rose-300 p-1">Gagal mencari katalog online.</div>`;
+      }
     }
 
     function _renderSkillScopePickers(selDepts = [], selAgents = []) {
