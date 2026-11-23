@@ -4261,18 +4261,26 @@ def load_saved_config():
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                return _sanitize_config_tags(json.load(f))
+                cfg = _sanitize_config_tags(json.load(f))
+                if isinstance(cfg, dict):
+                    cfg.setdefault("agent_fallback_models", {})
+                    cfg.setdefault("default_fallback_model", "")
+                return cfg
         except Exception:
             pass
-    return {"connections": [], "models": [], "agent_models": {}}
+    return {"connections": [], "models": [], "agent_models": {}, "agent_fallback_models": {}, "default_fallback_model": ""}
 
 
 def save_config(data):
     _sanitize_config_tags(data)
-    if isinstance(data, dict) and "agy_verified" not in data:
+    if isinstance(data, dict):
         prev = load_saved_config()
-        if prev.get("agy_verified") or AGY_AUTH_SESSION.get("verified"):
+        if "agy_verified" not in data and (prev.get("agy_verified") or AGY_AUTH_SESSION.get("verified")):
             data["agy_verified"] = True
+        if "agent_fallback_models" not in data and isinstance(prev.get("agent_fallback_models"), dict):
+            data["agent_fallback_models"] = prev["agent_fallback_models"]
+        if "default_fallback_model" not in data and prev.get("default_fallback_model"):
+            data["default_fallback_model"] = prev["default_fallback_model"]
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
@@ -4663,11 +4671,62 @@ def save_taskboard(tasks):
     bump_world_chat_version()
 
 
-def run_agent_llm_unified(model_id, endpoint, api_key, sys_prompt, history, prompt, attachments=None, live_mcp_ctx=None):
-    """Unified caller for Claude Code Local Session, External OpenAI/Anthropic/Gemini Router, or Antigravity CLI."""
-    win_size = int(load_memory_config().get("slidingWindow") or 6)
-    sliced_history = list(history[-win_size:]) if isinstance(history, list) else []
+def classify_llm_error_type(err_msg):
+    low = (str(err_msg or "")).lower()
+    if any(k in low for k in ("429", "402", "quota", "rate limit", "rate_limit", "insufficient", "credit", "billing", "balance", "exhausted", "habis", "limit exceeded")):
+        return "QUOTA"
+    if any(k in low for k in ("401", "403", "unauthorized", "invalid api key", "api key", "login", "expired", "forbidden", "ditolak")):
+        return "AUTH"
+    if any(k in low for k in ("404", "not found", "tidak ditemukan", "does not exist")):
+        return "NOT_FOUND"
+    return "OFFLINE"
 
+
+def record_model_health_event(model_id, ok, error="", ms=None):
+    mid = (model_id or "").strip()
+    if not mid:
+        return
+    try:
+        cached = load_model_health_cache()
+        if ok:
+            cached[mid] = {"ok": True, "ms": int(ms or 0), "errorType": "", "ts": time.time()}
+        else:
+            err_str = str(error or "Model tidak merespons")[:300]
+            cached[mid] = {
+                "ok": False,
+                "error": err_str,
+                "errorType": classify_llm_error_type(err_str),
+                "ts": time.time(),
+            }
+        save_model_health_cache(cached)
+    except Exception:
+        pass
+
+
+def _resolve_model_creds_by_id(model_id):
+    mid = (model_id or "").strip()
+    if not mid:
+        return "", ""
+    saved = load_saved_config()
+    models = saved.get("models") or []
+    m_obj = next((m for m in models if isinstance(m, dict) and m.get("id") == mid), {})
+    return (m_obj.get("endpoint") or "").strip(), (m_obj.get("apiKey") or "").strip()
+
+
+def _resolve_fallback_model_for_agent(agent_id, primary_model_id, explicit_fallback=""):
+    saved = load_saved_config()
+    fb = (explicit_fallback or "").strip()
+    if not fb and agent_id is not None:
+        fb_map = saved.get("agent_fallback_models") or {}
+        fb = (fb_map.get(str(agent_id)) or fb_map.get(agent_id) or "").strip()
+    if not fb:
+        fb = (saved.get("default_fallback_model") or "").strip()
+    if fb and fb != (primary_model_id or "").strip():
+        return fb
+    return ""
+
+
+def _run_single_llm_provider(model_id, endpoint, api_key, sys_prompt, sliced_history, prompt, attachments=None, live_mcp_ctx=None, win_size=6):
     if model_id in CLAUDE_LOCAL_MODELS:
         reply, used_model = call_local_claude_cli(model_id, sys_prompt, sliced_history, prompt, attachments=attachments, live_mcp_ctx=live_mcp_ctx)
         return reply, f"Claude Code Local ({used_model})"
@@ -4691,6 +4750,42 @@ def run_agent_llm_unified(model_id, endpoint, api_key, sys_prompt, history, prom
 
     reply, used_model = call_verified_agy_cli(model_id, sys_prompt, sliced_history, prompt, attachments=attachments, live_mcp_ctx=live_mcp_ctx)
     return reply, f"Antigravity CLI ({used_model})"
+
+
+def run_agent_llm_unified(model_id, endpoint, api_key, sys_prompt, history, prompt, attachments=None, live_mcp_ctx=None, agent_id=None, fallback_model_id=""):
+    """Unified caller with instant model health tracking & automatic per-staff fallback model retry."""
+    win_size = int(load_memory_config().get("slidingWindow") or 6)
+    sliced_history = list(history[-win_size:]) if isinstance(history, list) else []
+    t0 = time.time()
+
+    try:
+        reply, engine = _run_single_llm_provider(
+            model_id, endpoint, api_key, sys_prompt, sliced_history, prompt,
+            attachments=attachments, live_mcp_ctx=live_mcp_ctx, win_size=win_size
+        )
+        record_model_health_event(model_id, True, ms=(time.time() - t0) * 1000)
+        return reply, engine
+    except Exception as primary_err:
+        primary_msg = str(primary_err)
+        err_type = classify_llm_error_type(primary_msg)
+        record_model_health_event(model_id, False, error=primary_msg)
+
+        fb_model = _resolve_fallback_model_for_agent(agent_id, model_id, fallback_model_id)
+        if fb_model:
+            fb_ep, fb_key = _resolve_model_creds_by_id(fb_model)
+            t1 = time.time()
+            try:
+                bump_world_chat_version(toast_msg=f"🔄 Model utama {model_id} kendala ({err_type}) — otomatis dialihkan ke Fallback: {fb_model}")
+                reply, fb_engine = _run_single_llm_provider(
+                    fb_model, fb_ep, fb_key, sys_prompt, sliced_history, prompt,
+                    attachments=attachments, live_mcp_ctx=live_mcp_ctx, win_size=win_size
+                )
+                record_model_health_event(fb_model, True, ms=(time.time() - t1) * 1000)
+                return reply, f"{fb_engine} [Fallback dari {model_id}]"
+            except Exception as fb_err:
+                record_model_health_event(fb_model, False, error=str(fb_err))
+                raise RuntimeError(f"Model utama ({model_id}) gagal: {primary_msg} | Model Fallback ({fb_model}) juga gagal: {fb_err}")
+        raise RuntimeError(primary_msg)
 
 
 _COORD_COUNTER = {"idx": 0}
@@ -5260,7 +5355,7 @@ def execute_department_work_engine(task_type, body=None):
         )
         try:
             deliverable_md, used_engine = run_agent_llm_unified(
-                model_id, endpoint, api_key, exec_sys_prompt, [], f"EKSEKUSI ARAHAN CEO SEKARANG:\n{directive_text}", live_mcp_ctx=live_ctx
+                model_id, endpoint, api_key, exec_sys_prompt, [], f"EKSEKUSI ARAHAN CEO SEKARANG:\n{directive_text}", live_mcp_ctx=live_ctx, agent_id=agent_id
             )
         except Exception as e:
             # Fallback structured execution report using real MCP snapshot if model offline
@@ -5592,6 +5687,7 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             resp = {
                 "ok": True,
                 "world": world,
+                "model_health": load_model_health_cache(),
             }
             if include_chat or int(world.get("chatVersion") or 1) > client_chat_ver:
                 resp["histories"] = load_chat_histories()
@@ -6636,7 +6732,8 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 live_ctx, executed_tools = build_dynamic_mcp_context_with_trace(prompt, room=target_room)
                 reply_raw, used_engine = run_agent_with_tool_loop(
                     model_id, endpoint, api_key, sys_prompt, history, prompt,
-                    attachments=attachments, live_mcp_ctx=live_ctx, executed_tools=executed_tools, room=target_room
+                    attachments=attachments, live_mcp_ctx=live_ctx, executed_tools=executed_tools, room=target_room,
+                    agent_id=(speaker_meta.get(first_key) or {}).get("agentId", 10)
                 )
                 lead_meta = speaker_meta.get(first_key) or {"agentId": 10, "sender": "Raka · GM / COO"}
                 lead_name = lead_meta["sender"].split("·")[0].strip()
@@ -6665,7 +6762,7 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 self._send_json(200, resp_payload)
                 return
             except Exception as err:
-                self._send_json(200, {"ok": False, "modelError": True, "error": str(err)})
+                self._send_json(200, {"ok": False, "modelError": True, "error": str(err), "model_health": load_model_health_cache()})
                 return
             finally:
                 set_agents_busy(busy_ids, False)
@@ -6702,7 +6799,8 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 live_ctx, executed_tools = build_dynamic_mcp_context_with_trace(prompt, room=room, agent_id=agent_id)
                 reply_raw, used_engine = run_agent_with_tool_loop(
                     model_id, endpoint, api_key, sys_prompt, history, prompt,
-                    attachments=attachments, live_mcp_ctx=live_ctx, executed_tools=executed_tools, room=room
+                    attachments=attachments, live_mcp_ctx=live_ctx, executed_tools=executed_tools, room=room,
+                    agent_id=agent_id
                 )
                 reply, auto_exec, coord_ev = extract_and_execute_approved_from_reply(
                     reply_raw, prompt, history, room=room,
@@ -6727,7 +6825,7 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 self._send_json(200, resp_payload)
                 return
             except Exception as err:
-                self._send_json(200, {"ok": False, "modelError": True, "error": str(err)})
+                self._send_json(200, {"ok": False, "modelError": True, "error": str(err), "model_health": load_model_health_cache()})
                 return
             finally:
                 set_agents_busy([agent_id] if agent_id is not None else [10], False)
@@ -6735,7 +6833,7 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
         self._send_json(404, {"ok": False, "error": "Endpoint tidak ditemukan"})
 
 
-def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, prompt, attachments=None, live_mcp_ctx=None, executed_tools=None, room="", max_steps=3):
+def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, prompt, attachments=None, live_mcp_ctx=None, executed_tools=None, room="", max_steps=3, agent_id=None):
     """Executes multi-step autonomous [[TOOL_CALL:{...}]] requests for local folders, Local STDIO MCPs, and Remote HTTP MCPs."""
     executed_tools = executed_tools if isinstance(executed_tools, list) else []
     cur_history = list(history or [])
@@ -6748,6 +6846,7 @@ def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, p
             model_id, endpoint, api_key, sys_prompt, cur_history, cur_prompt,
             attachments=attachments if step_idx == 0 else None,
             live_mcp_ctx=live_mcp_ctx,
+            agent_id=agent_id,
         )
         matches = re.findall(r"\[\[TOOL_CALL:(\{[\s\S]*?\})\]\]", str(reply or ""))
         skill_loads = re.findall(r"\[\[LOAD_SKILL:\s*\"?([A-Za-z0-9_.:-]+)\"?\s*\]\]", str(reply or ""))
@@ -7503,7 +7602,7 @@ def run_gm_autopilot_cycle(manual=False):
         )
 
         raw_reply, used_engine = run_agent_llm_unified(
-            gm_mid, gm_ep, gm_key, sys_prompt, [], user_prompt, live_mcp_ctx=live_ctx
+            gm_mid, gm_ep, gm_key, sys_prompt, [], user_prompt, live_mcp_ctx=live_ctx, agent_id=gm_id
         )
         decision = _extract_json_block(raw_reply)
         if not isinstance(decision, dict):

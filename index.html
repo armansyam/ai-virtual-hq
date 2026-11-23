@@ -275,6 +275,14 @@
       <span id="live-toast-text" class="text-slate-200 font-medium truncate">Siap.</span>
     </div>
 
+    <!-- Model Health Alert Banner (Visible ONLY when 1+ staff have OFF / Quota / Disconnected Model) -->
+    <div id="model-health-alert-banner" class="hidden absolute top-14 right-3 z-25 px-3 py-2 rounded-xl bg-rose-950/92 backdrop-blur-md border border-rose-500/50 shadow-xl text-[11px] flex items-center gap-2.5 max-w-lg pointer-events-auto">
+      <span class="w-2 h-2 rounded-full bg-rose-400 animate-pulse shrink-0"></span>
+      <span id="model-health-alert-text" class="text-rose-100 font-medium leading-snug"></span>
+      <button onclick="switchView('table')" class="px-2 py-0.5 rounded-md bg-rose-500/25 hover:bg-rose-500/40 text-rose-100 border border-rose-400/40 font-semibold shrink-0 cursor-pointer">Lihat Tim</button>
+      <button onclick="probeAllAgentModelsLive(true)" class="px-2 py-0.5 rounded-md bg-white/10 hover:bg-white/20 text-white font-semibold shrink-0 cursor-pointer" title="Ping ulang semua model unik">🩺 Cek</button>
+    </div>
+
     <!-- WebGL 3D Canvas Container -->
     <div id="canvas-container" class="w-full h-full cursor-grab active:cursor-grabbing"></div>
 
@@ -5529,6 +5537,22 @@
       try {
         if (fullData) {
           applyChatAndBoardPayload(fullData);
+          if (fullData.model_health && typeof fullData.model_health === "object") {
+            let mhChanged = false;
+            Object.keys(fullData.model_health).forEach(mid => {
+              const inc = fullData.model_health[mid];
+              const prev = LIVE_MODEL_HEALTH[mid];
+              if (!prev || prev.ok !== inc.ok || prev.error !== inc.error || prev.errorType !== inc.errorType) {
+                LIVE_MODEL_HEALTH[mid] = inc;
+                mhChanged = true;
+              }
+            });
+            if (mhChanged) {
+              try { localStorage.setItem("luxvite_model_health_cache", JSON.stringify(LIVE_MODEL_HEALTH)); } catch (e) {}
+              syncAgent3DPillColors();
+              renderSidebarAndTable();
+            }
+          }
         }
         const incomingVer = Number(world.version || 0);
         const incomingChatVer = Number(world.chatVersion || 0);
@@ -6625,6 +6649,11 @@
       updateToast(`✅ Semua ${agents.length} Karyawan AI sekarang memakai model: ${mid}`);
     }
 
+    let DEFAULT_FALLBACK_MODEL = "";
+    try {
+      DEFAULT_FALLBACK_MODEL = localStorage.getItem("luxvite_default_fallback_model") || "";
+    } catch (e) {}
+
     function changeAgentModel(agentId, newModel) {
       const ag = agents.find(a => a.id === agentId);
       if (!ag) return;
@@ -6634,8 +6663,34 @@
       renderSidebarAndTable();
       renderSettingsModal();
       // ONLY probe this single newly-assigned model so the other 34 staff NEVER get interrupted or turned inactive!
-      probeSingleModelLive(newModel, ag.name);
-      updateToast(`🩺 Menguji model baru khusus untuk ${ag.name}: ${newModel}...`);
+      if (newModel) {
+        probeSingleModelLive(newModel, ag.name);
+        updateToast(`🩺 Menguji model baru khusus untuk ${ag.name}: ${newModel}...`);
+      } else {
+        updateToast(`⚠️ Model utama ${ag.name} dikosongkan (status OFF).`);
+      }
+    }
+
+    function changeAgentFallbackModel(agentId, newFallback) {
+      const ag = agents.find(a => a.id === agentId);
+      if (!ag) return;
+      ag.fallbackModel = (newFallback || "").trim();
+      saveCustomConfigToStorage();
+      renderSidebarAndTable();
+      renderSettingsModal();
+      updateToast(ag.fallbackModel
+        ? `🛡️ Fallback model ${ag.name} disetel ke: ${ag.fallbackModel}`
+        : `🛡️ Fallback khusus ${ag.name} direset ke Default Global.`);
+    }
+
+    function changeDefaultFallbackModel(newFallback) {
+      DEFAULT_FALLBACK_MODEL = (newFallback || "").trim();
+      saveCustomConfigToStorage();
+      renderSidebarAndTable();
+      renderSettingsModal();
+      updateToast(DEFAULT_FALLBACK_MODEL
+        ? `🛡️ Model Fallback Global disetel ke: ${DEFAULT_FALLBACK_MODEL}`
+        : `🛡️ Model Fallback Global dinonaktifkan.`);
     }
 
     function saveCustomConfigToStorage() {
@@ -6643,15 +6698,23 @@
         localStorage.setItem("luxvite_custom_models", JSON.stringify(AVAILABLE_MODELS));
         localStorage.setItem("luxvite_api_connections", JSON.stringify(API_CONNECTIONS));
         const agentModelMap = {};
-        agents.forEach(a => { agentModelMap[a.id] = a.model; });
+        const agentFallbackMap = {};
+        agents.forEach(a => {
+          agentModelMap[a.id] = a.model;
+          if (a.fallbackModel) agentFallbackMap[a.id] = a.fallbackModel;
+        });
         localStorage.setItem("luxvite_agent_models", JSON.stringify(agentModelMap));
+        localStorage.setItem("luxvite_agent_fallback_models", JSON.stringify(agentFallbackMap));
+        localStorage.setItem("luxvite_default_fallback_model", DEFAULT_FALLBACK_MODEL || "");
         fetch("/api/save-config", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             connections: API_CONNECTIONS,
             models: AVAILABLE_MODELS,
-            agent_models: agentModelMap
+            agent_models: agentModelMap,
+            agent_fallback_models: agentFallbackMap,
+            default_fallback_model: DEFAULT_FALLBACK_MODEL || ""
           })
         }).catch(() => {});
       } catch (e) {}
@@ -6826,9 +6889,19 @@
         }
         if (saved.agent_models && typeof saved.agent_models === "object") {
           agents.forEach(a => {
-            if (saved.agent_models[a.id]) a.model = saved.agent_models[a.id];
+            if (saved.agent_models[a.id] !== undefined) a.model = saved.agent_models[a.id];
           });
           localStorage.setItem("luxvite_agent_models", JSON.stringify(saved.agent_models));
+        }
+        if (saved.agent_fallback_models && typeof saved.agent_fallback_models === "object") {
+          agents.forEach(a => {
+            a.fallbackModel = saved.agent_fallback_models[a.id] || saved.agent_fallback_models[String(a.id)] || "";
+          });
+          localStorage.setItem("luxvite_agent_fallback_models", JSON.stringify(saved.agent_fallback_models));
+        }
+        if (typeof saved.default_fallback_model === "string") {
+          DEFAULT_FALLBACK_MODEL = saved.default_fallback_model;
+          localStorage.setItem("luxvite_default_fallback_model", DEFAULT_FALLBACK_MODEL);
         }
         // Auto-prune any orphaned models whose API connection was previously deleted!
         syncAndPruneOrphanModels(false);
@@ -8507,19 +8580,42 @@
         </div>
       `).join("");
 
-      agentsListEl.innerHTML = agents.map(ag => {
-        const opts = AVAILABLE_MODELS.map(m =>
+      const globalFbOpts = `<option value="">-- Tidak Ada Fallback Global --</option>` + AVAILABLE_MODELS.map(m =>
+        `<option value="${m.id}" ${DEFAULT_FALLBACK_MODEL === m.id ? 'selected' : ''}>${m.id} — ${m.tag}</option>`
+      ).join("");
+      const globalFbBar = `
+        <div class="p-3 rounded-xl bg-amber-500/[0.07] border border-amber-400/25 mb-2.5 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <div class="text-xs font-bold text-amber-200">🛡️ Model Cadangan (Fallback) Default Global</div>
+            <div class="text-[10.5px] text-slate-400">Dipakai otomatis jika model utama staf habis kuota (429) / putus dan staf belum punya fallback khusus.</div>
+          </div>
+          <select onchange="changeDefaultFallbackModel(this.value)" class="min-w-[230px] px-2.5 py-1.5 rounded-lg bg-[#12121a] border border-amber-400/40 text-amber-200 font-mono text-xs cursor-pointer">
+            ${globalFbOpts}
+          </select>
+        </div>
+      `;
+
+      agentsListEl.innerHTML = globalFbBar + agents.map(ag => {
+        const opts = `<option value="" ${!ag.model ? 'selected' : ''}>⚠️ (Tidak Ada / OFF)</option>` + AVAILABLE_MODELS.map(m =>
           `<option value="${m.id}" ${ag.model === m.id ? 'selected' : ''}>${m.id} — ${m.tag}</option>`
+        ).join("");
+        const fbOpts = `<option value="" ${!ag.fallbackModel ? 'selected' : ''}>🛡️ Fallback: ${DEFAULT_FALLBACK_MODEL ? `Default (${DEFAULT_FALLBACK_MODEL})` : 'Tidak Ada'}</option>` + AVAILABLE_MODELS.map(m =>
+          `<option value="${m.id}" ${ag.fallbackModel === m.id ? 'selected' : ''}>🛡️ ${m.id}</option>`
         ).join("");
         return `
           <div class="p-2.5 rounded-lg bg-[#1c1c28] border border-white/5 flex flex-wrap items-center justify-between gap-2">
-            <div class="min-w-[210px]">
+            <div class="min-w-[190px]">
               <span class="font-bold text-xs text-white">${ag.name}</span>
               <span class="text-[11px] text-slate-400"> · ${ag.role}</span>
             </div>
-            <select onchange="changeAgentModel(${ag.id}, this.value)" class="flex-1 min-w-[240px] px-2.5 py-1.5 rounded-lg bg-[#12121a] border border-purple-500/40 text-purple-200 font-mono text-xs cursor-pointer">
-              ${opts}
-            </select>
+            <div class="flex flex-1 flex-wrap items-center gap-1.5 min-w-[260px]">
+              <select onchange="changeAgentModel(${ag.id}, this.value)" class="flex-1 min-w-[180px] px-2.5 py-1.5 rounded-lg bg-[#12121a] border border-purple-500/40 text-purple-200 font-mono text-xs cursor-pointer" title="Model Utama">
+                ${opts}
+              </select>
+              <select onchange="changeAgentFallbackModel(${ag.id}, this.value)" class="flex-1 min-w-[160px] px-2.5 py-1.5 rounded-lg bg-[#12121a] border border-amber-500/30 text-amber-200/90 font-mono text-[11px] cursor-pointer" title="Model Cadangan (Fallback) khusus staf ini">
+                ${fbOpts}
+              </select>
+            </div>
           </div>
         `;
       }).join("");
@@ -8571,47 +8667,73 @@
       location.reload();
     }
 
+    function classifyModelErrorText(errMsg, explicitType = "") {
+      if (explicitType) return explicitType;
+      const low = String(errMsg || "").toLowerCase();
+      if (/(429|402|quota|rate limit|rate_limit|insufficient|credit|billing|balance|exhausted|habis|limit exceeded)/.test(low)) return "QUOTA";
+      if (/(401|403|unauthorized|invalid api key|api key|login|expired|forbidden|ditolak)/.test(low)) return "AUTH";
+      if (/(404|not found|tidak ditemukan|does not exist)/.test(low)) return "NOT_FOUND";
+      return "OFFLINE";
+    }
+
+    function _errorMetaForCode(code) {
+      if (code === "NO_MODEL") return { code, icon: "🔴", shortBadge: "🔴 No Model", label: "Belum Ada Model" };
+      if (code === "QUOTA") return { code, icon: "🪙", shortBadge: "🪙 Kuota", label: "Token/Kuota Habis" };
+      if (code === "AUTH") return { code, icon: "🔑", shortBadge: "🔑 Login/Key", label: "API Key / Login Error" };
+      if (code === "NOT_FOUND") return { code, icon: "❓", shortBadge: "❓ Hilang", label: "Model Tidak Ditemukan" };
+      return { code: "OFFLINE", icon: "🔌", shortBadge: "🔌 Putus", label: "Model Putus / Offline" };
+    }
+
     function evaluateAgentModelStatus(ag) {
+      const effFallback = (ag.fallbackModel || DEFAULT_FALLBACK_MODEL || "").trim();
+      const hasFallback = Boolean(effFallback && effFallback !== ag.model);
       if (OFFICE_OFF_MODE || ag.workState === "RESTING") {
-        return { active: false, resting: true, label: "🌙 Istirahat (OFF)", reason: "Karyawan sedang istirahat di Gedung D (pekerjaan dijeda)." };
+        return { active: false, resting: true, code: "RESTING", shortBadge: "💤 Rest", label: "🌙 Istirahat (OFF)", reason: "Karyawan sedang istirahat di Gedung D (pekerjaan dijeda).", hasFallback, fallbackModel: effFallback };
+      }
+      if (!ag.model || !String(ag.model).trim()) {
+        return { active: false, ..._errorMetaForCode("NO_MODEL"), reason: "Belum ada model AI dipilih untuk staf ini.", hasFallback, fallbackModel: effFallback };
       }
       const liveH = LIVE_MODEL_HEALTH[ag.model];
       if (liveH && liveH.ok === false) {
-        return { active: false, label: "Tidak Aktif", reason: liveH.error || "Model gagal merespons uji koneksi live." };
+        const code = classifyModelErrorText(liveH.error, liveH.errorType);
+        return { active: false, ..._errorMetaForCode(code), reason: liveH.error || "Model gagal merespons uji koneksi live.", hasFallback, fallbackModel: effFallback };
       }
       if (ag.lastError) {
-        return { active: false, label: "Tidak Aktif", reason: ag.lastError };
+        const code = classifyModelErrorText(ag.lastError);
+        return { active: false, ..._errorMetaForCode(code), reason: ag.lastError, hasFallback, fallbackModel: effFallback };
       }
       if (liveH && liveH.ok === true) {
-        return { active: true, label: "Aktif", reason: `Teruji Live OK (${liveH.ms || 0}ms): ${ag.model}` };
+        return { active: true, code: "OK", label: "Aktif", reason: `Teruji Live OK (${liveH.ms || 0}ms): ${ag.model}`, hasFallback, fallbackModel: effFallback };
       }
       const mObj = AVAILABLE_MODELS.find(m => m.id === ag.model);
       const isClaudeLocal = (ag.model || "").includes("(Local Session)") || (mObj && mObj.provider === "claude_cli");
       if (isClaudeLocal) {
         if (CLAUDE_CLI_VERIFIED) {
-          return { active: true, label: "Aktif", reason: `Terhubung via Sesi Lokal Claude Code CLI: ${ag.model}` };
+          return { active: true, code: "OK", label: "Aktif", reason: `Terhubung via Sesi Lokal Claude Code CLI: ${ag.model}`, hasFallback, fallbackModel: effFallback };
         }
-        return { active: false, label: "Tidak Aktif", reason: "Sesi Lokal Claude Code belum login. Klik 'Login Sesi Lokal Claude.ai' di Pengaturan." };
+        return { active: false, ..._errorMetaForCode("AUTH"), reason: "Sesi Lokal Claude Code belum login. Klik 'Login Sesi Lokal Claude.ai' di Pengaturan.", hasFallback, fallbackModel: effFallback };
       }
       const isAgyModel = (ag.model || "").includes("Gemini") || (ag.model || "").includes("Imagen") || (mObj && mObj.provider === "antigravity");
       if (AGY_CLI_VERIFIED && isAgyModel) {
-        return { active: true, label: "Aktif", reason: `Terhubung via Antigravity Live CLI: ${ag.model}` };
+        return { active: true, code: "OK", label: "Aktif", reason: `Terhubung via Antigravity Live CLI: ${ag.model}`, hasFallback, fallbackModel: effFallback };
       }
       const hasConn = Array.isArray(API_CONNECTIONS) && API_CONNECTIONS.length > 0;
       if (hasConn) {
         if (!mObj || !mObj.endpoint) {
           return {
             active: false,
-            label: "Tidak Aktif",
-            reason: `Model '${ag.model}' tidak ada di endpoint aktif (${API_CONNECTIONS[0].label}). Pilih model pengganti!`
+            ..._errorMetaForCode("NOT_FOUND"),
+            reason: `Model '${ag.model}' tidak ada di endpoint aktif (${API_CONNECTIONS[0].label}). Pilih model pengganti!`,
+            hasFallback, fallbackModel: effFallback
           };
         }
-        return { active: true, label: "Aktif", reason: `Terhubung: ${ag.model}` };
+        return { active: true, code: "OK", label: "Aktif", reason: `Terhubung: ${ag.model}`, hasFallback, fallbackModel: effFallback };
       }
       return {
         active: false,
-        label: "Tidak Aktif",
-        reason: "Belum ada API Key / Endpoint atau Antigravity CLI yang terverifikasi."
+        ..._errorMetaForCode("NO_MODEL"),
+        reason: "Belum ada API Key / Endpoint atau Antigravity CLI yang terverifikasi.",
+        hasFallback, fallbackModel: effFallback
       };
     }
 
@@ -8626,19 +8748,22 @@
           pill.className = "agent-pill px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-extrabold text-[9.5px] shadow-lg shadow-emerald-500/40 border border-white flex items-center gap-1 animate-pulse";
           pill.title = `${ag.name} sedang mengeksekusi tugas nyata & menulis deliverable`;
           pill.innerHTML = `<span>⚡</span><span>${ag.name} · Kerja...</span>`;
-        } else if (!st.active) {
-          pill.className = "agent-pill px-1.5 py-0.5 rounded-full bg-rose-950/90 text-rose-200 font-bold text-[9.5px] shadow border border-rose-500 flex items-center gap-1";
-          pill.title = `TIDAK AKTIF: ${st.reason}`;
-          pill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full shrink-0 bg-rose-500 animate-pulse"></span><span>${ag.name}</span>`;
         } else if (isRest) {
           pill.className = "agent-pill px-1.5 py-0.5 rounded-full bg-indigo-950/90 text-indigo-200 font-semibold text-[9.5px] shadow border border-indigo-400/60 flex items-center gap-1";
           pill.title = `${ag.name} sedang istirahat di Gedung D (Mess Istirahat)`;
           pill.innerHTML = `<span>💤</span><span>${ag.name}</span>`;
+        } else if (!st.active) {
+          const isQuota = st.code === "QUOTA";
+          pill.className = isQuota
+            ? "agent-pill px-1.5 py-0.5 rounded-full bg-amber-950/95 text-amber-200 font-bold text-[9.5px] shadow border border-amber-400 flex items-center gap-1"
+            : "agent-pill px-1.5 py-0.5 rounded-full bg-rose-950/95 text-rose-200 font-bold text-[9.5px] shadow border border-rose-500 flex items-center gap-1";
+          pill.title = `${st.label}: ${st.reason}${st.hasFallback ? ` (Fallback siap: ${st.fallbackModel})` : " (Belum ada fallback!)"}`;
+          pill.innerHTML = `<span>${st.icon || "🔴"}</span><span>${ag.name} · ${st.code === "QUOTA" ? "Kuota" : "OFF"}</span>`;
         } else {
           pill.className = isLeader
             ? "agent-pill px-2 py-0.5 rounded-full bg-amber-400/95 text-slate-950 font-extrabold text-[9.5px] shadow border border-slate-900 flex items-center gap-1"
             : "agent-pill px-1.5 py-0.5 rounded-full bg-[#141420]/90 text-slate-200 font-semibold text-[9.5px] shadow border border-white/20 flex items-center gap-1";
-          pill.title = `${ag.name} · ${ag.role} (Standby — menunggu tugas nyata)`;
+          pill.title = `${ag.name} · ${ag.role} (Standby · Model: ${ag.model}${st.hasFallback ? ` · Fallback: ${st.fallbackModel}` : ""})`;
           pill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${ag.dotColor}"></span><span>${ag.name}</span>`;
         }
       });
@@ -8684,7 +8809,32 @@
       if (kpiWfSub) {
         kpiWfSub.textContent = activeCount === agents.length
           ? (busyCount > 0 ? `⚡ ${busyCount} Sedang Bekerja · ${standbyCount} Standby` : `○ 100% Siap (Standby — Menunggu Tugas)`)
-          : `⚠️ ${agents.length - activeCount} Staf Belum Terhubung / Error Model`;
+          : `⚠️ ${agents.length - activeCount} Staf Model OFF / Kendala`;
+      }
+
+      // Top Model Health Alert Banner (visible only when authenticated and >=1 non-resting staff has OFF/Quota/Disconnected model)
+      const alertBanner = document.getElementById("model-health-alert-banner");
+      const alertText = document.getElementById("model-health-alert-text");
+      if (alertBanner && alertText) {
+        const broken = agents.filter(a => {
+          const s = evaluateAgentModelStatus(a);
+          return !s.active && !s.resting;
+        });
+        if (IS_AUTHENTICATED && !OFFICE_OFF_MODE && broken.length > 0) {
+          const quotaCnt = broken.filter(a => evaluateAgentModelStatus(a).code === "QUOTA").length;
+          const authCnt = broken.filter(a => evaluateAgentModelStatus(a).code === "AUTH").length;
+          const noModelCnt = broken.filter(a => evaluateAgentModelStatus(a).code === "NO_MODEL" || evaluateAgentModelStatus(a).code === "NOT_FOUND").length;
+          const offlineCnt = broken.length - quotaCnt - authCnt - noModelCnt;
+          const parts = [];
+          if (quotaCnt > 0) parts.push(`${quotaCnt} Kuota Habis`);
+          if (authCnt > 0) parts.push(`${authCnt} Key/Login Error`);
+          if (noModelCnt > 0) parts.push(`${noModelCnt} Model Belum/Hilang`);
+          if (offlineCnt > 0) parts.push(`${offlineCnt} Putus`);
+          alertText.textContent = `⚠️ ${broken.length} staf model OFF (${parts.join(" · ")})`;
+          alertBanner.classList.remove("hidden");
+        } else {
+          alertBanner.classList.add("hidden");
+        }
       }
 
       const filteredAgents = (activeRoomFilter === "ALL" || activeRoomFilter === "TOWNHALL" || activeRoomFilter === "CEO_OFFICE")
@@ -8713,14 +8863,14 @@
         const isRest = ag.workState === "RESTING";
         const badge = isBusy
           ? `<span class="px-1.5 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 text-[9.5px] font-bold shrink-0 animate-pulse">⚡ Kerja</span>`
-          : (!st.active
-            ? `<span class="px-1.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[9.5px] font-bold shrink-0">🔴 Off</span>`
-            : (isRest
-              ? `<span class="px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-400/40 text-[9.5px] font-medium shrink-0">💤 Rest</span>`
+          : (isRest
+            ? `<span class="px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-400/40 text-[9.5px] font-medium shrink-0">💤 Rest</span>`
+            : (!st.active
+              ? `<span class="px-1.5 py-0.5 rounded-full ${st.code === 'QUOTA' ? 'bg-amber-500/25 text-amber-200 border-amber-400/50' : 'bg-rose-500/20 text-rose-300 border-rose-500/40'} border text-[9.5px] font-bold shrink-0" title="${escapeHtmlSafe(st.reason)}">${st.shortBadge || '🔴 Off'}</span>`
               : `<span class="px-1.5 py-0.5 rounded-full bg-slate-500/15 text-slate-400 border border-white/10 text-[9.5px] font-medium shrink-0">○ Standby</span>`));
         const errNote = st.active
           ? `<div class="text-[10px] ${isBusy ? 'text-emerald-300 font-medium' : 'text-slate-400'} truncate">${isBusy ? 'Sedang mengeksekusi tugas nyata...' : ag.role}</div>`
-          : `<div class="text-[10px] text-rose-300 truncate" title="${st.reason}">⚠️ ${st.reason}</div>`;
+          : `<div class="text-[10px] ${st.code === 'QUOTA' ? 'text-amber-300' : 'text-rose-300'} truncate" title="${escapeHtmlSafe(st.reason)}">⚠️ ${escapeHtmlSafe(st.reason)}</div>`;
         return `
         <div onclick="selectAgentById(${ag.id})" class="p-2 rounded-xl ${isBusy ? 'bg-emerald-500/15 border-emerald-400/50' : (inCeo ? 'bg-amber-500/15 border-amber-400/50' : (st.active ? 'bg-white/[0.03] border-white/5' : 'bg-rose-950/30 border-rose-500/40'))} hover:bg-white/[0.08] border flex items-center justify-between gap-1.5 cursor-pointer transition">
           <div class="flex items-center gap-2 min-w-0">
@@ -8746,15 +8896,18 @@
         const inCeo = summonedInCeoOfficeIds.has(ag.id);
         const isBusy = Boolean(ag.isBusyWorking);
         const isRest = ag.workState === "RESTING";
-        const opts = AVAILABLE_MODELS.map(m =>
+        const opts = `<option value="" ${!ag.model ? 'selected' : ''}>⚠️ (Tidak Ada / OFF)</option>` + AVAILABLE_MODELS.map(m =>
           `<option value="${m.id}" ${ag.model === m.id ? 'selected' : ''}>${m.id} (${m.tag})</option>`
+        ).join("");
+        const fbOpts = `<option value="" ${!ag.fallbackModel ? 'selected' : ''}>${DEFAULT_FALLBACK_MODEL ? `Ikuti Global (${DEFAULT_FALLBACK_MODEL})` : '-- Tidak Ada Fallback --'}</option>` + AVAILABLE_MODELS.map(m =>
+          `<option value="${m.id}" ${ag.fallbackModel === m.id ? 'selected' : ''}>${m.id} (${m.tag})</option>`
         ).join("");
         const tableBadge = isBusy
           ? `<span class="px-2 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 text-[10px] font-bold shrink-0 animate-pulse">⚡ Sedang Bekerja</span>`
-          : (!st.active
-            ? `<span class="px-2 py-0.5 rounded-full bg-rose-500/25 text-rose-200 border border-rose-500/50 text-[10px] font-bold shrink-0">🔴 Tidak Aktif</span>`
-            : (isRest
-              ? `<span class="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-200 border border-indigo-400/40 text-[10px] font-semibold shrink-0">💤 Istirahat</span>`
+          : (isRest
+            ? `<span class="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-200 border border-indigo-400/40 text-[10px] font-semibold shrink-0">💤 Istirahat</span>`
+            : (!st.active
+              ? `<span class="px-2 py-0.5 rounded-full ${st.code === 'QUOTA' ? 'bg-amber-500/25 text-amber-200 border-amber-400/50' : 'bg-rose-500/25 text-rose-200 border-rose-500/50'} border text-[10px] font-bold shrink-0">${st.icon || '🔴'} ${st.label || 'Tidak Aktif'}</span>`
               : `<span class="px-2 py-0.5 rounded-full bg-slate-500/20 text-slate-300 border border-white/15 text-[10px] font-semibold shrink-0">○ Standby</span>`));
         return `
         <div class="p-4 rounded-xl ${isBusy ? 'bg-emerald-950/25 border-emerald-400/50' : (st.active ? 'bg-[#1c1c28] border-white/10' : 'bg-rose-950/25 border-rose-500/50')} border flex flex-col justify-between gap-3">
@@ -8766,11 +8919,17 @@
               </div>
               ${tableBadge}
             </div>
-            ${!st.active ? `<div class="p-2 rounded-lg bg-rose-500/15 border border-rose-500/35 text-[11px] text-rose-200">⚠️ <b>Masalah:</b> ${st.reason}</div>` : ""}
+            ${!st.active ? `<div class="p-2 rounded-lg bg-rose-500/15 border border-rose-500/35 text-[11px] text-rose-200">⚠️ <b>${st.label}:</b> ${escapeHtmlSafe(st.reason)}${st.hasFallback ? `<div class="text-amber-200 mt-0.5">🛡️ Fallback siap mengambil alih otomatis: <span class="font-mono">${escapeHtmlSafe(st.fallbackModel)}</span></div>` : ""}</div>` : ""}
             <div class="flex items-center gap-2">
-              <span class="text-[11px] text-slate-400 shrink-0">⚡ Ganti Model:</span>
+              <span class="text-[11px] text-slate-400 shrink-0 w-24">⚡ Model Utama:</span>
               <select onchange="changeAgentModel(${ag.id}, this.value)" class="flex-1 px-2.5 py-1 rounded-lg bg-[#12121a] border border-purple-500/40 text-purple-200 font-mono text-xs cursor-pointer">
                 ${opts}
+              </select>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-[11px] text-amber-300/80 shrink-0 w-24">🛡️ Fallback:</span>
+              <select onchange="changeAgentFallbackModel(${ag.id}, this.value)" class="flex-1 px-2.5 py-1 rounded-lg bg-[#12121a] border border-amber-500/30 text-amber-200/90 font-mono text-[11px] cursor-pointer">
+                ${fbOpts}
               </select>
             </div>
           </div>
