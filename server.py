@@ -92,6 +92,7 @@ AUTHORIZED_FOLDERS_FILE = os.path.join(CONFIG_DIR, "authorized_folders.json")
 ROSTER_FILE = os.path.join(CONFIG_DIR, "roster.json")
 COMPANY_PROFILE_FILE = os.path.join(CONFIG_DIR, "company_profile.json")
 MEMORY_CONFIG_FILE = os.path.join(CONFIG_DIR, "memory_config.json")
+MEETING_PRESETS_FILE = os.path.join(CONFIG_DIR, "meeting_presets.json")
 ADMIN_AUTH_FILE = os.path.join(CONFIG_DIR, "admin_auth.json")
 SESSION_SECRET_FILE = os.path.join(CONFIG_DIR, ".session_secret")
 DEFAULT_MEMORY_DIR = os.path.join(DATA_DIR, "memory")
@@ -2190,6 +2191,124 @@ def record_decision_to_obsidian_vault(room, title, decision_summary, agent_name=
         "updatedMemoryNotes": updated_notes,
         "vaultPath": vault_dir,
     }
+
+
+# ================= DYNAMIC CUSTOM MEETING PRESETS (EXECUTIVE LEADERS / CUSTOM / TOWN HALL) =================
+DEFAULT_MEETING_PRESETS = [
+    {
+        "id": "exec_leaders",
+        "name": "Rapat Kepala Dept & GM",
+        "icon": "👔",
+        "mode": "LEADERS",
+        "location": "TOWNHALL",
+        "agentIds": [],
+        "rooms": [],
+        "pinToSidebar": True,
+        "description": "Khusus GM & Kepala/Manajer tiap Departemen (staf lain tetap fokus bekerja di mejanya).",
+    },
+    {
+        "id": "all_staff",
+        "name": "Rapat Semua Staf",
+        "icon": "🏛️",
+        "mode": "ALL",
+        "location": "TOWNHALL",
+        "agentIds": [],
+        "rooms": [],
+        "pinToSidebar": True,
+        "description": "Town Hall memanggil seluruh karyawan AI ke Ruang Rapat Utama.",
+    },
+]
+
+
+def load_meeting_presets():
+    if os.path.exists(MEETING_PRESETS_FILE):
+        try:
+            with open(MEETING_PRESETS_FILE, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            if isinstance(raw, list) and len(raw) > 0:
+                out = []
+                for p in raw:
+                    if not isinstance(p, dict) or not p.get("name"):
+                        continue
+                    mode = str(p.get("mode") or "CUSTOM").strip().upper()
+                    if mode not in ("LEADERS", "ALL", "CUSTOM"):
+                        mode = "CUSTOM"
+                    loc = str(p.get("location") or "TOWNHALL").strip().upper()
+                    if loc not in ("TOWNHALL", "CEO_OFFICE"):
+                        loc = "TOWNHALL"
+                    out.append({
+                        "id": str(p.get("id") or f"mtg_{len(out)+1}").strip()[:48],
+                        "name": str(p.get("name") or "Rapat Kustom").strip()[:64],
+                        "icon": str(p.get("icon") or "📅").strip()[:8] or "📅",
+                        "mode": mode,
+                        "location": loc,
+                        "agentIds": [int(x) for x in (p.get("agentIds") or []) if str(x).lstrip("-").isdigit()],
+                        "rooms": [str(r).strip().upper() for r in (p.get("rooms") or []) if str(r).strip()],
+                        "pinToSidebar": bool(p.get("pinToSidebar", True)),
+                        "description": str(p.get("description") or "").strip()[:200],
+                    })
+                if out:
+                    return out
+        except Exception:
+            pass
+    return [dict(x) for x in DEFAULT_MEETING_PRESETS]
+
+
+def _persist_meeting_presets(presets):
+    with open(MEETING_PRESETS_FILE, "w", encoding="utf-8") as f:
+        json.dump(presets, f, indent=2, ensure_ascii=False)
+    bump_world_chat_version()
+    return load_meeting_presets()
+
+
+def save_meeting_preset(data):
+    if not isinstance(data, dict):
+        return {"ok": False, "error": "Data preset rapat tidak valid."}
+    name = str(data.get("name") or "").strip()[:64]
+    if not name:
+        return {"ok": False, "error": "Nama tombol rapat wajib diisi."}
+    mode = str(data.get("mode") or "CUSTOM").strip().upper()
+    if mode not in ("LEADERS", "ALL", "CUSTOM"):
+        mode = "CUSTOM"
+    loc = str(data.get("location") or "TOWNHALL").strip().upper()
+    if loc not in ("TOWNHALL", "CEO_OFFICE"):
+        loc = "TOWNHALL"
+    icon = str(data.get("icon") or ("👔" if mode == "LEADERS" else ("🏛️" if mode == "ALL" else "📅"))).strip()[:8] or "📅"
+    agent_ids = [int(x) for x in (data.get("agentIds") or []) if str(x).lstrip("-").isdigit()]
+    rooms = [str(r).strip().upper() for r in (data.get("rooms") or []) if str(r).strip()]
+    if mode == "CUSTOM" and not agent_ids and not rooms:
+        return {"ok": False, "error": "Untuk rapat kustom, pilih minimal 1 peserta atau 1 departemen."}
+
+    presets = load_meeting_presets()
+    req_id = str(data.get("id") or "").strip()
+    existing = next((p for p in presets if req_id and p["id"] == req_id), None)
+    entry = {
+        "id": existing["id"] if existing else f"mtg_{re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')[:24]}_{int(time.time()*1000)%10000}",
+        "name": name,
+        "icon": icon,
+        "mode": mode,
+        "location": loc,
+        "agentIds": agent_ids,
+        "rooms": rooms,
+        "pinToSidebar": bool(data.get("pinToSidebar", True)),
+        "description": str(data.get("description") or "").strip()[:200],
+    }
+    if existing:
+        existing.update(entry)
+    else:
+        presets.append(entry)
+    saved = _persist_meeting_presets(presets)
+    return {"ok": True, "preset": entry, "presets": saved}
+
+
+def delete_meeting_preset(preset_id):
+    pid = str(preset_id or "").strip()
+    presets = load_meeting_presets()
+    filtered = [p for p in presets if p["id"] != pid]
+    if len(filtered) == 0:
+        return {"ok": False, "error": "Minimal harus tersisa 1 tombol rapat."}
+    saved = _persist_meeting_presets(filtered)
+    return {"ok": True, "presets": saved}
 
 
 def _is_explicit_ceo_approval_message(user_prompt, history):
@@ -4907,6 +5026,10 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             })
             return
 
+        if self.path.startswith("/api/meeting-presets"):
+            self._send_json(200, {"ok": True, "presets": load_meeting_presets()})
+            return
+
         if self.path.startswith("/api/hub-status"):
             status = get_antigravity_and_claude_status()
             mcp = get_mcp_status()
@@ -4923,6 +5046,7 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 "world": world,
                 "company_profile": load_company_profile(),
                 "memory_config": load_memory_config(),
+                "meeting_presets": load_meeting_presets(),
                 "roster": load_roster(),
                 "roster_templates": get_roster_templates_meta(),
                 "remote_mcp": get_public_remote_mcp_config(),
@@ -5521,6 +5645,16 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             self._send_json(200 if res.get("ok") else 400, res)
             return
 
+        if self.path.startswith("/api/meeting-presets/save"):
+            res = save_meeting_preset(body)
+            self._send_json(200 if res.get("ok") else 400, res)
+            return
+
+        if self.path.startswith("/api/meeting-presets/delete"):
+            res = delete_meeting_preset(body.get("id"))
+            self._send_json(200 if res.get("ok") else 400, res)
+            return
+
         if self.path.startswith("/api/architect/plan"):
             prompt = str(body.get("prompt") or "").strip()
             if not prompt:
@@ -5696,41 +5830,54 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             history = body.get("history", [])
             attachments = body.get("attachments") or []
             dept_room = str(body.get("deptRoom") or "").strip().upper()
+            meeting_title = str(body.get("meetingTitle") or "").strip()
             raw_participants = body.get("participants") if isinstance(body.get("participants"), list) else []
 
             comp_prof = load_company_profile()
             comp_name = comp_prof.get("companyName") or "AI Virtual HQ"
             dept_map = comp_prof.get("departments") or {}
 
-            if dept_room and raw_participants:
-                dept_label = dept_map.get(dept_room) or dept_room
+            if raw_participants and (dept_room or meeting_title):
                 speaker_meta = {}
                 part_lines = []
                 busy_ids = []
-                for idx_p, p in enumerate(raw_participants[:10]):
+                for idx_p, p in enumerate(raw_participants[:16]):
                     if not isinstance(p, dict) or not p.get("name"):
                         continue
                     pname = str(p["name"]).strip()
                     prole = str(p.get("role") or "Staf").strip()
+                    proom = str(p.get("room") or "").strip().upper()
                     pid = p.get("id", idx_p)
                     key_l = pname.split()[0].lower()
                     speaker_meta[key_l] = {"agentId": pid, "sender": f"{pname} · {prole}"}
-                    part_lines.append(f"- {pname} ({prole})")
+                    part_lines.append(f"- {pname} ({prole}{f' · Dept {proom}' if proom else ''})")
                     busy_ids.append(pid)
                 if not speaker_meta:
                     speaker_meta["raka"] = {"agentId": 10, "sender": "Raka · General Manager"}
                     busy_ids = [10]
                 first_key = next(iter(speaker_meta.keys()))
                 allowed_tags = " atau ".join(f"[[SPEAKER: {k.capitalize()}]]" for k in speaker_meta.keys())
-                sys_prompt = (
-                    f"Ini adalah RUANG OBROLAN INTERNAL DEPARTEMEN {dept_room} ({dept_label}) di perusahaan {comp_name}.\n"
-                    f"{build_company_context_block(comp_prof)}\n\n"
-                    f"ANGGOTA DI RUANGAN INI:\n" + "\n".join(part_lines) + "\n\n"
-                    "ATURAN PERCAKAPAN RUANGAN DEPARTEMEN:\n"
-                    "1. Hadirkan 2 sampai 3 anggota di ruangan ini yang saling berdiskusi secara natural, teknis, dan solutif sesuai peran masing-masing (CEO sedang melihat/nimbrung di ruang obrolan ruangan ini).\n"
-                    f"2. WAJIB awali setiap giliran bicara di baris baru dengan tag persis: {allowed_tags} diikuti kalimatnya (tanpa tanda kutip pembuka/penutup)."
-                )
-                target_room = dept_room
+                if dept_room:
+                    dept_label = dept_map.get(dept_room) or dept_room
+                    sys_prompt = (
+                        f"Ini adalah RUANG OBROLAN INTERNAL DEPARTEMEN {dept_room} ({dept_label}) di perusahaan {comp_name}.\n"
+                        f"{build_company_context_block(comp_prof)}\n\n"
+                        f"ANGGOTA DI RUANGAN INI:\n" + "\n".join(part_lines) + "\n\n"
+                        "ATURAN PERCAKAPAN RUANGAN DEPARTEMEN:\n"
+                        "1. Hadirkan 2 sampai 3 anggota di ruangan ini yang saling berdiskusi secara natural, teknis, dan solutif sesuai peran masing-masing (CEO sedang melihat/nimbrung di ruang obrolan ruangan ini).\n"
+                        f"2. WAJIB awali setiap giliran bicara di baris baru dengan tag persis: {allowed_tags} diikuti kalimatnya (tanpa tanda kutip pembuka/penutup)."
+                    )
+                    target_room = dept_room
+                else:
+                    sys_prompt = (
+                        f"Ini adalah {meeting_title or 'RAPAT KHUSUS EKSEKUTIF'} di perusahaan {comp_name} yang dipimpin oleh CEO.\n"
+                        f"{build_company_context_block(comp_prof)}\n\n"
+                        f"PESERTA RAPAT YANG DIUNDANG (HANYA PESERTA INI YANG HADIR & BOLEH BICARA):\n" + "\n".join(part_lines) + "\n\n"
+                        "ATURAN PERCAKAPAN RAPAT KHUSUS:\n"
+                        "1. Hadirkan 2 sampai 3 peserta rapat yang paling relevan dengan topik CEO saat ini untuk saling menanggapi secara tajam, konkret, dan koordinatif.\n"
+                        f"2. WAJIB awali setiap giliran bicara di baris baru dengan tag persis: {allowed_tags} diikuti kalimatnya (tanpa tanda kutip pembuka/penutup)."
+                    )
+                    target_room = "TOWNHALL"
             else:
                 first_key = "raka"
                 sys_prompt = (

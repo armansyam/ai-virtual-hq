@@ -120,12 +120,18 @@
         </button>
       </div>
 
-      <!-- Primary Action Buttons -->
+      <!-- Primary Action Buttons (Dynamic Meeting Presets + Quick Actions) -->
       <div class="space-y-1.5">
-        <button id="btn-townhall-sidebar" onclick="toggleTownHallMeeting()" class="w-full py-1.5 px-3 rounded-lg bg-[#C9A227] hover:bg-[#d8b136] text-slate-950 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer">
-          <span id="townhall-btn-label">Panggil Semua Rapat</span>
-        </button>
-        <div class="grid grid-cols-2 gap-1.5">
+        <div class="flex items-center justify-between px-0.5">
+          <span class="text-[9.5px] font-semibold uppercase tracking-wider text-slate-500">Panggilan Rapat</span>
+          <button type="button" onclick="openMeetingPresetsSetup()" class="text-[10px] text-amber-300/90 hover:text-amber-200 cursor-pointer" title="Tambah atau custom tombol rapat di Setup 1 Pintu">+ Custom</button>
+        </div>
+        <div id="sidebar-meeting-presets-list" class="space-y-1">
+          <button id="btn-townhall-sidebar" onclick="toggleTownHallMeeting()" class="w-full py-1.5 px-3 rounded-lg bg-[#C9A227] hover:bg-[#d8b136] text-slate-950 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer">
+            <span id="townhall-btn-label">Panggil Semua Rapat</span>
+          </button>
+        </div>
+        <div class="grid grid-cols-2 gap-1.5 pt-0.5">
           <button onclick="selectRoom('CEO_OFFICE')" class="py-1.5 px-2 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 font-medium text-[11px] transition cursor-pointer" title="Masuk ke Gedung Paviliun CEO">
             Gedung CEO
           </button>
@@ -1201,6 +1207,92 @@
               <div class="text-[10px] text-purple-300 font-mono">35 Staf</div>
               <div class="text-[9.5px] text-slate-400 mt-0.5">6 Departemen Penuh</div>
             </button>
+          </div>
+        </div>
+
+        <!-- Kartu Kelola Tombol & Preset Rapat Kustom (Dinamis) -->
+        <div id="setup-meeting-presets-card" class="rounded-xl bg-[#13131b] border border-amber-500/35 p-4 space-y-3">
+          <div class="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="font-semibold text-white text-xs">📅 Kelola Tombol &amp; Preset Rapat Kustom (Dinamis)</span>
+                <span id="meeting-presets-count-badge" class="px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-200 border border-amber-500/30 text-[10px] font-mono">2 Tombol</span>
+              </div>
+              <p class="text-[10.5px] text-slate-400 mt-0.5">
+                Buat tombol rapat khusus (misal: <b>Rapat Kepala Dept &amp; GM</b>, <b>Rapat Konten &amp; Desain</b>, atau <b>Standup Engineering</b>). Hanya peserta yang diundang yang dipanggil ke ruang rapat — staf lain tetap bekerja di mejanya!
+              </p>
+            </div>
+            <button type="button" onclick="openMeetingPresetForm()" class="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[10.5px] cursor-pointer shrink-0">
+              + Tambah Tombol Rapat
+            </button>
+          </div>
+
+          <div id="setup-meeting-presets-list" class="space-y-2"></div>
+
+          <!-- Form Tambah / Edit Preset Rapat -->
+          <div id="meeting-preset-form-wrap" class="hidden pt-3 border-t border-white/10 space-y-3">
+            <input id="mp-edit-id" type="hidden" value="" />
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-2.5">
+              <div class="md:col-span-5">
+                <label class="block text-[10px] text-amber-300 font-semibold mb-1">Nama Tombol Rapat *</label>
+                <input id="mp-name" type="text" placeholder="mis: Rapat Kepala Dept & GM / Rapat Konten" class="w-full px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-[11px]" />
+              </div>
+              <div class="md:col-span-2">
+                <label class="block text-[10px] text-slate-300 mb-1">Ikon</label>
+                <select id="mp-icon" class="w-full px-2 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-[11px]">
+                  <option value="👔">👔 Eksekutif</option>
+                  <option value="🏛️">🏛️ Town Hall</option>
+                  <option value="🎨">🎨 Kreatif</option>
+                  <option value="📱">📱 Social</option>
+                  <option value="💰">💰 Finance</option>
+                  <option value="💻">💻 Tech</option>
+                  <option value="🤝">🤝 Growth</option>
+                  <option value="📅">📅 Rapat</option>
+                </select>
+              </div>
+              <div class="md:col-span-2">
+                <label class="block text-[10px] text-slate-300 mb-1">Lokasi 3D</label>
+                <select id="mp-location" class="w-full px-2 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-[11px]">
+                  <option value="TOWNHALL">Ruang Rapat</option>
+                  <option value="CEO_OFFICE">Paviliun CEO</option>
+                </select>
+              </div>
+              <div class="md:col-span-3">
+                <label class="block text-[10px] text-slate-300 mb-1">Mode Peserta</label>
+                <select id="mp-mode" onchange="onMeetingPresetModeChange()" class="w-full px-2 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-[11px]">
+                  <option value="LEADERS">GM &amp; Kepala Departemen</option>
+                  <option value="CUSTOM">Pilih Peserta Kustom</option>
+                  <option value="ALL">Seluruh Staf (Town Hall)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Custom Participant Picker (Visible when mode === CUSTOM) -->
+            <div id="mp-custom-picker-wrap" class="hidden rounded-lg bg-[#0d0d15] border border-white/10 p-3 space-y-2">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <span class="text-[10.5px] font-semibold text-sky-300">Centang Staf / Manajer yang Diundang ke Rapat Ini:</span>
+                <div class="flex flex-wrap items-center gap-1.5 text-[10px]">
+                  <button type="button" onclick="selectMeetingPresetQuickLeaders()" class="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/35 text-amber-200 border border-amber-400/35 cursor-pointer">+ Pilih Kepala Dept &amp; GM</button>
+                  <button type="button" onclick="clearMeetingPresetAgentChecks()" class="px-2 py-0.5 rounded bg-white/10 hover:bg-white/15 text-slate-300 cursor-pointer">Bersihkan</button>
+                </div>
+              </div>
+              <div id="mp-agents-checkbox-grid" class="grid grid-cols-2 md:grid-cols-3 gap-1.5 max-h-44 overflow-y-auto"></div>
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <label class="inline-flex items-center gap-2 text-[11px] text-slate-200 cursor-pointer select-none">
+                <input id="mp-pin-sidebar" type="checkbox" checked class="rounded border-white/20 bg-[#1c1c28]" />
+                <span>Tampilkan sebagai tombol cepat di Sidebar kiri</span>
+              </label>
+              <div class="flex items-center gap-2">
+                <button type="button" onclick="saveMeetingPresetUI()" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] cursor-pointer">
+                  💾 Simpan Tombol Rapat
+                </button>
+                <button type="button" onclick="closeMeetingPresetForm()" class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-slate-300 text-[11px] cursor-pointer">
+                  Batal
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -3424,18 +3516,132 @@
       renderSidebarAndTable();
     }
 
-    function toggleTownHallMeeting(forceState = null, fromRemoteSync = false, instantTeleport = false) {
-      inTownHallMeeting = (forceState !== null) ? forceState : !inTownHallMeeting;
-      const btnLbl = document.getElementById("townhall-btn-label");
-      const btnEl = document.getElementById("btn-townhall-sidebar");
+    var MEETING_PRESETS_CACHE = [
+      { id: "exec_leaders", name: "Rapat Kepala Dept & GM", icon: "👔", mode: "LEADERS", location: "TOWNHALL", agentIds: [], rooms: [], pinToSidebar: true, description: "Khusus GM & Kepala/Manajer tiap Departemen (staf lain tetap bekerja di mejanya)." },
+      { id: "all_staff", name: "Rapat Semua Staf", icon: "🏛️", mode: "ALL", location: "TOWNHALL", agentIds: [], rooms: [], pinToSidebar: true, description: "Town Hall memanggil seluruh karyawan AI ke Ruang Rapat Utama." }
+    ];
+    var ACTIVE_MEETING_PRESET = null;
+
+    function getDepartmentLeadersList() {
+      const leaders = [];
+      const seen = new Set();
+      const addIfNew = (ag) => {
+        if (ag && !seen.has(ag.id)) {
+          seen.add(ag.id);
+          leaders.push(ag);
+        }
+      };
+      // 1. Always include GM / COO (e.g. Raka) first
+      agents.forEach(a => {
+        const r = String(a.role || "").toLowerCase();
+        if (a.id === 10 || r.includes("general manager") || r.includes("coo") || r.includes("gm ")) addIfNew(a);
+      });
+      // 2. Include all Managers / Heads / Leads across departments
+      agents.forEach(a => {
+        const r = String(a.role || "").toLowerCase();
+        const sp = String(a.shortPill || "").toLowerCase();
+        if (r.includes("manajer") || r.includes("manager") || r.includes("head of") || r.includes("kepala") || r.includes("lead") || sp.includes("⭐") || sp.includes("mgr")) {
+          addIfNew(a);
+        }
+      });
+      // 3. Fallback: ensure every active department room has at least 1 representative (first staff in room)
+      const representedRooms = new Set(leaders.map(l => l.room));
+      agents.forEach(a => {
+        if (a.room && !representedRooms.has(a.room)) {
+          representedRooms.add(a.room);
+          addIfNew(a);
+        }
+      });
+      return leaders.length ? leaders : agents.slice(0, 7);
+    }
+
+    function resolveMeetingPresetParticipants(preset) {
+      if (!preset) return [...agents];
+      const mode = String(preset.mode || "ALL").toUpperCase();
+      if (mode === "ALL") return [...agents];
+      if (mode === "LEADERS") return getDepartmentLeadersList();
+      const idSet = new Set((preset.agentIds || []).map(x => Number(x)));
+      const roomSet = new Set((preset.rooms || []).map(r => String(r).toUpperCase()));
+      const matched = agents.filter(a => idSet.has(Number(a.id)) || roomSet.has(String(a.room || "").toUpperCase()));
+      return matched.length ? matched : getDepartmentLeadersList();
+    }
+
+    function renderMeetingPresetsSidebarAndSetup() {
+      const sbBox = document.getElementById("sidebar-meeting-presets-list");
+      const presets = Array.isArray(MEETING_PRESETS_CACHE) && MEETING_PRESETS_CACHE.length
+        ? MEETING_PRESETS_CACHE
+        : [];
+      const pinned = presets.filter(p => p.pinToSidebar !== false);
+      if (sbBox) {
+        sbBox.innerHTML = pinned.map((p, idx) => {
+          const isActive = Boolean(inTownHallMeeting && ACTIVE_MEETING_PRESET && ACTIVE_MEETING_PRESET.id === p.id);
+          const count = resolveMeetingPresetParticipants(p).length;
+          const baseCls = isActive
+            ? "w-full py-1.5 px-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] flex items-center justify-between gap-1.5 shadow transition cursor-pointer"
+            : (idx === 0
+                ? "w-full py-1.5 px-2.5 rounded-lg bg-[#C9A227] hover:bg-[#d8b136] text-slate-950 font-semibold text-[11px] flex items-center justify-between gap-1.5 transition cursor-pointer"
+                : "w-full py-1.5 px-2.5 rounded-lg bg-white/8 hover:bg-white/15 border border-white/10 text-slate-100 font-medium text-[11px] flex items-center justify-between gap-1.5 transition cursor-pointer");
+          const safeId = String(p.id).replace(/'/g, "\\'");
+          const labelTxt = isActive ? `Selesai: ${p.name}` : p.name;
+          return `
+            <button type="button" onclick="toggleCustomMeetingPreset('${safeId}')" class="${baseCls}" title="${escapeHtmlSafe(p.description || p.name)} (${count} peserta)">
+              <span class="truncate flex items-center gap-1.5"><span>${isActive ? '✅' : escapeHtmlSafe(p.icon || '📅')}</span><span class="truncate">${escapeHtmlSafe(labelTxt)}</span></span>
+              <span class="text-[9.5px] font-mono ${isActive || idx === 0 ? 'opacity-80' : 'text-slate-400'} shrink-0">${count}</span>
+            </button>
+          `;
+        }).join("");
+      }
+
+      const cntBadge = document.getElementById("meeting-presets-count-badge");
+      if (cntBadge) cntBadge.textContent = `${presets.length} Tombol`;
+
+      const setupBox = document.getElementById("setup-meeting-presets-list");
+      if (setupBox) {
+        setupBox.innerHTML = presets.map(p => {
+          const members = resolveMeetingPresetParticipants(p);
+          const safeId = String(p.id).replace(/'/g, "\\'");
+          const safeName = String(p.name || "").replace(/'/g, "\\'");
+          const modeLbl = p.mode === "LEADERS" ? "Otomatis: GM & Kepala Dept" : (p.mode === "ALL" ? "Semua Staf" : "Peserta Kustom");
+          const locLbl = p.location === "CEO_OFFICE" ? "Paviliun CEO" : "Ruang Rapat Utama";
+          const namesPreview = members.slice(0, 6).map(m => m.name).join(", ") + (members.length > 6 ? ` +${members.length - 6} lainnya` : "");
+          return `
+            <div class="p-2.5 rounded-lg bg-[#181824] border border-white/10 flex flex-wrap items-center justify-between gap-2">
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-1.5">
+                  <span class="text-xs">${escapeHtmlSafe(p.icon || "📅")}</span>
+                  <span class="font-semibold text-white text-[11.5px]">${escapeHtmlSafe(p.name)}</span>
+                  <span class="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-200 border border-amber-500/30 text-[9.5px] font-mono">${modeLbl} (${members.length})</span>
+                  <span class="px-1.5 py-0.5 rounded bg-white/5 text-slate-300 text-[9.5px] font-mono">${locLbl}</span>
+                  ${p.pinToSidebar !== false ? `<span class="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 text-[9px] font-mono">Sidebar</span>` : ""}
+                </div>
+                <div class="text-[10px] text-slate-400 truncate mt-0.5">Peserta: ${escapeHtmlSafe(namesPreview || "-")}</div>
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <button type="button" onclick="closeModals(); toggleCustomMeetingPreset('${safeId}', true)" class="px-2.5 py-1 rounded-md bg-emerald-600/25 hover:bg-emerald-600/45 border border-emerald-500/35 text-emerald-200 text-[10px] font-semibold cursor-pointer">▶ Mulai</button>
+                <button type="button" onclick="openMeetingPresetForm('${safeId}')" class="px-2 py-1 rounded-md bg-white/10 hover:bg-white/15 text-slate-200 text-[10px] cursor-pointer">Edit</button>
+                <button type="button" onclick="deleteMeetingPresetUI('${safeId}', '${safeName}')" class="px-2 py-1 rounded-md bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 text-[10px] cursor-pointer">Hapus</button>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+    }
+
+    function toggleCustomMeetingPreset(presetId, forceState = null, fromRemoteSync = false, instantTeleport = false) {
+      const preset = (MEETING_PRESETS_CACHE || []).find(p => p.id === presetId) || MEETING_PRESETS_CACHE[0];
+      if (!preset) return toggleTownHallMeeting(forceState, fromRemoteSync, instantTeleport);
+
+      const isSameActive = Boolean(inTownHallMeeting && ACTIVE_MEETING_PRESET && ACTIVE_MEETING_PRESET.id === preset.id);
+      const nextActive = (forceState !== null) ? Boolean(forceState) : !isSameActive;
 
       commLine.visible = false;
       interactionBusy = false;
       agents.forEach(a => { a.activeBubbleText = ""; a.onArrive = null; a.waypointQueue = []; });
       agentMeshes.forEach(m => { if (m.reportPad) m.reportPad.visible = false; });
 
-      if (inTownHallMeeting) {
-        // Calling a Town Hall meeting automatically wakes up the office & all staff!
+      if (nextActive) {
+        inTownHallMeeting = true;
+        ACTIVE_MEETING_PRESET = preset;
         OFFICE_OFF_MODE = false;
         try { localStorage.setItem("luxvite_office_off_mode", "false"); } catch (e) {}
         if (typeof updateOfficeOffUI === "function") updateOfficeOffUI();
@@ -3444,58 +3650,82 @@
         summonedWithCeoId = null;
         renderCeoOfficeGuestsBar();
         syncRakaButtonState();
-        if (btnLbl) btnLbl.textContent = "Bubarkan Rapat (Kembali Kerja)";
-        if (btnEl) btnEl.className = "py-1.5 px-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] flex items-center justify-center gap-1 shadow transition cursor-pointer";
+
+        const invited = resolveMeetingPresetParticipants(preset);
+        const invitedIds = new Set(invited.map(a => a.id));
+        const isCeoLoc = preset.location === "CEO_OFFICE";
+        const targetRoomKey = isCeoLoc ? "CEO_OFFICE" : "TOWNHALL";
 
         setFloorView(1);
-        const rc = ROOM_CENTERS.TOWNHALL;
+        const rc = ROOM_CENTERS[targetRoomKey] || ROOM_CENTERS.TOWNHALL;
         desiredCamTarget.set(rc.x, rc.y, rc.z);
         desiredCamRadius = rc.radius;
-        activeRoomFilter = "TOWNHALL";
+        activeRoomFilter = targetRoomKey;
         renderRoomTabsAndFloorBar();
 
+        const ceoDest = isCeoLoc ? { x: 0.0, z: -26.8, rotY: 0 } : { x: 0.0, z: -7.1, rotY: 0 };
         if (instantTeleport) {
-          ceoGroup.position.set(0.0, 0, -7.1);
-          ceoGroup.rotation.y = 0;
+          ceoGroup.position.set(ceoDest.x, 0, ceoDest.z);
+          ceoGroup.rotation.y = ceoDest.rotY;
           ceoWalking = false;
         } else {
-          walkCEOTo(0.0, -7.1, () => {
-            ceoGroup.rotation.y = 0;
-          }, 0);
+          walkCEOTo(ceoDest.x, ceoDest.z, () => { ceoGroup.rotation.y = ceoDest.rotY; }, 0);
         }
 
-        agents.forEach((ag, idx) => {
+        // ONLY invited participants walk to the meeting room; non-invited staff STAY at their desks working!
+        let seatIdx = 0;
+        agents.forEach(ag => {
           ag.workState = "WORKING";
-          const seat = getBoardroomSeat(idx);
-          if (instantTeleport) {
-            teleportAgentImmediately(ag, { x: seat.x, y: 0, z: seat.z, rotY: seat.rotY });
+          if (invitedIds.has(ag.id)) {
+            let seat;
+            if (isCeoLoc) {
+              const s = CEO_OFFICE_SEATS[seatIdx % CEO_OFFICE_SEATS.length];
+              const rowOff = Math.floor(seatIdx / CEO_OFFICE_SEATS.length) * 1.4;
+              seat = { x: s.x, y: 0, z: s.z + rowOff, rotY: s.rotY };
+            } else {
+              seat = getBoardroomSeat(seatIdx);
+            }
+            seatIdx++;
+            if (instantTeleport) {
+              teleportAgentImmediately(ag, { x: seat.x, y: 0, z: seat.z, rotY: seat.rotY });
+            } else {
+              walkAgentWithWaypoints(ag, { x: seat.x, y: 0, z: seat.z, rotY: seat.rotY });
+            }
           } else {
-            walkAgentWithWaypoints(ag, { x: seat.x, y: 0, z: seat.z, rotY: seat.rotY });
+            // Return any previously meeting-seated non-invited staff quietly to their desk
+            if (instantTeleport) {
+              teleportAgentImmediately(ag, { x: ag.homePos.x, y: ag.homePos.y || 0, z: ag.homePos.z, rotY: ag.homePos.rotY });
+            } else {
+              walkAgentWithWaypoints(ag, { x: ag.homePos.x, y: ag.homePos.y || 0, z: ag.homePos.z, rotY: ag.homePos.rotY });
+            }
           }
         });
 
+        renderMeetingPresetsSidebarAndSetup();
         renderSidebarAndTable();
-        updateToast(`🔔 RAPAT BESAR TOWN HALL: Seluruh ${agents.length} Karyawan AI (dari 4 Gedung Kampus) berkumpul di Ruang Rapat!`);
-        openTownHallDiscussionModal(fromRemoteSync);
+        const stayedCount = Math.max(0, agents.length - invited.length);
+        updateToast(`${preset.icon || '📅'} ${preset.name}: ${invited.length} peserta berkumpul di ${isCeoLoc ? 'Paviliun CEO' : 'Ruang Rapat'}${stayedCount > 0 ? ` (${stayedCount} staf lain tetap bekerja di meja)` : ''}!`);
+        openCustomMeetingChatModal(preset, fromRemoteSync);
 
         if (!fromRemoteSync && typeof pushWorldStateToServer === "function") {
           pushWorldStateToServer({
             officeOff: false,
             inTownHallMeeting: true,
-            activeRoomFilter: "TOWNHALL",
+            activeMeetingPresetId: preset.id,
+            activeRoomFilter: targetRoomKey,
             summonedInCeoOfficeIds: [],
             summonedWithCeoId: null,
-            openChatTarget: "TOWNHALL",
-            ceoPos: { x: 0.0, z: -7.1, rotY: 0 },
+            openChatTarget: preset.mode === "ALL" ? "TOWNHALL" : `MTG_${preset.id}`,
+            ceoPos: ceoDest,
             replaceAgentWorkStates: buildCurrentAgentWorkStatesMap()
           });
         }
       } else {
+        inTownHallMeeting = false;
+        ACTIVE_MEETING_PRESET = null;
         const reopenBtn = document.getElementById("btn-reopen-meeting-chat");
         if (reopenBtn) reopenBtn.classList.add("hidden");
         closeModals(true);
-        if (btnLbl) btnLbl.textContent = "Panggil Rapat";
-        if (btnEl) btnEl.className = "py-1.5 px-2 rounded-lg bg-gradient-to-r from-[#C9A227] to-[#a68216] hover:from-[#d9b232] hover:to-[#b8921c] text-slate-950 font-bold text-[11px] flex items-center justify-center gap-1 shadow transition cursor-pointer";
 
         agents.forEach(ag => {
           ag.workState = "WORKING";
@@ -3505,13 +3735,15 @@
             walkAgentWithWaypoints(ag, { x: ag.homePos.x, y: ag.homePos.y || 0, z: ag.homePos.z, rotY: ag.homePos.rotY });
           }
         });
+        renderMeetingPresetsSidebarAndSetup();
         selectRoom("ALL");
-        updateToast(`🏢 Rapat selesai! Seluruh ${agents.length} Karyawan AI kembali ke gedung & meja departemen masing-masing.`);
+        updateToast(`🏢 Rapat selesai! Peserta rapat kembali ke meja departemen masing-masing.`);
 
         if (!fromRemoteSync && typeof pushWorldStateToServer === "function") {
           pushWorldStateToServer({
             officeOff: false,
             inTownHallMeeting: false,
+            activeMeetingPresetId: null,
             activeRoomFilter: "ALL",
             openChatTarget: null,
             ceoPos: { x: 0.0, z: -26.8, rotY: 0 },
@@ -3521,13 +3753,22 @@
       }
     }
 
-    function summonAndOpenTownHallModal() {
-      if (!inTownHallMeeting) {
-        toggleTownHallMeeting(true);
+    function toggleTownHallMeeting(forceState = null, fromRemoteSync = false, instantTeleport = false) {
+      if (forceState === false) {
+        const curId = (ACTIVE_MEETING_PRESET && ACTIVE_MEETING_PRESET.id) || "all_staff";
+        return toggleCustomMeetingPreset(curId, false, fromRemoteSync, instantTeleport);
       }
-      setTimeout(() => {
-        openTownHallDiscussionModal();
-      }, 900);
+      const allPreset = (MEETING_PRESETS_CACHE || []).find(p => p.mode === "ALL") || MEETING_PRESETS_CACHE[0];
+      return toggleCustomMeetingPreset(allPreset ? allPreset.id : "all_staff", forceState, fromRemoteSync, instantTeleport);
+    }
+
+    function summonAndOpenTownHallModal() {
+      const targetPreset = ACTIVE_MEETING_PRESET || (MEETING_PRESETS_CACHE || []).find(p => p.mode === "LEADERS") || (MEETING_PRESETS_CACHE || [])[0];
+      if (!inTownHallMeeting && targetPreset) {
+        toggleCustomMeetingPreset(targetPreset.id, true);
+      } else if (targetPreset) {
+        openCustomMeetingChatModal(targetPreset);
+      }
     }
 
     function applyServerDeliverables(delivs) {
@@ -4263,9 +4504,13 @@
         if (data && data.memory_config) {
           MEMORY_CONFIG_CACHE = { ...MEMORY_CONFIG_CACHE, ...data.memory_config };
         }
+        if (data && Array.isArray(data.meeting_presets) && data.meeting_presets.length > 0) {
+          MEETING_PRESETS_CACHE = data.meeting_presets;
+        }
         if (data && data.roster) {
           applyRosterFromServer(data.roster);
         }
+        renderMeetingPresetsSidebarAndSetup();
         if (data && data.local_stdio_mcps) {
           applyLocalStdioMcpsUI(data.local_stdio_mcps);
         }
@@ -5106,10 +5351,11 @@
             ? world.summonedInCeoOfficeIds.map(x => Number(x))
             : [];
 
-          // CASE A: Town Hall Meeting is active!
+          // CASE A: Town Hall / Custom Meeting is active!
           if (wantTownHall) {
-            if (!inTownHallMeeting || isInitialLoad) {
-              toggleTownHallMeeting(true, true, isInitialLoad);
+            const wantPresetId = world.activeMeetingPresetId || "all_staff";
+            if (!inTownHallMeeting || isInitialLoad || (ACTIVE_MEETING_PRESET && ACTIVE_MEETING_PRESET.id !== wantPresetId)) {
+              toggleCustomMeetingPreset(wantPresetId, true, true, isInitialLoad);
             }
           } else {
             // If local tab was in Town Hall meeting and another tab ended it:
@@ -5254,15 +5500,23 @@
     }
 
     function resetCurrentChatThread() {
-      const historyKey = isTownHallChatMode ? "TOWNHALL" : currentModalAgentId;
+      const isDeptChat = Boolean(currentDeptChatRoom && !isTownHallChatMode);
+      const isCustomMeeting = Boolean(isTownHallChatMode && currentCustomMeetingPreset && currentCustomMeetingPreset.mode !== "ALL");
+      const historyKey = isCustomMeeting
+        ? `MTG_${currentCustomMeetingPreset.id}`
+        : (isTownHallChatMode ? "TOWNHALL" : (isDeptChat ? `DEPT_${currentDeptChatRoom}` : currentModalAgentId));
       delete agentChatHistories[historyKey];
-      if (isTownHallChatMode) {
+      if (isCustomMeeting) {
+        openCustomMeetingChatModal(currentCustomMeetingPreset);
+      } else if (isTownHallChatMode) {
         openTownHallDiscussionModal();
+      } else if (isDeptChat) {
+        openDepartmentChatModal(currentDeptChatRoom);
       } else {
         openProgressModal(currentModalAgentId, true);
       }
       persistChatHistories();
-      updateToast("🗑️ Riwayat obrolan sesi ini direset atas permintaan CEO.");
+      updateToast("🗑️ Riwayat obrolan sesi ini direset (Memory Obsidian .md tetap aman).");
     }
 
     hydrateChatStateFromServer();
@@ -5500,9 +5754,52 @@
       agentChatHistories[hKey] = seedMsgs;
     }
 
+    var currentCustomMeetingPreset = null;
+
+    function openCustomMeetingChatModal(preset, fromRemoteSync = false) {
+      if (!preset || preset.mode === "ALL") {
+        currentCustomMeetingPreset = preset || null;
+        return openTownHallDiscussionModal(fromRemoteSync);
+      }
+      isTownHallChatMode = true;
+      currentDeptChatRoom = "";
+      currentCustomMeetingPreset = preset;
+      const invited = resolveMeetingPresetParticipants(preset);
+      const lead = invited[0] || agents.find(a => a.id === 10) || agents[0];
+      currentModalAgentId = lead ? lead.id : 10;
+
+      const hKey = `MTG_${preset.id}`;
+      const locLbl = preset.location === "CEO_OFFICE" ? "Paviliun CEO" : "Ruang Rapat Utama";
+      const memberNames = invited.map(m => m.name).join(", ");
+      document.getElementById("prog-modal-title").textContent = `${preset.icon || '👔'} ${preset.name} (${invited.length} Peserta)`;
+      document.getElementById("prog-modal-sub").textContent = `Lokasi: ${locLbl} · Peserta: ${memberNames}`;
+      _updateChatMemoryStatusBar("TOWNHALL", true);
+
+      if (!agentChatHistories[hKey]) {
+        agentChatHistories[hKey] = [
+          {
+            sender: `${preset.icon || '👔'} ${preset.name} (${invited.length} Peserta · Obsidian Memory)`,
+            isCEO: false,
+            text: `Selamat datang di **${preset.name}**, Bos! Peserta yang hadir di ${locLbl}: **${memberNames}** (staf lain tetap bekerja di mejanya).\n\nMemori aktif: **[[00-INDEX]]** & **[[TOWNHALL-DECISIONS]]**. Silakan sampaikan agenda rapat — peserta rapat akan berdiskusi aktif dan meminta konfirmasi Bos; begitu Bos balas **\"Setuju / Kerjakan\"**, hasil langsung dieksekusi & dikunci ke Memory Obsidian!`
+          }
+        ];
+      }
+      const reopenBtn = document.getElementById("btn-reopen-meeting-chat");
+      if (reopenBtn) reopenBtn.classList.add("hidden");
+      const modal = document.getElementById("modal-progress");
+      modal.classList.remove("hidden");
+      modal.classList.add("flex");
+      renderChatMessages(hKey, true);
+      if (!fromRemoteSync) {
+        setTimeout(() => document.getElementById("prog-input")?.focus(), 100);
+        pushWorldStateToServer({ openChatTarget: hKey });
+      }
+    }
+
     function openDepartmentChatModal(roomKey, fromRemoteSync = false) {
       if (IS_LIVE_READONLY) return;
       isTownHallChatMode = false;
+      currentCustomMeetingPreset = null;
       currentDeptChatRoom = roomKey;
       const members = agents.filter(a => a.room === roomKey);
       const lead = members[0] || agents.find(a => a.id === 10) || agents[0];
@@ -5559,6 +5856,7 @@
       if (IS_LIVE_READONLY) return;
       isTownHallChatMode = false;
       currentDeptChatRoom = "";
+      currentCustomMeetingPreset = null;
       currentModalAgentId = agentId;
       const ag = agents.find(a => a.id === agentId);
       if (!ag) return;
@@ -5834,9 +6132,16 @@
       renderChatAttachmentsPreview();
 
       const isDeptChat = Boolean(currentDeptChatRoom && !isTownHallChatMode);
-      const historyKey = isTownHallChatMode ? "TOWNHALL" : (isDeptChat ? `DEPT_${currentDeptChatRoom}` : currentModalAgentId);
-      const deptMembers = isDeptChat ? agents.filter(a => a.room === currentDeptChatRoom) : [];
-      const ag = (isDeptChat && deptMembers[0]) ? deptMembers[0] : (agents.find(a => a.id === currentModalAgentId) || agents.find(a => a.id === 10) || agents[0]);
+      const isCustomMeeting = Boolean(isTownHallChatMode && currentCustomMeetingPreset && currentCustomMeetingPreset.mode !== "ALL");
+      const historyKey = isCustomMeeting
+        ? `MTG_${currentCustomMeetingPreset.id}`
+        : (isTownHallChatMode ? "TOWNHALL" : (isDeptChat ? `DEPT_${currentDeptChatRoom}` : currentModalAgentId));
+      const deptMembers = isDeptChat
+        ? agents.filter(a => a.room === currentDeptChatRoom)
+        : (isCustomMeeting ? resolveMeetingPresetParticipants(currentCustomMeetingPreset) : []);
+      const ag = ((isDeptChat || isCustomMeeting) && deptMembers[0])
+        ? deptMembers[0]
+        : (agents.find(a => a.id === currentModalAgentId) || agents.find(a => a.id === 10) || agents[0]);
       if (!agentChatHistories[historyKey]) agentChatHistories[historyKey] = [];
 
       agentChatHistories[historyKey].push({
@@ -5861,7 +6166,9 @@
       syncAgent3DPillColors();
 
       agentChatHistories[historyKey].push({
-        sender: isTownHallChatMode ? "🎙️ Raka & 6 Manajer Departemen" : (isDeptChat ? `💬 Tim Departemen ${currentDeptChatRoom}` : `${ag.name} (${ag.model})`),
+        sender: isCustomMeeting
+          ? `${currentCustomMeetingPreset.icon || '👔'} ${currentCustomMeetingPreset.name}`
+          : (isTownHallChatMode ? "🎙️ Raka & 6 Manajer Departemen" : (isDeptChat ? `💬 Tim Departemen ${currentDeptChatRoom}` : `${ag.name} (${ag.model})`)),
         isCEO: false,
         text: attachmentsToSend.length > 0
           ? "⏳ Memindai lampiran gambar/file dan menyusun analisis..."
@@ -5887,7 +6194,10 @@
             agentRole: ag.role,
             room: isDeptChat ? currentDeptChatRoom : ag.room,
             deptRoom: isDeptChat ? currentDeptChatRoom : "",
-            participants: isDeptChat ? deptMembers.map(m => ({ id: m.id, name: m.name, role: m.role })) : undefined,
+            meetingTitle: isCustomMeeting ? currentCustomMeetingPreset.name : "",
+            participants: (isDeptChat || isCustomMeeting)
+              ? deptMembers.map(m => ({ id: m.id, name: m.name, role: m.role, room: m.room }))
+              : undefined,
             modelId: ag.model,
             endpoint,
             apiKey,
@@ -6258,9 +6568,13 @@
         if (data && data.memory_config) {
           MEMORY_CONFIG_CACHE = { ...MEMORY_CONFIG_CACHE, ...data.memory_config };
         }
+        if (data && Array.isArray(data.meeting_presets) && data.meeting_presets.length > 0) {
+          MEETING_PRESETS_CACHE = data.meeting_presets;
+        }
         if (data && data.roster) {
           applyRosterFromServer(data.roster);
         }
+        renderMeetingPresetsSidebarAndSetup();
         if (data && data.local_stdio_mcps) {
           applyLocalStdioMcpsUI(data.local_stdio_mcps);
         }
@@ -6671,6 +6985,7 @@
       if (tabKey === "SETUP") {
         loadCompanyProfile();
         refreshMemoryVaultSettingsUI();
+        refreshMeetingPresetsUI();
       }
       if (tabKey === "MCP") {
         loadRemoteMcpConfig();
@@ -6679,6 +6994,139 @@
       }
       if (tabKey !== "API" && tabKey !== "SETUP") {
         loadExtensionsStatus();
+      }
+    }
+
+    // ================= DYNAMIC MEETING PRESETS SETUP CRUD =================
+    function openMeetingPresetsSetup() {
+      openSettingsModal("SETUP");
+      setTimeout(() => {
+        const el = document.getElementById("setup-meeting-presets-card");
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+        openMeetingPresetForm();
+      }, 150);
+    }
+
+    async function refreshMeetingPresetsUI() {
+      try {
+        const res = await fetch("/api/meeting-presets");
+        const data = await res.json();
+        if (data && data.ok && Array.isArray(data.presets)) {
+          MEETING_PRESETS_CACHE = data.presets;
+        }
+      } catch (e) {}
+      renderMeetingPresetsSidebarAndSetup();
+    }
+
+    function _renderMeetingPresetAgentCheckboxes(selectedIds = []) {
+      const grid = document.getElementById("mp-agents-checkbox-grid");
+      if (!grid) return;
+      const selSet = new Set((selectedIds || []).map(x => Number(x)));
+      grid.innerHTML = agents.map(a => {
+        const checked = selSet.has(Number(a.id)) ? "checked" : "";
+        return `
+          <label class="flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-[#181824] hover:bg-white/10 border border-white/10 cursor-pointer text-[10.5px] select-none">
+            <input type="checkbox" class="mp-agent-chk" value="${a.id}" ${checked} />
+            <span class="truncate text-white font-medium">${escapeHtmlSafe(a.name)}</span>
+            <span class="text-[9px] text-slate-400 font-mono truncate">(${escapeHtmlSafe(a.room || '-')})</span>
+          </label>
+        `;
+      }).join("");
+    }
+
+    function onMeetingPresetModeChange() {
+      const mode = document.getElementById("mp-mode")?.value || "LEADERS";
+      const wrap = document.getElementById("mp-custom-picker-wrap");
+      if (wrap) wrap.classList.toggle("hidden", mode !== "CUSTOM");
+    }
+
+    function openMeetingPresetForm(editId = "") {
+      const wrap = document.getElementById("meeting-preset-form-wrap");
+      if (!wrap) return;
+      wrap.classList.remove("hidden");
+      const preset = editId ? (MEETING_PRESETS_CACHE || []).find(p => p.id === editId) : null;
+      document.getElementById("mp-edit-id").value = preset ? preset.id : "";
+      document.getElementById("mp-name").value = preset ? preset.name : "";
+      document.getElementById("mp-icon").value = preset ? (preset.icon || "📅") : "👔";
+      document.getElementById("mp-location").value = preset ? (preset.location || "TOWNHALL") : "TOWNHALL";
+      document.getElementById("mp-mode").value = preset ? (preset.mode || "CUSTOM") : "CUSTOM";
+      document.getElementById("mp-pin-sidebar").checked = preset ? (preset.pinToSidebar !== false) : true;
+      _renderMeetingPresetAgentCheckboxes(preset ? (preset.agentIds || []) : []);
+      onMeetingPresetModeChange();
+      setTimeout(() => document.getElementById("mp-name")?.focus(), 60);
+    }
+
+    function closeMeetingPresetForm() {
+      const wrap = document.getElementById("meeting-preset-form-wrap");
+      if (wrap) wrap.classList.add("hidden");
+    }
+
+    function selectMeetingPresetQuickLeaders() {
+      const leaderIds = new Set(getDepartmentLeadersList().map(a => Number(a.id)));
+      document.querySelectorAll(".mp-agent-chk").forEach(cb => {
+        cb.checked = leaderIds.has(Number(cb.value));
+      });
+    }
+
+    function clearMeetingPresetAgentChecks() {
+      document.querySelectorAll(".mp-agent-chk").forEach(cb => { cb.checked = false; });
+    }
+
+    async function saveMeetingPresetUI() {
+      const id = (document.getElementById("mp-edit-id")?.value || "").trim();
+      const name = (document.getElementById("mp-name")?.value || "").trim();
+      const icon = document.getElementById("mp-icon")?.value || "📅";
+      const location = document.getElementById("mp-location")?.value || "TOWNHALL";
+      const mode = document.getElementById("mp-mode")?.value || "CUSTOM";
+      const pinToSidebar = Boolean(document.getElementById("mp-pin-sidebar")?.checked);
+      const agentIds = Array.from(document.querySelectorAll(".mp-agent-chk:checked")).map(cb => Number(cb.value));
+
+      if (!name) {
+        updateToast("Nama tombol rapat wajib diisi.");
+        return;
+      }
+      if (mode === "CUSTOM" && agentIds.length === 0) {
+        updateToast("Centang minimal 1 peserta untuk rapat kustom.");
+        return;
+      }
+      try {
+        const res = await fetch("/api/meeting-presets/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: id || undefined, name, icon, location, mode, agentIds, pinToSidebar }),
+        });
+        const data = await res.json();
+        if (data && data.ok && Array.isArray(data.presets)) {
+          MEETING_PRESETS_CACHE = data.presets;
+          renderMeetingPresetsSidebarAndSetup();
+          closeMeetingPresetForm();
+          updateToast(`📅 Tombol rapat "${name}" berhasil disimpan & tampil di Sidebar!`);
+        } else {
+          updateToast((data && data.error) || "Gagal menyimpan tombol rapat.");
+        }
+      } catch (e) {
+        updateToast("Error menyimpan tombol rapat.");
+      }
+    }
+
+    async function deleteMeetingPresetUI(id, name) {
+      if (!confirm(`Hapus tombol rapat "${name}"?`)) return;
+      try {
+        const res = await fetch("/api/meeting-presets/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id }),
+        });
+        const data = await res.json();
+        if (data && data.ok && Array.isArray(data.presets)) {
+          MEETING_PRESETS_CACHE = data.presets;
+          renderMeetingPresetsSidebarAndSetup();
+          updateToast(`Tombol rapat "${name}" dihapus.`);
+        } else {
+          updateToast((data && data.error) || "Gagal menghapus tombol rapat.");
+        }
+      } catch (e) {
+        updateToast("Error menghapus tombol rapat.");
       }
     }
 
@@ -8078,6 +8526,7 @@
       rebuildFloatingDOM();
       renderRoomTabsAndFloorBar();
       renderSidebarAndTable();
+      if (typeof renderMeetingPresetsSidebarAndSetup === "function") renderMeetingPresetsSidebarAndSetup();
       persistHqLayoutToServer();
       closeModals();
       selectRoom(key);
@@ -8182,6 +8631,7 @@
       rebuildFloatingDOM();
       renderRoomTabsAndFloorBar();
       renderSidebarAndTable();
+      if (typeof renderMeetingPresetsSidebarAndSetup === "function") renderMeetingPresetsSidebarAndSetup();
 
       // Update Setup 1 Pintu template badge & active button highlights
       const badge = document.getElementById("roster-template-badge");
@@ -8908,8 +9358,9 @@
       const reopenBtn = document.getElementById("btn-reopen-meeting-chat");
       if (reopenBtn) {
         if (inTownHallMeeting) {
-          reopenBtn.onclick = () => openTownHallDiscussionModal();
-          reopenBtn.innerHTML = `<span>💬</span> <span>Buka Kembali Obrolan Rapat</span>`;
+          const activeP = ACTIVE_MEETING_PRESET;
+          reopenBtn.onclick = () => activeP ? openCustomMeetingChatModal(activeP) : openTownHallDiscussionModal();
+          reopenBtn.innerHTML = `<span>💬</span> <span>Buka Kembali: ${escapeHtmlSafe(activeP ? activeP.name : 'Obrolan Rapat')}</span>`;
           reopenBtn.classList.remove("hidden");
         } else if (summonedWithCeoId !== null) {
           const guestAg = agents.find(a => a.id === summonedWithCeoId);
@@ -9244,7 +9695,10 @@
       }
     }
 
-    setTimeout(() => bootstrapAuthAndMode(), 50);
+    setTimeout(() => {
+      renderMeetingPresetsSidebarAndSetup();
+      bootstrapAuthAndMode();
+    }, 50);
 
     function toggleSidebar() {
       const sb = document.getElementById("sidebar");
