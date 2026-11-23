@@ -28,6 +28,7 @@ generate_daily_carousel.py
 
 # 4. Runtime Output, Obsidian Memory Vault, Imported Skills, Reports, Uploads, Desktop Builds & Cache
 memory/
+.obsidian/
 skills/*
 !skills/README.md
 reports/

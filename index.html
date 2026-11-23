@@ -196,9 +196,9 @@
         <span id="sidebar-live-indicator" class="flex items-center gap-1.5 text-[10.5px] text-slate-400 font-medium">
           <span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span> Memeriksa model...
         </span>
-        <button onclick="triggerNextReportInteraction(true)" class="text-[10px] px-2 py-0.5 rounded bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white border border-white/10 cursor-pointer" title="Picu koordinasi tim berbasis data MCP">
-          Koordinasi
-        </button>
+        <span id="sidebar-busy-counter" class="text-[10px] px-2 py-0.5 rounded bg-white/5 text-slate-400 border border-white/10 font-medium" title="Mode Real-Time: staf hanya bergerak dan mengetik saat benar-benar mengeksekusi tugas/chat nyata">
+          ○ 0 Kerja
+        </span>
       </div>
       <div class="flex items-center justify-between pt-1 border-t border-white/5 text-[10.5px] text-slate-500">
         <span id="sidebar-ceo-label" class="text-slate-300">Founder · CEO</span>
@@ -3430,6 +3430,8 @@
 
     function runCoordinationAnimation(ev) {
       if (!ev || inTownHallMeeting || OFFICE_OFF_MODE) return;
+      // Mode 100% Real-Activity-Only: tolak event simulasi/template ambient
+      if (ev.source === "LIVE_MCP_STATE") return;
       if (ev.eventId && ev.eventId === LAST_COORD_EVENT_ID) return;
       if (ev.eventId) LAST_COORD_EVENT_ID = ev.eventId;
 
@@ -3484,41 +3486,13 @@
     }
 
     async function triggerNextReportInteraction(manual = false) {
-      if (inTownHallMeeting || OFFICE_OFF_MODE) return;
-      if (interactionBusy && !manual) return;
-
-      const activeAgents = agents.filter(a => evaluateAgentModelStatus(a).active);
-      if (activeAgents.length === 0) {
-        const pauseMsg = `⏸️ Koordinasi dijeda (0/${agents.length} staf aktif) — hubungkan model AI di ⚙️ Pengaturan AI.`;
-        const feedEl = document.getElementById("interaction-feed-text");
-        if (feedEl) feedEl.textContent = pauseMsg;
-        return;
-      }
-
-      try {
-        const deptHint = (activeRoomFilter !== "ALL" && activeRoomFilter !== "TOWNHALL" && activeRoomFilter !== "CEO_OFFICE" && activeRoomFilter !== "REST_MESS")
-          ? activeRoomFilter
-          : "";
-        const res = await fetch("/api/trigger-live-coordination", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ dept: deptHint, manual: Boolean(manual) })
-        });
-        const data = await res.json();
-        if (data.ok && data.event) {
-          runCoordinationAnimation(data.event);
-          if (typeof notifyOtherTabsSync === "function") notifyOtherTabsSync();
-        }
-      } catch (e) {}
+      // Disabled in 100% Real-Activity-Only Mode:
+      // Staff ONLY walk & deliver handoffs on genuine task/chat/meeting execution (never synthetic timer loops).
+      return;
     }
 
-    // Calm, event-driven coordination every 42s (deduplicated on server across all open tabs!)
-    setInterval(() => {
-      if (!inTownHallMeeting && !interactionBusy && !OFFICE_OFF_MODE) {
-        triggerNextReportInteraction(false);
-      }
-    }, 42000);
-    setTimeout(() => triggerNextReportInteraction(false), 3800);
+    // 100% Real-Activity-Only Mode: tidak ada timer simulasi jalan-jalan fiktif.
+    // Staf hanya berjalan saat dipanggil rapat, dipanggil ke Ruang CEO, atau menyelesaikan tugas nyata (REAL_TASK_EXECUTION).
 
     // --- 9. FLOATING AI ROBOT MASCOT & MOVABLE CEO AVATAR ---
     const robotGroup = new THREE.Group();
@@ -5474,7 +5448,10 @@
             busyChanged = true;
           }
         });
-        if (busyChanged) syncAgent3DPillColors();
+        if (busyChanged) {
+          syncAgent3DPillColors();
+          renderSidebarAndTable();
+        }
 
         // 2. If initial load (reopened tab or new tab) or newer version from another tab:
         if (isInitialLoad || incomingVer > LOCAL_WORLD_VERSION) {
@@ -5573,9 +5550,9 @@
             }
           }
 
-          // 3. Play latest inter-department coordination walk if it occurred recently (< 25s ago)
+          // 3. Play latest REAL inter-department handoff walk only (ignore synthetic LIVE_MCP_STATE)
           const lastCoord = world.lastCoordinationEvent;
-          if (lastCoord && lastCoord.eventId && lastCoord.eventId !== LAST_COORD_EVENT_ID) {
+          if (lastCoord && lastCoord.eventId && lastCoord.eventId !== LAST_COORD_EVENT_ID && lastCoord.source === "REAL_TASK_EXECUTION") {
             const ageSec = (Date.now() / 1000) - Number(lastCoord.ts || 0);
             if (ageSec < 25) {
               runCoordinationAnimation(lastCoord);
@@ -6305,6 +6282,7 @@
 
       ag.isBusyWorking = true;
       syncAgent3DPillColors();
+      renderSidebarAndTable();
 
       agentChatHistories[historyKey].push({
         sender: isCustomMeeting
@@ -6464,6 +6442,7 @@
       if (btnEl) btnEl.textContent = "⏳ Mengeksekusi Tugas ke Disk...";
       ag.isBusyWorking = true;
       syncAgent3DPillColors();
+      renderSidebarAndTable();
 
       agentChatHistories[historyKey].push({
         sender: `⚙️ Sistem Eksekusi Kerja Nyata (${ag.name})`,
@@ -8563,8 +8542,8 @@
         } else {
           pill.className = isLeader
             ? "agent-pill px-2 py-0.5 rounded-full bg-amber-400/95 text-slate-950 font-extrabold text-[9.5px] shadow border border-slate-900 flex items-center gap-1"
-            : "agent-pill px-1.5 py-0.5 rounded-full bg-[#141420]/90 text-white font-semibold text-[9.5px] shadow border border-white/25 flex items-center gap-1";
-          pill.title = `${ag.name} · ${ag.role}`;
+            : "agent-pill px-1.5 py-0.5 rounded-full bg-[#141420]/90 text-slate-200 font-semibold text-[9.5px] shadow border border-white/20 flex items-center gap-1";
+          pill.title = `${ag.name} · ${ag.role} (Standby — menunggu tugas nyata)`;
           pill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${ag.dotColor}"></span><span>${ag.name}</span>`;
         }
       });
@@ -8576,15 +8555,32 @@
       const filterLbl = document.getElementById("sidebar-room-filter-label");
 
       const activeCount = agents.filter(a => evaluateAgentModelStatus(a).active).length;
+      const busyCount = agents.filter(a => Boolean(a.isBusyWorking)).length;
+      const restingCount = agents.filter(a => !a.isBusyWorking && a.workState === "RESTING").length;
+      const standbyCount = Math.max(0, activeCount - busyCount - restingCount);
+
       document.getElementById("sidebar-team-count").textContent = `${activeCount}/${agents.length}`;
       const liveInd = document.getElementById("sidebar-live-indicator");
       if (liveInd) {
         if (activeCount === 0) {
           liveInd.className = "flex items-center gap-1.5 text-[11px] text-rose-400 font-semibold";
-          liveInd.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span> 0/${agents.length} Aktif (Interaksi Dijeda)`;
+          liveInd.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span> 0/${agents.length} Model Aktif`;
+        } else if (busyCount > 0) {
+          liveInd.className = "flex items-center gap-1.5 text-[11px] text-emerald-400 font-semibold";
+          liveInd.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> ${busyCount} Bekerja · ${standbyCount} Standby`;
         } else {
-          liveInd.className = "flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium";
-          liveInd.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> ${activeCount}/${agents.length} Staf Aktif`;
+          liveInd.className = "flex items-center gap-1.5 text-[11px] text-slate-300 font-medium";
+          liveInd.innerHTML = `<span class="w-2 h-2 rounded-full bg-slate-400"></span> ${standbyCount} Standby · ${activeCount}/${agents.length} Siap`;
+        }
+      }
+      const busyCounterEl = document.getElementById("sidebar-busy-counter");
+      if (busyCounterEl) {
+        if (busyCount > 0) {
+          busyCounterEl.className = "text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold animate-pulse";
+          busyCounterEl.textContent = `⚡ ${busyCount} Kerja`;
+        } else {
+          busyCounterEl.className = "text-[10px] px-2 py-0.5 rounded bg-white/5 text-slate-400 border border-white/10 font-medium";
+          busyCounterEl.textContent = `○ 0 Kerja`;
         }
       }
       const kpiWf = document.getElementById("kpi-workforce-total");
@@ -8592,7 +8588,7 @@
       const kpiWfSub = document.getElementById("kpi-workforce-sub");
       if (kpiWfSub) {
         kpiWfSub.textContent = activeCount === agents.length
-          ? "● 100% Model Terhubung"
+          ? (busyCount > 0 ? `⚡ ${busyCount} Sedang Bekerja · ${standbyCount} Standby` : `○ 100% Siap (Standby — Menunggu Tugas)`)
           : `⚠️ ${agents.length - activeCount} Staf Belum Terhubung / Error Model`;
       }
 
@@ -8602,9 +8598,9 @@
 
       if (filterLbl) {
         const roomNames = {
-          ALL: `SEMUA RUANGAN (${activeCount}/${agents.length} Aktif)`,
+          ALL: `SEMUA RUANGAN (${busyCount} Kerja · ${standbyCount} Standby)`,
           CEO_OFFICE: `GEDUNG C · KANTOR CEO (${activeCount}/${agents.length})`,
-          TOWNHALL: `GEDUNG C · RUANG RAPAT (${activeCount}/${agents.length} Aktif)`,
+          TOWNHALL: `GEDUNG C · RUANG RAPAT (${activeCount}/${agents.length} Siap)`,
           SOCIAL: `GEDUNG A · DEPT 1 SOCIAL (${filteredAgents.length})`,
           THEMES: `GEDUNG A · DEPT 2 THEMES (${filteredAgents.length})`,
           GROWTH: `GEDUNG A · DEPT 3 GROWTH (${filteredAgents.length})`,
@@ -8618,16 +8614,22 @@
       listEl.innerHTML = filteredAgents.map(ag => {
         const st = evaluateAgentModelStatus(ag);
         const inCeo = summonedInCeoOfficeIds.has(ag.id);
-        const badge = st.active
-          ? `<span class="px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9.5px] font-medium shrink-0">● Aktif</span>`
-          : `<span class="px-1.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[9.5px] font-bold shrink-0">🔴 Off</span>`;
+        const isBusy = Boolean(ag.isBusyWorking);
+        const isRest = ag.workState === "RESTING";
+        const badge = isBusy
+          ? `<span class="px-1.5 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 text-[9.5px] font-bold shrink-0 animate-pulse">⚡ Kerja</span>`
+          : (!st.active
+            ? `<span class="px-1.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[9.5px] font-bold shrink-0">🔴 Off</span>`
+            : (isRest
+              ? `<span class="px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-400/40 text-[9.5px] font-medium shrink-0">💤 Rest</span>`
+              : `<span class="px-1.5 py-0.5 rounded-full bg-slate-500/15 text-slate-400 border border-white/10 text-[9.5px] font-medium shrink-0">○ Standby</span>`));
         const errNote = st.active
-          ? `<div class="text-[10px] text-slate-400 truncate">${ag.role}</div>`
+          ? `<div class="text-[10px] ${isBusy ? 'text-emerald-300 font-medium' : 'text-slate-400'} truncate">${isBusy ? 'Sedang mengeksekusi tugas nyata...' : ag.role}</div>`
           : `<div class="text-[10px] text-rose-300 truncate" title="${st.reason}">⚠️ ${st.reason}</div>`;
         return `
-        <div onclick="selectAgentById(${ag.id})" class="p-2 rounded-xl ${inCeo ? 'bg-amber-500/15 border-amber-400/50' : (st.active ? 'bg-white/[0.03] border-white/5' : 'bg-rose-950/30 border-rose-500/40')} hover:bg-white/[0.08] border flex items-center justify-between gap-1.5 cursor-pointer transition">
+        <div onclick="selectAgentById(${ag.id})" class="p-2 rounded-xl ${isBusy ? 'bg-emerald-500/15 border-emerald-400/50' : (inCeo ? 'bg-amber-500/15 border-amber-400/50' : (st.active ? 'bg-white/[0.03] border-white/5' : 'bg-rose-950/30 border-rose-500/40'))} hover:bg-white/[0.08] border flex items-center justify-between gap-1.5 cursor-pointer transition">
           <div class="flex items-center gap-2 min-w-0">
-            <div class="w-7 h-7 rounded-full ${st.active ? 'bg-purple-600/30 border-purple-400/40 text-purple-200' : 'bg-rose-600/30 border-rose-400/50 text-rose-200'} border flex items-center justify-center text-xs font-bold shrink-0">
+            <div class="w-7 h-7 rounded-full ${isBusy ? 'bg-emerald-500/30 border-emerald-400 text-emerald-200' : (st.active ? 'bg-purple-600/30 border-purple-400/40 text-purple-200' : 'bg-rose-600/30 border-rose-400/50 text-rose-200')} border flex items-center justify-center text-xs font-bold shrink-0">
               ${ag.name.charAt(0)}
             </div>
             <div class="min-w-0">
@@ -8647,21 +8649,27 @@
       tableEl.innerHTML = agents.map(ag => {
         const st = evaluateAgentModelStatus(ag);
         const inCeo = summonedInCeoOfficeIds.has(ag.id);
+        const isBusy = Boolean(ag.isBusyWorking);
+        const isRest = ag.workState === "RESTING";
         const opts = AVAILABLE_MODELS.map(m =>
           `<option value="${m.id}" ${ag.model === m.id ? 'selected' : ''}>${m.id} (${m.tag})</option>`
         ).join("");
+        const tableBadge = isBusy
+          ? `<span class="px-2 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 border border-emerald-400/50 text-[10px] font-bold shrink-0 animate-pulse">⚡ Sedang Bekerja</span>`
+          : (!st.active
+            ? `<span class="px-2 py-0.5 rounded-full bg-rose-500/25 text-rose-200 border border-rose-500/50 text-[10px] font-bold shrink-0">🔴 Tidak Aktif</span>`
+            : (isRest
+              ? `<span class="px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-200 border border-indigo-400/40 text-[10px] font-semibold shrink-0">💤 Istirahat</span>`
+              : `<span class="px-2 py-0.5 rounded-full bg-slate-500/20 text-slate-300 border border-white/15 text-[10px] font-semibold shrink-0">○ Standby</span>`));
         return `
-        <div class="p-4 rounded-xl ${st.active ? 'bg-[#1c1c28] border-white/10' : 'bg-rose-950/25 border-rose-500/50'} border flex flex-col justify-between gap-3">
+        <div class="p-4 rounded-xl ${isBusy ? 'bg-emerald-950/25 border-emerald-400/50' : (st.active ? 'bg-[#1c1c28] border-white/10' : 'bg-rose-950/25 border-rose-500/50')} border flex flex-col justify-between gap-3">
           <div class="flex flex-col gap-2">
             <div class="flex items-start justify-between gap-2">
               <div>
                 <div class="font-bold text-sm text-white">${ag.name} — ${ag.role}</div>
                 <div class="text-xs text-amber-300/90">${ag.deskLabel}</div>
               </div>
-              ${st.active
-                ? `<span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold shrink-0">● Aktif</span>`
-                : `<span class="px-2 py-0.5 rounded-full bg-rose-500/25 text-rose-200 border border-rose-500/50 text-[10px] font-bold shrink-0">🔴 Tidak Aktif</span>`
-              }
+              ${tableBadge}
             </div>
             ${!st.active ? `<div class="p-2 rounded-lg bg-rose-500/15 border border-rose-500/35 text-[11px] text-rose-200">⚠️ <b>Masalah:</b> ${st.reason}</div>` : ""}
             <div class="flex items-center gap-2">
@@ -9581,6 +9589,7 @@
       if (ag) {
         ag.isBusyWorking = true;
         syncAgent3DPillColors();
+        renderSidebarAndTable();
       }
       updateToast(`⚡ ${ag ? ag.name : 'Tim AI'} sedang mengeksekusi tugas "${item.title}" dan menyusun berkas deliverable nyata...`);
       try {
@@ -10387,15 +10396,23 @@
             bodyPivot.rotation.x = -Math.PI / 2;
             bodyPivot.position.y = 0.62 + Math.sin(t * 2 + idx) * 0.015;
           }
-        } else {
+        } else if (agent.isBusyWorking) {
+          // REAL ACTIVE WORK: fast typing & focused head movement only while actually executing LLM/Tool/Task
           if (bodyPivot) { bodyPivot.rotation.x = 0; bodyPivot.position.y = 0; }
-          const busyMult = agent.isBusyWorking ? 2.4 : 1.0;
-          head.position.y = 1.21 + Math.sin(t * 3.2 * busyMult + idx) * 0.014;
-          head.rotation.y = Math.sin(t * 1.4 * busyMult + idx * 2) * (agent.isBusyWorking ? 0.14 : 0.07);
+          head.position.y = 1.21 + Math.sin(t * 5.5 + idx) * 0.016;
+          head.rotation.y = Math.sin(t * 2.6 + idx * 2) * 0.14;
           if (leftArm && rightArm) {
-            const armAmp = agent.isBusyWorking ? 0.18 : 0.08;
-            leftArm.rotation.x = -0.35 + Math.sin(t * 7 * busyMult + idx) * armAmp;
-            rightArm.rotation.x = -0.35 - Math.sin(t * 7 * busyMult + idx) * armAmp;
+            leftArm.rotation.x = -0.38 + Math.sin(t * 14 + idx) * 0.22;
+            rightArm.rotation.x = -0.38 - Math.sin(t * 14 + idx) * 0.22;
+          }
+        } else {
+          // IDLE / STANDBY: no fake typing! Calm posture with minimal natural breathing so CEO immediately sees who is idle.
+          if (bodyPivot) { bodyPivot.rotation.x = 0; bodyPivot.position.y = 0; }
+          head.position.y = 1.21 + Math.sin(t * 1.1 + idx) * 0.004;
+          head.rotation.y = 0;
+          if (leftArm && rightArm) {
+            leftArm.rotation.x = -0.14;
+            rightArm.rotation.x = -0.14;
           }
         }
       });
