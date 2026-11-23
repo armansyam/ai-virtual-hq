@@ -1827,7 +1827,7 @@
                 <span id="hq-skills-count-badge" class="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-200 border border-purple-400/35 text-[10px] font-mono">0 Aktif</span>
               </div>
               <p class="text-[10.5px] text-slate-400 mt-0.5">
-                Semua skill disimpan rapi dalam satu folder <code id="skills-dir-path-label" class="text-amber-300">skills/</code> mengikuti standar <code>SKILL.md</code> (siap untuk <b>PonyTail</b>, GitHub, Claude/Agent Skills, maupun SOP custom). Isi penuh <code>SKILL.md</code> hanya dimuat otomatis saat topik cocok (<b>hemat token</b>).
+                Semua skill disimpan rapi dalam satu folder <code id="skills-dir-path-label" class="text-amber-300">skills/</code> mengikuti standar <code>SKILL.md</code> (kompatibel dengan GitHub, Claude/Agent Skills, maupun SOP custom). Isi penuh <code>SKILL.md</code> hanya dimuat otomatis saat topik cocok (<b>hemat token</b>).
               </p>
             </div>
             <div class="flex flex-wrap items-center gap-1.5 shrink-0">
@@ -1858,17 +1858,17 @@
             </button>
           </div>
 
-          <!-- Form Import URL / GitHub (Siap PonyTail / SKILL.md) + Pencarian Skill Terpercaya -->
+          <!-- Form Import URL / GitHub (SKILL.md) + Pencarian Skill Terpercaya -->
           <div id="skill-import-url-wrap" class="hidden rounded-xl bg-[#0e0e16] border border-sky-500/40 p-3.5 space-y-3">
             <div class="flex items-center justify-between">
-              <span class="font-bold text-sky-300 text-[11px]">🌐 Cari &amp; Import Skill Terpercaya (PonyTail, Anthropic, Vercel, Cloudflare, GitHub SKILL.md)</span>
+              <span class="font-bold text-sky-300 text-[11px]">🌐 Cari &amp; Import Skill Terpercaya (Anthropic, Vercel, Cloudflare, GitHub SKILL.md)</span>
               <button type="button" onclick="closeSkillForms()" class="text-slate-400 hover:text-white text-xs cursor-pointer">✕</button>
             </div>
 
             <!-- Live Trusted Skill Search Bar -->
             <div class="p-2.5 rounded-lg bg-[#141422] border border-white/10 space-y-2">
               <div class="flex items-center gap-2">
-                <input id="sk-trusted-search-input" type="text" onkeydown="if(event.key==='Enter') searchTrustedSkillsUI()" placeholder="Cari skill terpercaya (mis: ponytail, ui design, copywriting, seo, vercel)..." class="flex-1 px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-[11px]" />
+                <input id="sk-trusted-search-input" type="text" onkeydown="if(event.key==='Enter') searchTrustedSkillsUI()" placeholder="Cari skill terpercaya (mis: ui design, copywriting, seo, vercel, cloudflare)..." class="flex-1 px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-[11px]" />
                 <button type="button" onclick="searchTrustedSkillsUI()" class="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-semibold text-[10.5px] cursor-pointer shrink-0">
                   🔍 Cari Terpercaya
                 </button>
@@ -1879,7 +1879,7 @@
             <div class="grid grid-cols-1 md:grid-cols-12 gap-2">
               <div class="md:col-span-6">
                 <label class="block text-[10px] text-slate-300 mb-1">URL GitHub Repo / Folder / Raw SKILL.md *</label>
-                <input id="sk-imp-url" type="text" placeholder="https://github.com/owner/repo/blob/main/skills/ponytail/SKILL.md" class="w-full px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-sky-200 font-mono text-[11px]" />
+                <input id="sk-imp-url" type="text" placeholder="https://github.com/owner/repo/blob/main/skills/nama-skill/SKILL.md" class="w-full px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-sky-200 font-mono text-[11px]" />
               </div>
               <div class="md:col-span-3">
                 <label class="block text-[10px] text-slate-300 mb-1">Nama Skill (Opsional)</label>
@@ -1923,7 +1923,7 @@
             <div class="grid grid-cols-1 md:grid-cols-12 gap-2">
               <div class="md:col-span-4">
                 <label class="block text-[10px] text-amber-300 font-semibold mb-1">Nama Skill *</label>
-                <input id="sk-edit-name" type="text" placeholder="mis: ponytail-ui-craft / copywriting-ig" class="w-full px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-[11px]" />
+                <input id="sk-edit-name" type="text" placeholder="mis: ui-design-guidelines / copywriting-ig" class="w-full px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-[11px]" />
               </div>
               <div class="md:col-span-5">
                 <label class="block text-[10px] text-slate-300 mb-1">Deskripsi Pemicu (Kapan AI otomatis memakai skill ini?)</label>
@@ -1931,7 +1931,7 @@
               </div>
               <div class="md:col-span-3">
                 <label class="block text-[10px] text-slate-300 mb-1">Kata Kunci Trigger (pisahkan koma)</label>
-                <input id="sk-edit-triggers" type="text" placeholder="ponytail, desain, ui, layout" class="w-full px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-sky-200 font-mono text-[11px]" />
+                <input id="sk-edit-triggers" type="text" placeholder="desain, ui, layout, copywriting" class="w-full px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-sky-200 font-mono text-[11px]" />
               </div>
             </div>
 
@@ -7201,7 +7201,7 @@
         box.innerHTML = CURRENT_SKILLS_FILTER === "hq_folder"
           ? `<div class="md:col-span-2 p-5 rounded-xl bg-[#0e0e16] border border-dashed border-white/15 text-center space-y-2">
                <div class="text-slate-300 font-semibold">Folder <code>skills/</code> masih bersih dan siap menerima skill pertama Anda!</div>
-               <div class="text-[10.5px] text-slate-400">Anda bisa langsung klik <b>+ Buat SKILL.md</b>, <b>🌐 Import URL / GitHub</b> (misal skill PonyTail), atau <b>📂 Import Folder Skill</b> dari Mac Anda.</div>
+               <div class="text-[10.5px] text-slate-400">Anda bisa langsung klik <b>+ Buat SKILL.md</b>, <b>🌐 Import URL / GitHub</b>, atau <b>📂 Import Folder Skill</b> dari komputer Anda.</div>
              </div>`
           : `<div class="md:col-span-2 p-4 rounded-xl bg-[#0e0e16] border border-white/10 text-center text-slate-400">Tidak ada skill sistem lokal terdeteksi di ~/.gemini/config/skills/.</div>`;
         return;

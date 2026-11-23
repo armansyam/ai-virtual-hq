@@ -2776,7 +2776,7 @@ def import_skill_from_folder(data):
 
 TRUSTED_SKILL_ORGS = {
     "anthropics", "vercel-labs", "vercel", "cloudflare", "openai", "google", "google-gemini",
-    "modelcontextprotocol", "microsoft", "aws", "supabase", "stripe", "ponytail", "obra",
+    "modelcontextprotocol", "microsoft", "aws", "supabase", "stripe", "obra",
 }
 
 CURATED_TRUSTED_SKILLS = [
@@ -2859,7 +2859,7 @@ def build_skills_context_for_agent(user_prompt="", room="", agent_id=None):
 
     if not eligible:
         return (
-            "KEMAMPUAN SKILL MANDIRI (WAJIB PERSETUJUAN CEO): Jika kamu membutuhkan skill/SOP baru atau ingin mencari skill terpercaya (seperti PonyTail / GitHub Agent Skills), "
+            "KEMAMPUAN SKILL MANDIRI (WAJIB PERSETUJUAN CEO): Jika kamu membutuhkan skill/SOP baru atau ingin mencari skill terpercaya (katalog resmi / GitHub Agent Skills), "
             "kamu boleh mencari via [[SEARCH_SKILLS:\"kata kunci\"]] lalu mengusulkannya ke CEO. "
             "HANYA setelah CEO menyetujui/memerintahkan, simpan skill baru ke folder skills/ via "
             f"[[SAVE_SKILL:{{\"name\":\"...\",\"description\":\"...\",\"triggers\":[],\"scope\":\"DEPT\",\"depts\":[\"{room_u or 'ADMIN'}\"],\"content\":\"# ...\"}}]] "

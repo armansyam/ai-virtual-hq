@@ -1,6 +1,6 @@
 # 🧠 Folder Skills Terpusat — AI Virtual HQ (`skills/`)
 
-Seluruh skill karyawan AI (termasuk skill hasil import dari **PonyTail**, GitHub, Claude Skills, maupun SOP custom) disimpan rapi di dalam satu folder ini mengikuti standar **Agent Skills (`SKILL.md`)**:
+Seluruh skill karyawan AI (termasuk skill hasil import dari GitHub, Claude/Agent Skills, maupun SOP custom) disimpan rapi di dalam satu folder ini mengikuti standar **Agent Skills (`SKILL.md`)**:
 
 ```text
 skills/
@@ -14,7 +14,7 @@ skills/
 
 ## Cara Menambahkan Skill
 Anda bisa menambahkan skill langsung dari Dashboard HQ (**⚙️ Pengaturan → 🧠 Skills Tim AI**) dengan 3 cara:
-1. **Import URL / GitHub:** Tempel tautan repo GitHub atau URL raw `SKILL.md` (misal dari PonyTail atau katalog Agent Skills).
+1. **Import URL / GitHub:** Tempel tautan repo GitHub atau URL raw `SKILL.md` dari katalog Agent Skills terpercaya.
 2. **Import Folder / File `.md`:** Pilih folder skill lokal dari komputer Anda lewat Finder/Explorer atau unggah file `.md`.
 3. **Buat Baru (`SKILL.md`):** Tulis langsung di editor Markdown lalu tentukan targetnya (**Semua Staf**, **Departemen tertentu**, atau **Staf spesifik**).
 
