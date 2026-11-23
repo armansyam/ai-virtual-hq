@@ -10,6 +10,7 @@ services:
     volumes:
       - ./config:/app/config
       - ./memory:/app/memory
+      - ./skills:/app/skills
       - ./reports:/app/reports
       - ./daily-content:/app/daily-content
       - ./uploads:/app/uploads

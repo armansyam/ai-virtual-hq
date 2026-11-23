@@ -26,8 +26,10 @@ Jalankan-Kantor-Luxvite.command
 kantor-visual-ai-luxvite.html
 generate_daily_carousel.py
 
-# 4. Runtime Output, Obsidian Memory Vault, Reports, Uploads, Desktop Builds & Cache
+# 4. Runtime Output, Obsidian Memory Vault, Imported Skills, Reports, Uploads, Desktop Builds & Cache
 memory/
+skills/*
+!skills/README.md
 reports/
 daily-content/
 uploads/

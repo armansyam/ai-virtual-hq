@@ -93,15 +93,18 @@ ROSTER_FILE = os.path.join(CONFIG_DIR, "roster.json")
 COMPANY_PROFILE_FILE = os.path.join(CONFIG_DIR, "company_profile.json")
 MEMORY_CONFIG_FILE = os.path.join(CONFIG_DIR, "memory_config.json")
 MEETING_PRESETS_FILE = os.path.join(CONFIG_DIR, "meeting_presets.json")
+SKILLS_STATE_FILE = os.path.join(CONFIG_DIR, "skills_registry.json")
 ADMIN_AUTH_FILE = os.path.join(CONFIG_DIR, "admin_auth.json")
 SESSION_SECRET_FILE = os.path.join(CONFIG_DIR, ".session_secret")
 DEFAULT_MEMORY_DIR = os.path.join(DATA_DIR, "memory")
+SKILLS_DIR = os.path.join(DATA_DIR, "skills")
 UPLOADS_DIR = os.path.join(DATA_DIR, "uploads")
 DAILY_DIR = os.path.join(DATA_DIR, "daily-content")
 REPORTS_DIR = os.path.join(DATA_DIR, "reports")
 AGY_BIN = shutil.which("agy") or os.path.expanduser("~/.local/bin/agy")
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(DEFAULT_MEMORY_DIR, exist_ok=True)
+os.makedirs(SKILLS_DIR, exist_ok=True)
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 os.makedirs(DAILY_DIR, exist_ok=True)
 os.makedirs(REPORTS_DIR, exist_ok=True)
@@ -2311,6 +2314,538 @@ def delete_meeting_preset(preset_id):
     return {"ok": True, "presets": saved}
 
 
+# ================= CENTRALIZED SKILLS FOLDER (skills/<slug>/SKILL.md) & PROGRESSIVE DISCLOSURE =================
+def _load_skills_registry():
+    if os.path.exists(SKILLS_STATE_FILE):
+        try:
+            with open(SKILLS_STATE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+        except Exception:
+            pass
+    return {"system_overrides": {}}
+
+
+def _save_skills_registry(data):
+    with open(SKILLS_STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def _slugify_skill(raw_name):
+    s = re.sub(r"[^a-z0-9-]+", "-", str(raw_name or "").strip().lower()).strip("-")
+    return s[:48] or f"skill-{int(time.time()) % 100000}"
+
+
+def _parse_skill_frontmatter(md_text, fallback_name=""):
+    txt = str(md_text or "")
+    name = fallback_name
+    desc = ""
+    triggers = []
+    body = txt
+    m = re.match(r"^\s*---\s*\n([\s\S]*?)\n---\s*\n?", txt)
+    if m:
+        fm = m.group(1)
+        body = txt[m.end():].strip()
+        m_name = re.search(r"^name:\s*(.+)$", fm, re.M)
+        if m_name:
+            name = m_name.group(1).strip().strip("\"'")
+        m_desc = re.search(r"^description:\s*(.+)$", fm, re.M)
+        if m_desc:
+            desc = m_desc.group(1).strip().strip("\"'")
+        m_trig = re.search(r"^triggers:\s*(.+)$", fm, re.M)
+        if m_trig:
+            raw_t = m_trig.group(1).strip().strip("[]")
+            triggers = [x.strip().strip("\"'") for x in raw_t.split(",") if x.strip().strip("\"'")]
+    if not desc:
+        first_line = next((l.strip("#* -•\t") for l in body.splitlines() if len(l.strip()) > 6), "")
+        desc = first_line[:200] or f"Skill {name}"
+    return {"name": name or fallback_name, "description": desc, "triggers": triggers, "body": body}
+
+
+def _normalize_skill_meta(raw_meta, default_enabled=True):
+    m = raw_meta if isinstance(raw_meta, dict) else {}
+    scope = str(m.get("scope") or "ALL").strip().upper()
+    if scope not in ("ALL", "DEPT", "AGENTS"):
+        scope = "ALL"
+    depts = [str(d).strip().upper() for d in (m.get("depts") or []) if str(d).strip()]
+    agent_ids = [int(a) for a in (m.get("agentIds") or []) if str(a).lstrip("-").isdigit()]
+    triggers = [str(t).strip() for t in (m.get("triggers") or []) if str(t).strip()]
+    return {
+        "enabled": bool(m.get("enabled", default_enabled)),
+        "scope": scope,
+        "depts": depts,
+        "agentIds": agent_ids,
+        "triggers": triggers,
+        "origin": str(m.get("origin") or "custom").strip(),
+        "originRef": str(m.get("originRef") or "").strip(),
+        "updatedAt": str(m.get("updatedAt") or ""),
+    }
+
+
+def ensure_skills_dir_ready():
+    os.makedirs(SKILLS_DIR, exist_ok=True)
+    # One-time seamless migration of legacy custom skills from hq_extensions.json into skills/<slug>/SKILL.md
+    ext = load_custom_extensions()
+    legacy_skills = ext.get("skills") or []
+    migrated_any = False
+    for sk in legacy_skills:
+        if not isinstance(sk, dict) or not sk.get("name"):
+            continue
+        slug = _slugify_skill(sk["name"])
+        sdir = os.path.join(SKILLS_DIR, slug)
+        sfile = os.path.join(sdir, "SKILL.md")
+        if not os.path.exists(sfile):
+            os.makedirs(sdir, exist_ok=True)
+            desc = str(sk.get("description") or sk.get("desc") or "").strip()
+            dept_raw = str(sk.get("dept") or "ALL").strip().upper()
+            scope = "ALL" if dept_raw in ("", "ALL") else "DEPT"
+            depts = [] if scope == "ALL" else [dept_raw]
+            md = f"---\nname: {sk['name']}\ndescription: {desc[:180]}\n---\n\n# {sk['name']}\n\n{desc}\n"
+            with open(sfile, "w", encoding="utf-8") as f:
+                f.write(md)
+            meta = _normalize_skill_meta({"enabled": True, "scope": scope, "depts": depts, "origin": "custom", "updatedAt": time.strftime("%Y-%m-%d %H:%M")})
+            with open(os.path.join(sdir, "meta.json"), "w", encoding="utf-8") as mf:
+                json.dump(meta, mf, indent=2, ensure_ascii=False)
+            migrated_any = True
+    if migrated_any:
+        ext["skills"] = []
+        save_custom_extensions(ext)
+    return SKILLS_DIR
+
+
+def _scan_system_skills():
+    """Scans local Antigravity / plugin skills separately (disabled by default in HQ unless explicitly turned ON)."""
+    reg = _load_skills_registry()
+    overrides = reg.get("system_overrides") or {}
+    out = []
+    roots = [
+        ("sys", os.path.expanduser("~/.gemini/config/skills")),
+    ]
+    plugins_dir = os.path.expanduser("~/.gemini/config/plugins")
+    if os.path.isdir(plugins_dir):
+        for pname in sorted(os.listdir(plugins_dir)):
+            sk_dir = os.path.join(plugins_dir, pname, "skills")
+            if os.path.isdir(sk_dir):
+                roots.append((f"plg_{pname}", sk_dir))
+
+    for prefix, rdir in roots:
+        if not os.path.isdir(rdir):
+            continue
+        for sname in sorted(os.listdir(rdir)):
+            sdir = os.path.join(rdir, sname)
+            sfile = os.path.join(sdir, "SKILL.md")
+            if not os.path.isfile(sfile):
+                continue
+            sid = f"system:{prefix}:{sname}"
+            try:
+                raw_md = open(sfile, "r", encoding="utf-8", errors="ignore").read(6000)
+                st = os.stat(sfile)
+            except Exception:
+                continue
+            parsed = _parse_skill_frontmatter(raw_md, fallback_name=sname)
+            ov = _normalize_skill_meta(overrides.get(sid), default_enabled=False)
+            out.append({
+                "id": sid,
+                "slug": sname,
+                "name": parsed["name"],
+                "description": parsed["description"],
+                "triggers": ov["triggers"] or parsed["triggers"],
+                "enabled": ov["enabled"],
+                "scope": ov["scope"],
+                "depts": ov["depts"],
+                "agentIds": ov["agentIds"],
+                "source": "system",
+                "origin": "system_local",
+                "originRef": sfile,
+                "absPath": sfile,
+                "relPath": sfile,
+                "hasReferences": os.path.isdir(os.path.join(sdir, "references")),
+                "hasScripts": os.path.isdir(os.path.join(sdir, "scripts")),
+                "sizeKb": round(st.st_size / 1024.0, 1),
+                "updatedAt": time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime)),
+                "deletable": False,
+            })
+    return out
+
+
+def list_all_hq_skills():
+    ensure_skills_dir_ready()
+    hq_skills = []
+    if os.path.isdir(SKILLS_DIR):
+        for entry in sorted(os.listdir(SKILLS_DIR)):
+            sdir = os.path.join(SKILLS_DIR, entry)
+            if not os.path.isdir(sdir) or entry.startswith("."):
+                continue
+            sfile = os.path.join(sdir, "SKILL.md")
+            if not os.path.isfile(sfile):
+                # Allow any single .md inside folder if SKILL.md isn't named exactly SKILL.md
+                md_cands = [f for f in sorted(os.listdir(sdir)) if f.lower().endswith(".md")]
+                if not md_cands:
+                    continue
+                sfile = os.path.join(sdir, md_cands[0])
+            try:
+                raw_md = open(sfile, "r", encoding="utf-8", errors="ignore").read(20000)
+                st = os.stat(sfile)
+            except Exception:
+                continue
+            parsed = _parse_skill_frontmatter(raw_md, fallback_name=entry)
+            meta_p = os.path.join(sdir, "meta.json")
+            raw_meta = {}
+            if os.path.isfile(meta_p):
+                try:
+                    raw_meta = json.load(open(meta_p, "r", encoding="utf-8"))
+                except Exception:
+                    raw_meta = {}
+            meta = _normalize_skill_meta(raw_meta, default_enabled=True)
+            hq_skills.append({
+                "id": f"hq:{entry}",
+                "slug": entry,
+                "name": parsed["name"],
+                "description": parsed["description"],
+                "triggers": meta["triggers"] or parsed["triggers"],
+                "enabled": meta["enabled"],
+                "scope": meta["scope"],
+                "depts": meta["depts"],
+                "agentIds": meta["agentIds"],
+                "source": "hq_folder",
+                "origin": meta["origin"],
+                "originRef": meta["originRef"],
+                "absPath": sfile,
+                "relPath": f"skills/{entry}/{os.path.basename(sfile)}",
+                "hasReferences": os.path.isdir(os.path.join(sdir, "references")),
+                "hasScripts": os.path.isdir(os.path.join(sdir, "scripts")),
+                "sizeKb": round(st.st_size / 1024.0, 1),
+                "updatedAt": meta["updatedAt"] or time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime)),
+                "deletable": True,
+            })
+    return hq_skills + _scan_system_skills()
+
+
+def read_hq_skill(skill_id):
+    all_sk = list_all_hq_skills()
+    item = next((s for s in all_sk if s["id"] == skill_id or s["slug"] == skill_id), None)
+    if not item:
+        return {"ok": False, "error": f"Skill '{skill_id}' tidak ditemukan."}
+    try:
+        content = open(item["absPath"], "r", encoding="utf-8", errors="ignore").read()
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    sdir = os.path.dirname(item["absPath"])
+    extra_files = []
+    for sub in ("references", "scripts"):
+        sub_p = os.path.join(sdir, sub)
+        if os.path.isdir(sub_p):
+            for fn in sorted(os.listdir(sub_p))[:20]:
+                if not fn.startswith("."):
+                    extra_files.append(f"{sub}/{fn}")
+    return {"ok": True, "skill": item, "content": content, "extraFiles": extra_files}
+
+
+def save_hq_skill(data):
+    ensure_skills_dir_ready()
+    if not isinstance(data, dict):
+        return {"ok": False, "error": "Data skill tidak valid."}
+    skill_id = str(data.get("id") or "").strip()
+
+    # Case 1: Updating ON/OFF or Target Assignment for a local system skill
+    if skill_id.startswith("system:"):
+        reg = _load_skills_registry()
+        ov = reg.setdefault("system_overrides", {})
+        cur = _normalize_skill_meta(ov.get(skill_id), default_enabled=False)
+        if "enabled" in data:
+            cur["enabled"] = bool(data["enabled"])
+        if "scope" in data:
+            cur["scope"] = str(data["scope"]).upper() if str(data["scope"]).upper() in ("ALL", "DEPT", "AGENTS") else "ALL"
+        if "depts" in data and isinstance(data["depts"], list):
+            cur["depts"] = [str(x).strip().upper() for x in data["depts"] if str(x).strip()]
+        if "agentIds" in data and isinstance(data["agentIds"], list):
+            cur["agentIds"] = [int(x) for x in data["agentIds"] if str(x).lstrip("-").isdigit()]
+        if "triggers" in data and isinstance(data["triggers"], list):
+            cur["triggers"] = [str(x).strip() for x in data["triggers"] if str(x).strip()]
+        cur["updatedAt"] = time.strftime("%Y-%m-%d %H:%M")
+        ov[skill_id] = cur
+        _save_skills_registry(reg)
+        return {"ok": True, "skills": list_all_hq_skills()}
+
+    # Case 2: Create or update centralized HQ skill inside skills/<slug>/SKILL.md + meta.json
+    raw_name = str(data.get("name") or "").strip()
+    if not raw_name and skill_id.startswith("hq:"):
+        raw_name = skill_id[3:]
+    if not raw_name:
+        return {"ok": False, "error": "Nama skill wajib diisi."}
+
+    slug = skill_id[3:] if skill_id.startswith("hq:") else _slugify_skill(raw_name)
+    slug = _slugify_skill(slug)
+    skills_root = os.path.realpath(SKILLS_DIR)
+    sdir = os.path.realpath(os.path.abspath(os.path.join(skills_root, slug)))
+    if os.path.commonpath([skills_root, sdir]) != skills_root or sdir == skills_root:
+        return {"ok": False, "error": "Nama folder skill tidak valid."}
+    os.makedirs(sdir, exist_ok=True)
+
+    sfile = os.path.join(sdir, "SKILL.md")
+    raw_content = data.get("content")
+    desc = str(data.get("description") or "").strip()
+    triggers_list = data.get("triggers")
+    if isinstance(triggers_list, str):
+        triggers_list = [x.strip() for x in triggers_list.split(",") if x.strip()]
+    elif not isinstance(triggers_list, list):
+        triggers_list = []
+
+    if raw_content is not None and str(raw_content).strip():
+        final_md = str(raw_content).strip() + "\n"
+        # Ensure YAML frontmatter exists so name & description are always cleanly structured
+        if not re.match(r"^\s*---\s*\n", final_md):
+            trig_line = f"triggers: [{', '.join(triggers_list)}]\n" if triggers_list else ""
+            safe_d = (desc or f"Panduan & SOP skill {raw_name}").replace("\n", " ")
+            final_md = f"---\nname: {raw_name}\ndescription: {safe_d}\n{trig_line}---\n\n{final_md}"
+        with open(sfile, "w", encoding="utf-8") as f:
+            f.write(final_md)
+    elif not os.path.exists(sfile):
+        trig_line = f"triggers: [{', '.join(triggers_list)}]\n" if triggers_list else ""
+        safe_d = (desc or f"Panduan & SOP skill {raw_name}").replace("\n", " ")
+        final_md = f"---\nname: {raw_name}\ndescription: {safe_d}\n{trig_line}---\n\n# {raw_name}\n\n{safe_d}\n"
+        with open(sfile, "w", encoding="utf-8") as f:
+            f.write(final_md)
+
+    meta_p = os.path.join(sdir, "meta.json")
+    prev_meta = {}
+    if os.path.isfile(meta_p):
+        try:
+            prev_meta = json.load(open(meta_p, "r", encoding="utf-8"))
+        except Exception:
+            prev_meta = {}
+    merged = dict(prev_meta)
+    for k in ("enabled", "scope", "depts", "agentIds", "origin", "originRef"):
+        if k in data:
+            merged[k] = data[k]
+    if triggers_list:
+        merged["triggers"] = triggers_list
+    merged["updatedAt"] = time.strftime("%Y-%m-%d %H:%M")
+    clean_meta = _normalize_skill_meta(merged, default_enabled=True)
+    with open(meta_p, "w", encoding="utf-8") as mf:
+        json.dump(clean_meta, mf, indent=2, ensure_ascii=False)
+
+    return {"ok": True, "id": f"hq:{slug}", "slug": slug, "skills": list_all_hq_skills()}
+
+
+def delete_hq_skill(skill_id):
+    sid = str(skill_id or "").strip()
+    if not sid.startswith("hq:"):
+        return {"ok": False, "error": "Skill sistem lokal tidak dihapus dari disk — cukup matikan dengan tombol OFF."}
+    slug = _slugify_skill(sid[3:])
+    skills_root = os.path.realpath(SKILLS_DIR)
+    target = os.path.realpath(os.path.abspath(os.path.join(skills_root, slug)))
+    if os.path.commonpath([skills_root, target]) != skills_root or target == skills_root:
+        return {"ok": False, "error": "Path skill tidak valid."}
+    if not os.path.isdir(target):
+        return {"ok": False, "error": "Folder skill tidak ditemukan."}
+    shutil.rmtree(target)
+    return {"ok": True, "skills": list_all_hq_skills()}
+
+
+def _resolve_raw_skill_urls(raw_url):
+    """Converts GitHub repo / tree / blob URLs or direct raw URLs into candidate raw SKILL.md URLs."""
+    u = str(raw_url or "").strip()
+    if not u:
+        return []
+    if "raw.githubusercontent.com" in u:
+        return [u]
+    # GitHub blob: https://github.com/owner/repo/blob/branch/path/to/SKILL.md
+    m_blob = re.match(r"^https?://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)$", u)
+    if m_blob:
+        owner, repo, branch, path = m_blob.groups()
+        return [f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}"]
+    # GitHub tree: https://github.com/owner/repo/tree/branch/path/to/skill_folder
+    m_tree = re.match(r"^https?://github\.com/([^/]+)/([^/]+)/tree/([^/]+)/(.+?)/?$", u)
+    if m_tree:
+        owner, repo, branch, path = m_tree.groups()
+        return [
+            f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}/SKILL.md",
+            f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}/skill.md",
+            f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{path}/README.md",
+        ]
+    # GitHub repo root: https://github.com/owner/repo
+    m_repo = re.match(r"^https?://github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$", u)
+    if m_repo:
+        owner, repo = m_repo.groups()
+        return [
+            f"https://raw.githubusercontent.com/{owner}/{repo}/main/SKILL.md",
+            f"https://raw.githubusercontent.com/{owner}/{repo}/master/SKILL.md",
+            f"https://raw.githubusercontent.com/{owner}/{repo}/main/skills/{repo}/SKILL.md",
+            f"https://raw.githubusercontent.com/{owner}/{repo}/main/README.md",
+        ]
+    return [u]
+
+
+def import_skill_from_url(data):
+    url = str(data.get("url") or "").strip()
+    if not url or not url.startswith(("http://", "https://")):
+        return {"ok": False, "error": "Masukkan URL valid (https://... GitHub atau raw SKILL.md)."}
+    candidates = _resolve_raw_skill_urls(url)
+    downloaded_md = ""
+    used_url = ""
+    last_err = ""
+    for cand in candidates:
+        try:
+            req = urllib.request.Request(cand, headers={"User-Agent": "AI-Virtual-HQ-Skills/1.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                raw_bytes = resp.read(200000)
+                txt = raw_bytes.decode("utf-8", errors="ignore").strip()
+                if txt and not txt.lower().startswith("<!doctype html"):
+                    downloaded_md = txt
+                    used_url = cand
+                    break
+        except Exception as e:
+            last_err = str(e)
+            continue
+    if not downloaded_md:
+        return {"ok": False, "error": f"Gagal mengunduh SKILL.md dari URL tersebut ({last_err or 'format HTML bukan Markdown'}). Pastikan mengarah ke file SKILL.md atau repo GitHub publik."}
+
+    url_guess = os.path.basename(urllib.parse.urlparse(url.rstrip("/")).path)
+    if url_guess.lower() in ("skill.md", "readme.md", ""):
+        parts = [p for p in urllib.parse.urlparse(url).path.split("/") if p]
+        url_guess = parts[-2] if len(parts) >= 2 else "imported-skill"
+    parsed = _parse_skill_frontmatter(downloaded_md, fallback_name=str(data.get("name") or url_guess))
+    final_name = str(data.get("name") or parsed["name"] or url_guess).strip()
+    return save_hq_skill({
+        "name": final_name,
+        "description": parsed["description"],
+        "triggers": parsed["triggers"],
+        "content": downloaded_md,
+        "enabled": True,
+        "scope": data.get("scope") or "ALL",
+        "depts": data.get("depts") or [],
+        "agentIds": data.get("agentIds") or [],
+        "origin": "imported_url",
+        "originRef": used_url or url,
+    })
+
+
+def import_skill_from_folder(data):
+    ensure_skills_dir_ready()
+    raw_path = str(data.get("folderPath") or "").strip()
+    if not raw_path:
+        return {"ok": False, "error": "Path folder skill lokal belum dipilih."}
+    src_abs = os.path.abspath(os.path.expanduser(raw_path))
+    if not os.path.isdir(src_abs):
+        return {"ok": False, "error": f"Folder tidak ditemukan: {src_abs}"}
+    skill_md_src = os.path.join(src_abs, "SKILL.md")
+    if not os.path.isfile(skill_md_src):
+        md_cands = [f for f in sorted(os.listdir(src_abs)) if f.lower().endswith(".md")]
+        if not md_cands:
+            return {"ok": False, "error": f"Tidak ditemukan file SKILL.md (atau file .md) di dalam folder: {src_abs}"}
+        skill_md_src = os.path.join(src_abs, md_cands[0])
+
+    raw_md = open(skill_md_src, "r", encoding="utf-8", errors="ignore").read(200000)
+    folder_base = os.path.basename(src_abs.rstrip("/\\"))
+    parsed = _parse_skill_frontmatter(raw_md, fallback_name=folder_base)
+    final_name = str(data.get("name") or parsed["name"] or folder_base).strip()
+    slug = _slugify_skill(final_name)
+
+    skills_root = os.path.realpath(SKILLS_DIR)
+    dest_dir = os.path.realpath(os.path.abspath(os.path.join(skills_root, slug)))
+    if os.path.commonpath([skills_root, dest_dir]) != skills_root or dest_dir == skills_root:
+        return {"ok": False, "error": "Nama folder tujuan skill tidak valid."}
+    os.makedirs(dest_dir, exist_ok=True)
+    with open(os.path.join(dest_dir, "SKILL.md"), "w", encoding="utf-8") as f:
+        f.write(raw_md)
+    # Copy optional references/ and scripts/ folders cleanly
+    for sub in ("references", "scripts", "examples", "resources"):
+        sub_src = os.path.join(src_abs, sub)
+        sub_dst = os.path.join(dest_dir, sub)
+        if os.path.isdir(sub_src) and os.path.realpath(sub_src) != os.path.realpath(sub_dst):
+            if os.path.exists(sub_dst):
+                shutil.rmtree(sub_dst)
+            shutil.copytree(sub_src, sub_dst)
+
+    return save_hq_skill({
+        "id": f"hq:{slug}",
+        "name": final_name,
+        "description": parsed["description"],
+        "triggers": parsed["triggers"],
+        "content": raw_md,
+        "enabled": True,
+        "scope": data.get("scope") or "ALL",
+        "depts": data.get("depts") or [],
+        "agentIds": data.get("agentIds") or [],
+        "origin": "imported_folder",
+        "originRef": src_abs,
+    })
+
+
+def build_skills_context_for_agent(user_prompt="", room="", agent_id=None):
+    """Progressive Disclosure Skills Engine:
+    - Stage 1: Injects ONLY compact 1-line index of ENABLED skills assigned to this agent/dept (~15 tokens/skill).
+    - Stage 2: Automatically loads FULL SKILL.md ONLY when user_prompt matches skill triggers/name/keywords (0 wasted tokens otherwise!)."""
+    all_sk = list_all_hq_skills()
+    room_u = str(room or "").strip().upper()
+    aid_int = int(agent_id) if (agent_id is not None and str(agent_id).lstrip("-").isdigit()) else None
+
+    eligible = []
+    for sk in all_sk:
+        if not sk.get("enabled"):
+            continue
+        sc = sk.get("scope", "ALL")
+        if sc == "ALL":
+            eligible.append(sk)
+        elif sc == "DEPT":
+            if room_u in ("", "ALL", "TOWNHALL") or room_u in (sk.get("depts") or []):
+                eligible.append(sk)
+        elif sc == "AGENTS":
+            if aid_int is None or aid_int in (sk.get("agentIds") or []):
+                eligible.append(sk)
+
+    if not eligible:
+        return "", []
+
+    low = str(user_prompt or "").lower()
+    prompt_words = set(re.findall(r"[a-z0-9_-]{3,}", low))
+    stop_words = {"yang", "dan", "untuk", "dengan", "dari", "pada", "ini", "itu", "atau", "bisa", "akan", "kami", "kita", "saya", "anda", "bos", "tolong", "buat", "buatkan", "skill", "pakai", "gunakan", "the", "and", "for", "with"}
+
+    index_lines = ["KATALOG SKILL AKTIF MILIKMU (Progressive Disclosure — panggil [[LOAD_SKILL:\"slug\"]] jika butuh detail penuh):"]
+    loaded_blocks = []
+    activated_badges = []
+
+    for sk in eligible[:20]:
+        index_lines.append(f"- `{sk['slug']}` ({sk['name']}): {sk['description'][:140]}")
+        # Determine if prompt triggers auto-loading full SKILL.md
+        slug_l = sk["slug"].lower()
+        name_l = sk["name"].lower()
+        matched = False
+        if slug_l in low or name_l in low:
+            matched = True
+        else:
+            for tr in (sk.get("triggers") or []):
+                tr_l = tr.lower().strip()
+                if tr_l and len(tr_l) >= 3 and tr_l in low:
+                    matched = True
+                    break
+        if not matched:
+            desc_tokens = [w for w in re.findall(r"[a-z0-9_-]{4,}", f"{name_l} {sk['description'].lower()}") if w not in stop_words]
+            overlap = prompt_words.intersection(desc_tokens)
+            if len(overlap) >= 2:
+                matched = True
+
+        if matched and len(loaded_blocks) < 2:
+            try:
+                full_md = open(sk["absPath"], "r", encoding="utf-8", errors="ignore").read(4800).strip()
+                if full_md:
+                    loaded_blocks.append(f"=== [SKILL AKTIF PENUH: {sk['name']} (`{sk['slug']}`)] ===\n{full_md}")
+                    activated_badges.append({
+                        "tool": sk["name"],
+                        "source": "SKILL",
+                        "summary": f"skills/{sk['slug']}/SKILL.md",
+                    })
+            except Exception:
+                pass
+
+    parts = ["\n".join(index_lines)]
+    if loaded_blocks:
+        parts.append("\n\n".join(loaded_blocks))
+    return "\n\n".join(parts), activated_badges
+
+
 def _is_explicit_ceo_approval_message(user_prompt, history):
     """Detects when the CEO replies with explicit approval/execution command after a prior discussion turn."""
     if not history or not isinstance(history, list):
@@ -3056,11 +3591,14 @@ def build_dynamic_mcp_context_with_trace(user_prompt="", room="", agent_id=None)
             "summary": "Memory .md",
         })
 
-    ext_custom = load_custom_extensions()
-    if ext_custom.get("skills"):
-        lines.append("CUSTOM SKILLS & SOP TAMBAHAN YANG AKTIF DI HQ:")
-        for sk in ext_custom["skills"][:8]:
-            lines.append(f"- Skill '{sk.get('name')}' (Dept: {sk.get('dept', 'ALL')}): {sk.get('description', '')[:220]}")
+    # Centralized Skills Folder (skills/<slug>/SKILL.md) with Progressive Disclosure Auto-Load
+    skills_ctx, activated_skills = build_skills_context_for_agent(
+        user_prompt=user_prompt, room=room, agent_id=agent_id
+    )
+    if skills_ctx:
+        lines.append(skills_ctx)
+    if activated_skills:
+        executed_tools.extend(activated_skills)
 
     return "\n".join(lines), executed_tools
 
@@ -5030,6 +5568,17 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             self._send_json(200, {"ok": True, "presets": load_meeting_presets()})
             return
 
+        if self.path.startswith("/api/skills"):
+            req_id = (qs_map.get("id") or [""])[0].strip()
+            active_sk = read_hq_skill(req_id) if req_id else None
+            self._send_json(200, {
+                "ok": True,
+                "skillsDir": ensure_skills_dir_ready(),
+                "skills": list_all_hq_skills(),
+                "activeSkill": active_sk if (active_sk and active_sk.get("ok")) else None,
+            })
+            return
+
         if self.path.startswith("/api/hub-status"):
             status = get_antigravity_and_claude_status()
             mcp = get_mcp_status()
@@ -5655,6 +6204,35 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             self._send_json(200 if res.get("ok") else 400, res)
             return
 
+        if self.path.startswith("/api/skills/save"):
+            res = save_hq_skill(body)
+            self._send_json(200 if res.get("ok") else 400, res)
+            return
+
+        if self.path.startswith("/api/skills/toggle"):
+            res = save_hq_skill({"id": body.get("id"), "enabled": bool(body.get("enabled", True))})
+            self._send_json(200 if res.get("ok") else 400, res)
+            return
+
+        if self.path.startswith("/api/skills/import-url"):
+            res = import_skill_from_url(body)
+            self._send_json(200 if res.get("ok") else 400, res)
+            return
+
+        if self.path.startswith("/api/skills/import-folder"):
+            res = import_skill_from_folder(body)
+            self._send_json(200 if res.get("ok") else 400, res)
+            return
+
+        if self.path.startswith("/api/skills/pick-folder"):
+            self._send_json(200, pick_native_os_folder())
+            return
+
+        if self.path.startswith("/api/skills/delete"):
+            res = delete_hq_skill(body.get("id"))
+            self._send_json(200 if res.get("ok") else 400, res)
+            return
+
         if self.path.startswith("/api/architect/plan"):
             prompt = str(body.get("prompt") or "").strip()
             if not prompt:
@@ -6073,12 +6651,27 @@ def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, p
             live_mcp_ctx=live_mcp_ctx,
         )
         matches = re.findall(r"\[\[TOOL_CALL:(\{[\s\S]*?\})\]\]", str(reply or ""))
-        if not matches or step_idx >= max_steps:
+        skill_loads = re.findall(r"\[\[LOAD_SKILL:\s*\"?([A-Za-z0-9_.:-]+)\"?\s*\]\]", str(reply or ""))
+        if (not matches and not skill_loads) or step_idx >= max_steps:
             # Strip raw tags cleanly before showing to user
-            clean_final = re.sub(r"\[\[TOOL_CALL:\{[\s\S]*?\}\]\]", "", str(reply or "")).strip()
+            clean_final = re.sub(r"\[\[TOOL_CALL:\{[\s\S]*?\}\]\]", "", str(reply or ""))
+            clean_final = re.sub(r"\[\[LOAD_SKILL:\s*\"?[A-Za-z0-9_.:-]+\"?\s*\]\]", "", clean_final).strip()
             return clean_final or reply, used_engine
 
         tool_results_lines = []
+        for sk_slug in skill_loads[:2]:
+            sk_res = read_hq_skill(sk_slug)
+            if sk_res.get("ok"):
+                sk_meta = sk_res["skill"]
+                executed_tools.append({
+                    "tool": sk_meta["name"],
+                    "source": "SKILL",
+                    "summary": f"On-Demand SKILL.md",
+                })
+                tool_results_lines.append(f"- ISI LENGKAP SKILL `{sk_meta['name']}` (`{sk_meta['slug']}`):\n{sk_res['content'][:5000]}")
+            else:
+                tool_results_lines.append(f"- Skill `{sk_slug}` tidak ditemukan.")
+
         for raw_json in matches[:4]:
             try:
                 req_obj = json.loads(raw_json)
@@ -6377,24 +6970,19 @@ def apply_hq_architect_plan(raw_plan):
     if layout_changed:
         save_hq_layout(layout)
 
-    # 3. Custom Skills / SOP
-    ext = load_custom_extensions()
-    ext.setdefault("skills", [])
-    skills_changed = False
-    existing_skill_names = {str(s.get("name") or "").lower() for s in ext["skills"] if isinstance(s, dict)}
+    # 3. Custom Skills / SOP (stored cleanly in centralized skills/<slug>/SKILL.md)
     for sk in (plan.get("addSkills") or []):
-        if sk["name"].lower() not in existing_skill_names:
-            ext["skills"].append({
-                "name": sk["name"],
-                "dept": sk["dept"],
-                "desc": sk["desc"],
-                "addedAt": time.strftime("%Y-%m-%d %H:%M"),
-            })
-            existing_skill_names.add(sk["name"].lower())
-            skills_changed = True
-            applied_summary.append(f"Skill/SOP baru: {sk['name']} ({sk['dept']})")
-    if skills_changed:
-        save_custom_extensions(ext)
+        d_raw = str(sk.get("dept") or "ALL").strip().upper()
+        sc = "ALL" if d_raw in ("", "ALL") else "DEPT"
+        save_hq_skill({
+            "name": sk["name"],
+            "description": sk["desc"],
+            "scope": sc,
+            "depts": [] if sc == "ALL" else [d_raw],
+            "enabled": True,
+            "origin": "architect",
+        })
+        applied_summary.append(f"Skill/SOP baru: skills/{_slugify_skill(sk['name'])}/SKILL.md ({d_raw})")
 
     # 4. Initial Tasks on Taskboard
     tasks = load_taskboard()
@@ -6503,6 +7091,7 @@ def _run_background_model_and_vps_heartbeat():
 def create_hq_server(host=None, port=None, start_heartbeat=True):
     try:
         ensure_obsidian_vault_seeded()
+        ensure_skills_dir_ready()
     except Exception:
         pass
     _init_cfg = load_saved_config()

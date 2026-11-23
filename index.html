@@ -1816,26 +1816,151 @@
         </div>
       </div>
 
-      <!-- TAB 3: SKILLS TIM AI -->
+      <!-- TAB 3: SKILLS TIM AI (CENTRALIZED skills/<slug>/SKILL.md + PROGRESSIVE DISCLOSURE) -->
       <div id="settings-panel-SKILLS" class="hidden p-5 overflow-y-auto space-y-4 text-xs">
+        <!-- Header & 3 Cara Tambah Skill -->
         <div class="rounded-xl bg-[#13131b] border border-purple-500/35 p-4 space-y-3">
-          <div class="flex items-center justify-between">
+          <div class="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <span class="font-bold text-purple-300 uppercase text-[11px]">🧠 Daftar Skill & SOP Resmi Terpasang</span>
-              <p class="text-[10.5px] text-slate-400">Setiap custom Skill yang ditambahkan di sini otomatis dibaca & dipatuhi oleh AI saat berdiskusi!</p>
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="font-bold text-white text-xs">🧠 Manajemen Skills Tim AI (Folder Terpusat <code>skills/</code>)</span>
+                <span id="hq-skills-count-badge" class="px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-200 border border-purple-400/35 text-[10px] font-mono">0 Aktif</span>
+              </div>
+              <p class="text-[10.5px] text-slate-400 mt-0.5">
+                Semua skill disimpan rapi dalam satu folder <code id="skills-dir-path-label" class="text-amber-300">skills/</code> mengikuti standar <code>SKILL.md</code> (siap untuk <b>PonyTail</b>, GitHub, Claude/Agent Skills, maupun SOP custom). Isi penuh <code>SKILL.md</code> hanya dimuat otomatis saat topik cocok (<b>hemat token</b>).
+              </p>
             </div>
-            <button onclick="loadExtensionsStatus()" class="px-2.5 py-1 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 text-[10.5px] font-bold cursor-pointer">🔄 Scan Ulang</button>
+            <div class="flex flex-wrap items-center gap-1.5 shrink-0">
+              <button type="button" onclick="openSkillEditorForm()" class="px-2.5 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-semibold text-[10.5px] cursor-pointer">
+                + Buat SKILL.md
+              </button>
+              <button type="button" onclick="openSkillUrlImportForm()" class="px-2.5 py-1.5 rounded-lg bg-sky-600/25 hover:bg-sky-600/40 border border-sky-400/40 text-sky-200 font-semibold text-[10.5px] cursor-pointer">
+                🌐 Import URL / GitHub
+              </button>
+              <button type="button" onclick="importSkillFromFolderPickerUI()" class="px-2.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/40 text-amber-200 font-semibold text-[10.5px] cursor-pointer">
+                📂 Import Folder Skill
+              </button>
+            </div>
           </div>
-          <div id="ext-skills-list" class="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto pr-1"></div>
-        </div>
-        <div class="rounded-xl bg-[#13131b] border border-white/10 p-4 space-y-2.5">
-          <div class="font-bold text-amber-300 uppercase text-[11px]">➕ Tambah Skill / SOP Khusus Baru untuk Staf</div>
-          <div class="grid grid-cols-1 md:grid-cols-12 gap-2">
-            <input id="ext-skill-name" type="text" placeholder="Nama Skill (mis: copywriting-wedding-id)" class="md:col-span-4 px-3 py-2 rounded-lg bg-[#1c1c28] border border-white/15 text-white" />
-            <input id="ext-skill-dept" type="text" placeholder="Dept (mis: SOCIAL / FINANCE / ALL)" class="md:col-span-2 px-3 py-2 rounded-lg bg-[#1c1c28] border border-white/15 text-white font-mono" />
-            <input id="ext-skill-desc" type="text" placeholder="Instruksi / SOP singkat yang wajib diikuti staf..." class="md:col-span-4 px-3 py-2 rounded-lg bg-[#1c1c28] border border-white/15 text-white" />
-            <button onclick="addCustomExtension('skills')" class="md:col-span-2 px-3 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold cursor-pointer">+ Tambah Skill</button>
+
+          <!-- Filter Sumber Skill (Pisahkan Skill Kantor vs Skill Sistem Lokal) -->
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/10">
+            <div class="flex items-center gap-1.5 text-[10.5px]">
+              <button type="button" id="skills-filter-hq" onclick="switchSkillsSourceFilter('hq_folder')" class="px-2.5 py-1 rounded-lg bg-purple-600 text-white font-semibold cursor-pointer">
+                📂 Skill Kantor (skills/)
+              </button>
+              <button type="button" id="skills-filter-sys" onclick="switchSkillsSourceFilter('system')" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 cursor-pointer">
+                💻 Skill Sistem Lokal (Opsional)
+              </button>
+            </div>
+            <button type="button" onclick="loadHqSkillsUI()" class="px-2 py-1 rounded-md bg-white/5 hover:bg-white/10 text-slate-300 text-[10px] cursor-pointer">
+              🔄 Scan Ulang
+            </button>
           </div>
+
+          <!-- Form Import URL / GitHub (Siap PonyTail / SKILL.md) -->
+          <div id="skill-import-url-wrap" class="hidden rounded-xl bg-[#0e0e16] border border-sky-500/40 p-3.5 space-y-2.5">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-sky-300 text-[11px]">🌐 Import Skill dari URL / Repo GitHub (PonyTail, Agent Skills, Raw SKILL.md)</span>
+              <button type="button" onclick="closeSkillForms()" class="text-slate-400 hover:text-white text-xs cursor-pointer">✕</button>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-2">
+              <div class="md:col-span-6">
+                <label class="block text-[10px] text-slate-300 mb-1">URL GitHub Repo / Folder / Raw SKILL.md *</label>
+                <input id="sk-imp-url" type="text" placeholder="https://github.com/owner/repo/blob/main/skills/ponytail/SKILL.md" class="w-full px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-sky-200 font-mono text-[11px]" />
+              </div>
+              <div class="md:col-span-3">
+                <label class="block text-[10px] text-slate-300 mb-1">Nama Skill (Opsional)</label>
+                <input id="sk-imp-name" type="text" placeholder="Otomatis dari SKILL.md" class="w-full px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-[11px]" />
+              </div>
+              <div class="md:col-span-3">
+                <label class="block text-[10px] text-slate-300 mb-1">Ditugaskan Untuk</label>
+                <select id="sk-imp-scope" class="w-full px-2.5 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-[11px]">
+                  <option value="ALL">🌐 Semua Staf</option>
+                  <option value="DEPT:SOCIAL">📱 Dept 1 · Social</option>
+                  <option value="DEPT:THEMES">🎨 Dept 2 · Produk/Tema</option>
+                  <option value="DEPT:GROWTH">🤝 Dept 3 · Growth</option>
+                  <option value="DEPT:ADMIN">🛡️ Dept 4 · Ops/CS</option>
+                  <option value="DEPT:ENGINEERING">💻 Dept 5 · Engineering</option>
+                  <option value="DEPT:FINANCE">💰 Dept 6 · Finance</option>
+                </select>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="btn-sk-import-url" type="button" onclick="importSkillFromUrlUI()" class="px-3.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold text-[11px] cursor-pointer">
+                ⬇️ Unduh &amp; Simpan ke Folder skills/
+              </button>
+              <button type="button" onclick="closeSkillForms()" class="px-3 py-1.5 rounded-lg bg-white/10 text-slate-300 text-[11px] cursor-pointer">Batal</button>
+            </div>
+          </div>
+
+          <!-- Form Buat / Edit SKILL.md Lengkap + Assign Departemen / Staf Spesifik -->
+          <div id="skill-editor-wrap" class="hidden rounded-xl bg-[#0e0e16] border border-purple-400/45 p-3.5 space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <span id="sk-editor-heading" class="font-bold text-purple-300 text-[11.5px]">✏️ Buat / Edit Skill (SKILL.md)</span>
+              <div class="flex items-center gap-2">
+                <input id="sk-upload-md-input" type="file" accept=".md,.txt" onchange="handleSkillFileUploadToEditor(this.files)" class="hidden" />
+                <button type="button" id="btn-sk-upload-md" onclick="document.getElementById('sk-upload-md-input').click()" class="px-2 py-1 rounded bg-white/10 hover:bg-white/15 text-amber-200 text-[10px] cursor-pointer">
+                  📄 Muat dari File .md
+                </button>
+                <button type="button" onclick="closeSkillForms()" class="text-slate-400 hover:text-white text-xs cursor-pointer">✕</button>
+              </div>
+            </div>
+
+            <input id="sk-edit-id" type="hidden" value="" />
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-2">
+              <div class="md:col-span-4">
+                <label class="block text-[10px] text-amber-300 font-semibold mb-1">Nama Skill *</label>
+                <input id="sk-edit-name" type="text" placeholder="mis: ponytail-ui-craft / copywriting-ig" class="w-full px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-[11px]" />
+              </div>
+              <div class="md:col-span-5">
+                <label class="block text-[10px] text-slate-300 mb-1">Deskripsi Pemicu (Kapan AI otomatis memakai skill ini?)</label>
+                <input id="sk-edit-desc" type="text" placeholder="Gunakan saat membuat desain UI, landing page, atau audit visual..." class="w-full px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-[11px]" />
+              </div>
+              <div class="md:col-span-3">
+                <label class="block text-[10px] text-slate-300 mb-1">Kata Kunci Trigger (pisahkan koma)</label>
+                <input id="sk-edit-triggers" type="text" placeholder="ponytail, desain, ui, layout" class="w-full px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-sky-200 font-mono text-[11px]" />
+              </div>
+            </div>
+
+            <!-- Target Penugasan yang Jelas: Semua Staf / Departemen / Staf Spesifik -->
+            <div class="rounded-lg bg-[#151520] border border-white/10 p-3 space-y-2">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <label class="text-[10.5px] font-semibold text-emerald-300">🎯 Target Penerima Skill (Untuk Siapa?):</label>
+                <select id="sk-edit-scope" onchange="onSkillScopeChange()" class="px-2.5 py-1 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-[11px]">
+                  <option value="ALL">🌐 Global — Semua Staf</option>
+                  <option value="DEPT">🏢 Departemen Tertentu (Pilih)</option>
+                  <option value="AGENTS">👤 Staf Spesifik (Centang Nama)</option>
+                </select>
+              </div>
+              <div id="sk-scope-depts-box" class="hidden flex flex-wrap gap-1.5 pt-1"></div>
+              <div id="sk-scope-agents-box" class="hidden grid grid-cols-2 md:grid-cols-4 gap-1.5 max-h-36 overflow-y-auto pt-1"></div>
+            </div>
+
+            <div id="sk-md-editor-wrap">
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-[10px] text-purple-300 font-semibold">Isi Lengkap <code>SKILL.md</code> (Markdown — YAML frontmatter opsional):</label>
+                <span id="sk-extra-files-pill" class="text-[9.5px] font-mono text-slate-400"></span>
+              </div>
+              <textarea id="sk-edit-content" rows="9" placeholder="# Nama Skill&#10;&#10;## Aturan & Langkah Kerja&#10;1. ...&#10;2. ..." class="w-full p-3 rounded-lg bg-[#090910] border border-white/15 font-mono text-[10.5px] text-slate-200 leading-relaxed focus:outline-none focus:border-purple-400"></textarea>
+            </div>
+
+            <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <label class="inline-flex items-center gap-2 text-[11px] text-slate-200 cursor-pointer select-none">
+                <input id="sk-edit-enabled" type="checkbox" checked class="rounded" />
+                <span>Status Skill <b>AKTIF (ON)</b> — otomatis dipakai staf sesuai target di atas</span>
+              </label>
+              <div class="flex items-center gap-2">
+                <button type="button" onclick="saveHqSkillUI()" class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] cursor-pointer">
+                  💾 Simpan SKILL.md
+                </button>
+                <button type="button" onclick="closeSkillForms()" class="px-3 py-1.5 rounded-lg bg-white/10 text-slate-300 text-[11px] cursor-pointer">Batal</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Daftar Skill Cards -->
+          <div id="hq-skills-list" class="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-[340px] overflow-y-auto pr-1"></div>
         </div>
       </div>
 
@@ -6041,9 +6166,13 @@
           ? `<div class="mb-2 flex flex-wrap gap-1">
                ${m.toolCalls.map(tc => {
                  const isObs = tc.source === "OBSIDIAN_MEMORY";
+                 const isSkill = tc.source === "SKILL";
                  const isRemote = tc.source === "REMOTE_MCP";
                  if (isObs) {
                    return `<button type="button" onclick="toggleInlineMemoryViewer(true)" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border bg-purple-500/20 border-purple-400/45 text-purple-200 font-semibold text-[9.5px] font-mono cursor-pointer" title="Klik untuk melihat/edit catatan Memory Markdown Obsidian">🧠 ${escapeHtmlSafe(tc.tool)} <span class="text-purple-300/80">· ${escapeHtmlSafe(tc.summary || 'Memory .md')}</span></button>`;
+                 }
+                 if (isSkill) {
+                   return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border bg-amber-500/20 border-amber-400/45 text-amber-200 font-semibold text-[9.5px] font-mono" title="Skill SKILL.md otomatis aktif karena topik cocok">📚 Skill: ${escapeHtmlSafe(tc.tool)} <span class="text-amber-300/80">· ${escapeHtmlSafe(tc.summary || 'SKILL.md')}</span></span>`;
                  }
                  const cls = isRemote
                    ? "bg-emerald-500/20 border-emerald-400/45 text-emerald-200 font-semibold"
@@ -6992,9 +7121,367 @@
         loadLocalStdioMcps();
         loadAuthorizedFolders();
       }
-      if (tabKey !== "API" && tabKey !== "SETUP") {
+      if (tabKey === "SKILLS") {
+        loadHqSkillsUI();
+      }
+      if (tabKey !== "API" && tabKey !== "SETUP" && tabKey !== "SKILLS") {
         loadExtensionsStatus();
       }
+    }
+
+    // ================= CENTRALIZED SKILLS MANAGER UI (skills/<slug>/SKILL.md) =================
+    var HQ_SKILLS_CACHE = [];
+    var CURRENT_SKILLS_FILTER = "hq_folder";
+
+    function switchSkillsSourceFilter(src) {
+      CURRENT_SKILLS_FILTER = src === "system" ? "system" : "hq_folder";
+      const bHq = document.getElementById("skills-filter-hq");
+      const bSys = document.getElementById("skills-filter-sys");
+      if (bHq) bHq.className = CURRENT_SKILLS_FILTER === "hq_folder"
+        ? "px-2.5 py-1 rounded-lg bg-purple-600 text-white font-semibold cursor-pointer"
+        : "px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 cursor-pointer";
+      if (bSys) bSys.className = CURRENT_SKILLS_FILTER === "system"
+        ? "px-2.5 py-1 rounded-lg bg-purple-600 text-white font-semibold cursor-pointer"
+        : "px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 cursor-pointer";
+      renderHqSkillsList();
+    }
+
+    async function loadHqSkillsUI() {
+      try {
+        const res = await fetch("/api/skills");
+        const data = await res.json();
+        if (data && data.ok) {
+          HQ_SKILLS_CACHE = Array.isArray(data.skills) ? data.skills : [];
+          const dirEl = document.getElementById("skills-dir-path-label");
+          if (dirEl && data.skillsDir) dirEl.textContent = data.skillsDir;
+          renderHqSkillsList();
+        }
+      } catch (e) {}
+    }
+
+    function _formatSkillTargetBadge(sk) {
+      if (sk.scope === "DEPT" && Array.isArray(sk.depts) && sk.depts.length) {
+        return `<span class="px-1.5 py-0.5 rounded bg-sky-500/15 border border-sky-400/35 text-sky-200 text-[9.5px] font-mono">🏢 Dept: ${escapeHtmlSafe(sk.depts.join(", "))}</span>`;
+      }
+      if (sk.scope === "AGENTS" && Array.isArray(sk.agentIds) && sk.agentIds.length) {
+        const names = sk.agentIds.map(id => (agents.find(a => Number(a.id) === Number(id)) || {}).name || `#${id}`);
+        return `<span class="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-400/35 text-amber-200 text-[9.5px] font-mono">👤 Staf: ${escapeHtmlSafe(names.slice(0, 4).join(", ") + (names.length > 4 ? ` +${names.length - 4}` : ""))}</span>`;
+      }
+      return `<span class="px-1.5 py-0.5 rounded bg-emerald-500/15 border border-emerald-400/35 text-emerald-200 text-[9.5px] font-mono">🌐 Semua Staf</span>`;
+    }
+
+    function renderHqSkillsList() {
+      const box = document.getElementById("hq-skills-list");
+      const badge = document.getElementById("hq-skills-count-badge");
+      const activeTotal = HQ_SKILLS_CACHE.filter(s => s.enabled).length;
+      const hqCount = HQ_SKILLS_CACHE.filter(s => s.source === "hq_folder").length;
+      const sysCount = HQ_SKILLS_CACHE.filter(s => s.source === "system").length;
+      if (badge) badge.textContent = `${activeTotal} Aktif · ${hqCount} di skills/`;
+
+      const bHq = document.getElementById("skills-filter-hq");
+      const bSys = document.getElementById("skills-filter-sys");
+      if (bHq) bHq.textContent = `📂 Skill Kantor (${hqCount})`;
+      if (bSys) bSys.textContent = `💻 Skill Sistem Lokal (${sysCount})`;
+
+      if (!box) return;
+      const list = HQ_SKILLS_CACHE.filter(s => s.source === CURRENT_SKILLS_FILTER);
+      if (list.length === 0) {
+        box.innerHTML = CURRENT_SKILLS_FILTER === "hq_folder"
+          ? `<div class="md:col-span-2 p-5 rounded-xl bg-[#0e0e16] border border-dashed border-white/15 text-center space-y-2">
+               <div class="text-slate-300 font-semibold">Folder <code>skills/</code> masih bersih dan siap menerima skill pertama Anda!</div>
+               <div class="text-[10.5px] text-slate-400">Anda bisa langsung klik <b>+ Buat SKILL.md</b>, <b>🌐 Import URL / GitHub</b> (misal skill PonyTail), atau <b>📂 Import Folder Skill</b> dari Mac Anda.</div>
+             </div>`
+          : `<div class="md:col-span-2 p-4 rounded-xl bg-[#0e0e16] border border-white/10 text-center text-slate-400">Tidak ada skill sistem lokal terdeteksi di ~/.gemini/config/skills/.</div>`;
+        return;
+      }
+
+      box.innerHTML = list.map(sk => {
+        const safeId = String(sk.id).replace(/'/g, "\\'");
+        const safeName = String(sk.name || sk.slug).replace(/'/g, "\\'");
+        const onCls = sk.enabled
+          ? "bg-emerald-500/20 border-emerald-400/50 text-emerald-200 font-bold"
+          : "bg-white/5 border-white/15 text-slate-400";
+        const extraTags = [
+          sk.hasReferences ? `<span class="px-1 py-0.5 rounded bg-white/5 text-slate-400 font-mono text-[9px]">+references/</span>` : "",
+          sk.hasScripts ? `<span class="px-1 py-0.5 rounded bg-white/5 text-slate-400 font-mono text-[9px]">+scripts/</span>` : "",
+        ].filter(Boolean).join(" ");
+        return `
+          <div class="p-3 rounded-xl bg-[#181824] border ${sk.enabled ? 'border-purple-500/40' : 'border-white/10 opacity-75'} flex flex-col justify-between gap-2">
+            <div class="space-y-1.5">
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <div class="font-bold text-white text-[11.5px] truncate">${escapeHtmlSafe(sk.name)}</div>
+                  <div class="text-[9.5px] font-mono text-slate-400 truncate">${escapeHtmlSafe(sk.source === 'hq_folder' ? sk.relPath : sk.slug)} · ${sk.sizeKb}KB ${extraTags}</div>
+                </div>
+                <button type="button" onclick="toggleHqSkillStatus('${safeId}', ${!sk.enabled})" class="px-2 py-0.5 rounded-full border text-[9.5px] cursor-pointer shrink-0 ${onCls}" title="Aktifkan / Nonaktifkan skill ini">
+                  ${sk.enabled ? '● ON' : '○ OFF'}
+                </button>
+              </div>
+              <p class="text-[10.5px] text-slate-300 line-clamp-2 leading-relaxed">${escapeHtmlSafe(sk.description || '-')}</p>
+              <div class="flex flex-wrap items-center gap-1 pt-0.5">
+                ${_formatSkillTargetBadge(sk)}
+                ${(sk.triggers || []).slice(0, 3).map(t => `<span class="px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-200 font-mono text-[9px]">#${escapeHtmlSafe(t)}</span>`).join("")}
+              </div>
+            </div>
+            <div class="flex items-center justify-between gap-1.5 pt-2 border-t border-white/10">
+              <button type="button" onclick="openSkillEditorForm('${safeId}')" class="px-2.5 py-1 rounded-md bg-white/10 hover:bg-white/15 text-slate-100 text-[10px] font-medium cursor-pointer">
+                ${sk.deletable ? '👁️ Edit SKILL.md & Target' : '🎯 Lihat & Atur Target'}
+              </button>
+              ${sk.deletable
+                ? `<button type="button" onclick="deleteHqSkillUI('${safeId}', '${safeName}')" class="px-2 py-1 rounded-md bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 text-[10px] cursor-pointer">🗑️ Hapus</button>`
+                : `<span class="text-[9.5px] text-slate-500 font-mono">Sistem Lokal</span>`
+              }
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function closeSkillForms() {
+      document.getElementById("skill-editor-wrap")?.classList.add("hidden");
+      document.getElementById("skill-import-url-wrap")?.classList.add("hidden");
+    }
+
+    function openSkillUrlImportForm() {
+      closeSkillForms();
+      document.getElementById("skill-import-url-wrap")?.classList.remove("hidden");
+      setTimeout(() => document.getElementById("sk-imp-url")?.focus(), 50);
+    }
+
+    function _renderSkillScopePickers(selDepts = [], selAgents = []) {
+      const deptBox = document.getElementById("sk-scope-depts-box");
+      const agBox = document.getElementById("sk-scope-agents-box");
+      const deptsMap = (COMPANY_PROFILE_CACHE && COMPANY_PROFILE_CACHE.departments) || {
+        SOCIAL: "Social Media", THEMES: "Produk & Tema", GROWTH: "Growth & Sales",
+        ADMIN: "CS & Ops", ENGINEERING: "Engineering", FINANCE: "Finance"
+      };
+      const allDeptKeys = [...new Set([...Object.keys(deptsMap), ...agents.map(a => a.room).filter(Boolean)])];
+      const dSet = new Set((selDepts || []).map(x => String(x).toUpperCase()));
+      if (deptBox) {
+        deptBox.innerHTML = allDeptKeys.map(dk => `
+          <label class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#1c1c28] border border-white/10 text-[10.5px] text-slate-200 cursor-pointer">
+            <input type="checkbox" class="sk-dept-chk" value="${escapeHtmlSafe(dk)}" ${dSet.has(dk) ? 'checked' : ''} />
+            <span>${escapeHtmlSafe(dk)} (${escapeHtmlSafe(deptsMap[dk] || dk)})</span>
+          </label>
+        `).join("");
+      }
+      const aSet = new Set((selAgents || []).map(x => Number(x)));
+      if (agBox) {
+        agBox.innerHTML = agents.map(a => `
+          <label class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#1c1c28] border border-white/10 text-[10px] text-slate-200 cursor-pointer">
+            <input type="checkbox" class="sk-agent-chk" value="${a.id}" ${aSet.has(Number(a.id)) ? 'checked' : ''} />
+            <span class="truncate">${escapeHtmlSafe(a.name)} <span class="text-slate-400">(${escapeHtmlSafe(a.room || '-')})</span></span>
+          </label>
+        `).join("");
+      }
+    }
+
+    function onSkillScopeChange() {
+      const sc = document.getElementById("sk-edit-scope")?.value || "ALL";
+      document.getElementById("sk-scope-depts-box")?.classList.toggle("hidden", sc !== "DEPT");
+      document.getElementById("sk-scope-agents-box")?.classList.toggle("hidden", sc !== "AGENTS");
+    }
+
+    async function openSkillEditorForm(skillId = "") {
+      closeSkillForms();
+      const wrap = document.getElementById("skill-editor-wrap");
+      if (!wrap) return;
+      wrap.classList.remove("hidden");
+
+      const heading = document.getElementById("sk-editor-heading");
+      const nameInp = document.getElementById("sk-edit-name");
+      const descInp = document.getElementById("sk-edit-desc");
+      const trigInp = document.getElementById("sk-edit-triggers");
+      const scopeSel = document.getElementById("sk-edit-scope");
+      const enChk = document.getElementById("sk-edit-enabled");
+      const ta = document.getElementById("sk-edit-content");
+      const upBtn = document.getElementById("btn-sk-upload-md");
+      const extraPill = document.getElementById("sk-extra-files-pill");
+
+      if (!skillId) {
+        document.getElementById("sk-edit-id").value = "";
+        if (heading) heading.textContent = "➕ Buat Skill Baru di Folder skills/<nama>/SKILL.md";
+        if (nameInp) { nameInp.value = ""; nameInp.disabled = false; }
+        if (descInp) { descInp.value = ""; descInp.disabled = false; }
+        if (trigInp) trigInp.value = "";
+        if (scopeSel) scopeSel.value = "ALL";
+        if (enChk) enChk.checked = true;
+        if (ta) { ta.value = ""; ta.readOnly = false; }
+        if (upBtn) upBtn.classList.remove("hidden");
+        if (extraPill) extraPill.textContent = "";
+        _renderSkillScopePickers([], []);
+        onSkillScopeChange();
+        setTimeout(() => nameInp?.focus(), 50);
+        return;
+      }
+
+      try {
+        const res = await fetch(`/api/skills?id=${encodeURIComponent(skillId)}`);
+        const data = await res.json();
+        const active = data && data.activeSkill;
+        if (!active || !active.skill) return;
+        const sk = active.skill;
+        const isSys = sk.source === "system";
+        document.getElementById("sk-edit-id").value = sk.id;
+        if (heading) heading.textContent = isSys ? `🎯 Atur Target Skill Sistem: ${sk.name}` : `✏️ Edit Skill: skills/${sk.slug}/SKILL.md`;
+        if (nameInp) { nameInp.value = sk.name || ""; nameInp.disabled = isSys; }
+        if (descInp) { descInp.value = sk.description || ""; descInp.disabled = isSys; }
+        if (trigInp) trigInp.value = (sk.triggers || []).join(", ");
+        if (scopeSel) scopeSel.value = sk.scope || "ALL";
+        if (enChk) enChk.checked = Boolean(sk.enabled);
+        if (ta) { ta.value = active.content || ""; ta.readOnly = isSys; }
+        if (upBtn) upBtn.classList.toggle("hidden", isSys);
+        if (extraPill) extraPill.textContent = (active.extraFiles || []).length ? `File pendukung: ${active.extraFiles.join(", ")}` : "";
+        _renderSkillScopePickers(sk.depts || [], sk.agentIds || []);
+        onSkillScopeChange();
+      } catch (e) {}
+    }
+
+    function handleSkillFileUploadToEditor(fileList) {
+      const f = fileList && fileList[0];
+      if (!f) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const txt = String(reader.result || "");
+        const ta = document.getElementById("sk-edit-content");
+        if (ta) ta.value = txt;
+        const nameInp = document.getElementById("sk-edit-name");
+        if (nameInp && !nameInp.value.trim()) {
+          nameInp.value = f.name.replace(/\.[^.]+$/, "");
+        }
+        updateToast(`📄 File "${f.name}" dimuat ke editor SKILL.md — klik Simpan SKILL.md!`);
+      };
+      reader.readAsText(f);
+      const inp = document.getElementById("sk-upload-md-input");
+      if (inp) inp.value = "";
+    }
+
+    async function saveHqSkillUI() {
+      const id = (document.getElementById("sk-edit-id")?.value || "").trim();
+      const name = (document.getElementById("sk-edit-name")?.value || "").trim();
+      const description = (document.getElementById("sk-edit-desc")?.value || "").trim();
+      const triggersRaw = (document.getElementById("sk-edit-triggers")?.value || "").trim();
+      const triggers = triggersRaw ? triggersRaw.split(",").map(s => s.trim()).filter(Boolean) : [];
+      const scope = document.getElementById("sk-edit-scope")?.value || "ALL";
+      const enabled = Boolean(document.getElementById("sk-edit-enabled")?.checked);
+      const content = document.getElementById("sk-edit-content")?.value || "";
+      const depts = Array.from(document.querySelectorAll(".sk-dept-chk:checked")).map(c => c.value);
+      const agentIds = Array.from(document.querySelectorAll(".sk-agent-chk:checked")).map(c => Number(c.value));
+
+      if (!id && !name) { updateToast("Nama skill wajib diisi."); return; }
+      if (scope === "DEPT" && depts.length === 0) { updateToast("Centang minimal 1 departemen target."); return; }
+      if (scope === "AGENTS" && agentIds.length === 0) { updateToast("Centang minimal 1 staf target."); return; }
+
+      try {
+        const res = await fetch("/api/skills/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: id || undefined, name, description, triggers, scope, depts, agentIds, enabled, content }),
+        });
+        const data = await res.json();
+        if (data && data.ok) {
+          HQ_SKILLS_CACHE = Array.isArray(data.skills) ? data.skills : HQ_SKILLS_CACHE;
+          closeSkillForms();
+          renderHqSkillsList();
+          updateToast(`🧠 Skill "${name || id}" tersimpan rapi di folder skills/!`);
+        } else {
+          updateToast((data && data.error) || "Gagal menyimpan skill.");
+        }
+      } catch (e) { updateToast("Error menyimpan skill."); }
+    }
+
+    async function toggleHqSkillStatus(skillId, nextEnabled) {
+      try {
+        const res = await fetch("/api/skills/toggle", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: skillId, enabled: Boolean(nextEnabled) }),
+        });
+        const data = await res.json();
+        if (data && data.ok && Array.isArray(data.skills)) {
+          HQ_SKILLS_CACHE = data.skills;
+          renderHqSkillsList();
+          updateToast(nextEnabled ? "Skill diaktifkan (ON)." : "Skill dinonaktifkan (OFF).");
+        }
+      } catch (e) {}
+    }
+
+    async function importSkillFromUrlUI() {
+      const url = (document.getElementById("sk-imp-url")?.value || "").trim();
+      const name = (document.getElementById("sk-imp-name")?.value || "").trim();
+      const rawScope = document.getElementById("sk-imp-scope")?.value || "ALL";
+      const scope = rawScope.startsWith("DEPT:") ? "DEPT" : "ALL";
+      const depts = rawScope.startsWith("DEPT:") ? [rawScope.slice(5)] : [];
+      if (!url) { updateToast("Masukkan URL GitHub / Raw SKILL.md terlebih dahulu."); return; }
+
+      const btn = document.getElementById("btn-sk-import-url");
+      if (btn) { btn.disabled = true; btn.textContent = "⏳ Mengunduh SKILL.md..."; }
+      try {
+        const res = await fetch("/api/skills/import-url", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url, name, scope, depts }),
+        });
+        const data = await res.json();
+        if (data && data.ok) {
+          HQ_SKILLS_CACHE = Array.isArray(data.skills) ? data.skills : HQ_SKILLS_CACHE;
+          document.getElementById("sk-imp-url").value = "";
+          document.getElementById("sk-imp-name").value = "";
+          closeSkillForms();
+          switchSkillsSourceFilter("hq_folder");
+          updateToast(`🌐 Skill berhasil diimpor ke skills/${data.slug}/SKILL.md!`);
+        } else {
+          updateToast((data && data.error) || "Gagal mengimpor skill dari URL.");
+        }
+      } catch (e) {
+        updateToast("Error mengunduh skill dari URL.");
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "⬇️ Unduh & Simpan ke Folder skills/"; }
+      }
+    }
+
+    async function importSkillFromFolderPickerUI() {
+      updateToast("Membuka dialog pemilihan folder skill lokal...");
+      try {
+        const pickRes = await fetch("/api/skills/pick-folder", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const picked = await pickRes.json();
+        if (!picked || !picked.ok || !picked.path) {
+          if (picked && !picked.cancelled && picked.error) updateToast(picked.error);
+          return;
+        }
+        const impRes = await fetch("/api/skills/import-folder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ folderPath: picked.path, scope: "ALL" }),
+        });
+        const data = await impRes.json();
+        if (data && data.ok) {
+          HQ_SKILLS_CACHE = Array.isArray(data.skills) ? data.skills : HQ_SKILLS_CACHE;
+          switchSkillsSourceFilter("hq_folder");
+          updateToast(`📂 Folder skill berhasil disalin ke skills/${data.slug}/ (termasuk references & scripts)!`);
+        } else {
+          updateToast((data && data.error) || "Gagal mengimpor folder skill.");
+        }
+      } catch (e) { updateToast("Error mengimpor folder skill."); }
+    }
+
+    async function deleteHqSkillUI(skillId, name) {
+      if (!confirm(`Hapus permanen skill "${name}" dari folder skills/?`)) return;
+      try {
+        const res = await fetch("/api/skills/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: skillId }),
+        });
+        const data = await res.json();
+        if (data && data.ok && Array.isArray(data.skills)) {
+          HQ_SKILLS_CACHE = data.skills;
+          renderHqSkillsList();
+          updateToast(`🗑️ Skill "${name}" dihapus dari folder skills/.`);
+        } else {
+          updateToast((data && data.error) || "Gagal menghapus skill.");
+        }
+      } catch (e) {}
     }
 
     // ================= DYNAMIC MEETING PRESETS SETUP CRUD =================
