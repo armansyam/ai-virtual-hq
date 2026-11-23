@@ -1,0 +1,42 @@
+# ==============================================================================
+# STRICT .gitignore — Aman untuk dibagikan bebas sebagai Public / Open-Source Repo
+# ==============================================================================
+
+# 1. Environment & Secrets (WAJIB DIABAIKAN)
+.env
+.env.*
+!.env.example
+config/.session_secret
+config/admin_auth.json
+
+# 2. Private Runtime Configs, API Keys, Chat Histories & Ledger
+config/*.json
+!config/*.example.json
+
+# 3. Private Company SOPs, Brand Assets & Local Companion Scripts
+00-*.md
+01-*.md
+02-*.md
+03-*.md
+04-*.md
+05-*.md
+brand/
+luxvite-mcp/
+Jalankan-Kantor-Luxvite.command
+kantor-visual-ai-luxvite.html
+generate_daily_carousel.py
+
+# 4. Runtime Output, Reports, Uploads, Desktop Builds & Cache
+reports/
+daily-content/
+uploads/
+build/
+dist/
+release_assets/
+*.spec
+*.dmg
+*.exe
+__pycache__/
+*.pyc
+*.log
+.DS_Store

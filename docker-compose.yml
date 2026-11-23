@@ -1,0 +1,20 @@
+services:
+  ai-virtual-hq:
+    build: .
+    container_name: ai-virtual-hq
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8484}:8484"
+    env_file:
+      - .env
+    volumes:
+      - ./config:/app/config
+      - ./reports:/app/reports
+      - ./daily-content:/app/daily-content
+      - ./uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8484/api/health', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

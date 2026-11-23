@@ -1,0 +1,18 @@
+{
+  "companyName": "Nama Bisnis Anda",
+  "tagline": "3D AI Virtual HQ — Multi-Agent Workforce",
+  "industry": "Isi Bidang Industri (mis: E-Commerce / Agency / SaaS / F&B)",
+  "website": "https://website-bisnis-anda.com",
+  "ceoName": "Founder & CEO",
+  "projectPath": "",
+  "businessBrief": "Jelaskan produk utama, target audiens, gaya komunikasi, dan SOP umum bisnis Anda di sini agar seluruh 35 Karyawan AI bekerja sesuai konteks perusahaan Anda.",
+  "departments": {
+    "SOCIAL": "Social Media & Konten",
+    "THEMES": "Produk & Desain Studio",
+    "GROWTH": "Growth, Sales & Partnership",
+    "ADMIN": "CS & Operasional Klien",
+    "ENGINEERING": "Engineering, IT & DevOps",
+    "FINANCE": "Finance, Akunting & Audit"
+  },
+  "setupCompleted": false
+}

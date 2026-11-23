@@ -1,0 +1,118 @@
+name: Build & Release Desktop Installers
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-desktop:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (.dmg)
+            os: macos-latest
+            platform: macos
+          - name: Windows (.exe)
+            os: windows-latest
+            platform: windows
+          - name: Linux (.tar.gz)
+            os: ubuntu-latest
+            platform: linux
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Linux WebView dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.1
+
+      - name: Install Desktop build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-desktop.txt
+
+      - name: Build macOS .app & .dmg
+        if: matrix.platform == 'macos'
+        run: |
+          pyinstaller --noconfirm --clean --windowed --onedir \
+            --name "AI Virtual HQ" \
+            --add-data "index.html:." \
+            --add-data "three.min.js:." \
+            --add-data "config/company_profile.example.json:config" \
+            --hidden-import "webview" \
+            --hidden-import "webview.platforms.cocoa" \
+            desktop.py
+          /usr/libexec/PlistBuddy -c "Add :NSDocumentsFolderUsageDescription string 'AI Virtual HQ memerlukan izin untuk mengakses folder Documents yang Anda pilih.'" "dist/AI Virtual HQ.app/Contents/Info.plist" || true
+          /usr/libexec/PlistBuddy -c "Add :NSDesktopFolderUsageDescription string 'AI Virtual HQ memerlukan izin untuk mengakses folder Desktop yang Anda pilih.'" "dist/AI Virtual HQ.app/Contents/Info.plist" || true
+          /usr/libexec/PlistBuddy -c "Add :NSDownloadsFolderUsageDescription string 'AI Virtual HQ memerlukan izin untuk mengakses folder Downloads yang Anda pilih.'" "dist/AI Virtual HQ.app/Contents/Info.plist" || true
+          mkdir -p release_assets
+          hdiutil create -volname "AI Virtual HQ" -srcfolder "dist/AI Virtual HQ.app" -ov -format UDZO "release_assets/AI-Virtual-HQ-macOS.dmg"
+
+      - name: Build Windows .exe
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --windowed --onefile `
+            --name "AI-Virtual-HQ-Windows" `
+            --add-data "index.html;." `
+            --add-data "three.min.js;." `
+            --add-data "config/company_profile.example.json;config" `
+            --hidden-import "webview" `
+            --hidden-import "webview.platforms.edgechromium" `
+            desktop.py
+          New-Item -ItemType Directory -Force -Path release_assets | Out-Null
+          Copy-Item "dist/AI-Virtual-HQ-Windows.exe" "release_assets/AI-Virtual-HQ-Windows.exe"
+
+      - name: Build Linux bundle
+        if: matrix.platform == 'linux'
+        run: |
+          pyinstaller --noconfirm --clean --onefile \
+            --name "AI-Virtual-HQ-Linux" \
+            --add-data "index.html:." \
+            --add-data "three.min.js:." \
+            --add-data "config/company_profile.example.json:config" \
+            --hidden-import "webview" \
+            --hidden-import "webview.platforms.gtk" \
+            desktop.py
+          mkdir -p release_assets
+          tar -czf "release_assets/AI-Virtual-HQ-Linux.tar.gz" -C dist "AI-Virtual-HQ-Linux"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: release_assets/*
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: build-desktop
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all installer artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all_assets
+          merge-multiple: true
+
+      - name: Create GitHub Release with Installers
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: all_assets/*
