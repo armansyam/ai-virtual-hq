@@ -5651,6 +5651,10 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             })
             return
 
+        if self.path.startswith("/api/autopilot/status"):
+            self._send_json(200, {"ok": True, "autopilot": load_autopilot_config()})
+            return
+
         if self.path.startswith("/api/hub-status"):
             status = get_antigravity_and_claude_status()
             mcp = get_mcp_status()
@@ -6143,6 +6147,24 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 "deliverables": load_agent_deliverables(),
                 "interdept_logs": load_interdept_logs()
             })
+            return
+
+        if self.path.startswith("/api/autopilot/config"):
+            cfg = update_autopilot_config(body)
+            self._send_json(200, {"ok": True, "autopilot": cfg})
+            return
+
+        if self.path.startswith("/api/autopilot/run-now"):
+            res = trigger_gm_autopilot_async(manual=True)
+            self._send_json(200, res)
+            return
+
+        if self.path.startswith("/api/autopilot/approval-action"):
+            res = handle_autopilot_approval_action(
+                approval_id=(body.get("id") or "").strip(),
+                action=(body.get("action") or "").strip().lower(),
+            )
+            self._send_json(200, res)
             return
 
         if self.path.startswith("/api/trigger-live-coordination"):
@@ -7220,6 +7242,490 @@ def _run_background_model_and_vps_heartbeat():
     t.start()
 
 
+# ==============================================================================
+# AUTONOMOUS GENERAL MANAGER (KEPALA KANTOR MANDIRI / AUTOPILOT LOOP)
+# ==============================================================================
+AUTOPILOT_CONFIG_FILE = os.path.join(CONFIG_DIR, "autopilot_config.json")
+AUTOPILOT_LOCK = threading.Lock()
+
+
+def _default_autopilot_config():
+    return {
+        "enabled": False,
+        "intervalMinutes": 30,
+        "maxDailyRuns": 8,
+        "maxTasksPerCycle": 1,
+        "autoExecutePending": True,
+        "gmAgentId": 10,
+        "gmAgentName": "👑 Raka",
+        "gmAgentRole": "General Manager / COO",
+        "focusAreas": "Pantau kesehatan operasional & bisnis, selesaikan tugas PENDING internal, dan siapkan draf kerja rutin harian. Jangan mengeksekusi aksi eksternal/berisiko tanpa ACC CEO.",
+        "lastRunAt": 0,
+        "nextRunAt": 0,
+        "runsToday": 0,
+        "runsDate": time.strftime("%Y-%m-%d"),
+        "isRunning": False,
+        "lastSummary": "",
+        "pendingApprovals": [],
+        "logs": [],
+    }
+
+
+def load_autopilot_config():
+    with AUTOPILOT_LOCK:
+        cfg = _default_autopilot_config()
+        if os.path.exists(AUTOPILOT_CONFIG_FILE):
+            try:
+                with open(AUTOPILOT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                    if isinstance(loaded, dict):
+                        cfg.update(loaded)
+            except Exception:
+                pass
+        today = time.strftime("%Y-%m-%d")
+        if cfg.get("runsDate") != today:
+            cfg["runsDate"] = today
+            cfg["runsToday"] = 0
+        if not isinstance(cfg.get("pendingApprovals"), list):
+            cfg["pendingApprovals"] = []
+        if not isinstance(cfg.get("logs"), list):
+            cfg["logs"] = []
+        return cfg
+
+
+def _save_autopilot_config_unlocked(cfg):
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        tmp = AUTOPILOT_CONFIG_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, AUTOPILOT_CONFIG_FILE)
+    except Exception:
+        pass
+
+
+def update_autopilot_config(patch):
+    patch = patch or {}
+    with AUTOPILOT_LOCK:
+        cfg = _default_autopilot_config()
+        if os.path.exists(AUTOPILOT_CONFIG_FILE):
+            try:
+                with open(AUTOPILOT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                    if isinstance(loaded, dict):
+                        cfg.update(loaded)
+            except Exception:
+                pass
+        was_enabled = bool(cfg.get("enabled"))
+        if "enabled" in patch:
+            cfg["enabled"] = bool(patch.get("enabled"))
+        if "intervalMinutes" in patch:
+            try:
+                cfg["intervalMinutes"] = max(5, min(1440, int(patch.get("intervalMinutes"))))
+            except Exception:
+                pass
+        if "maxDailyRuns" in patch:
+            try:
+                cfg["maxDailyRuns"] = max(1, min(48, int(patch.get("maxDailyRuns"))))
+            except Exception:
+                pass
+        if "maxTasksPerCycle" in patch:
+            try:
+                cfg["maxTasksPerCycle"] = max(1, min(2, int(patch.get("maxTasksPerCycle"))))
+            except Exception:
+                pass
+        if "autoExecutePending" in patch:
+            cfg["autoExecutePending"] = bool(patch.get("autoExecutePending"))
+        if "gmAgentId" in patch:
+            try:
+                cfg["gmAgentId"] = int(patch.get("gmAgentId"))
+            except Exception:
+                pass
+        if "gmAgentName" in patch and str(patch.get("gmAgentName") or "").strip():
+            cfg["gmAgentName"] = str(patch.get("gmAgentName")).strip()
+        if "gmAgentRole" in patch and str(patch.get("gmAgentRole") or "").strip():
+            cfg["gmAgentRole"] = str(patch.get("gmAgentRole")).strip()
+        if "focusAreas" in patch:
+            cfg["focusAreas"] = str(patch.get("focusAreas") or "").strip()[:800]
+
+        interval_sec = int(cfg.get("intervalMinutes") or 30) * 60
+        if cfg["enabled"] and (not was_enabled or not cfg.get("nextRunAt")):
+            cfg["nextRunAt"] = time.time() + interval_sec
+        elif not cfg["enabled"]:
+            cfg["nextRunAt"] = 0
+
+        _save_autopilot_config_unlocked(cfg)
+        return dict(cfg)
+
+
+def _resolve_agent_model_creds(agent_id):
+    saved = load_saved_config()
+    am = saved.get("agent_models") or {}
+    models = saved.get("models") or []
+    mid = am.get(str(agent_id)) or am.get(agent_id) or ""
+    if not mid and models:
+        first_m = next((m for m in models if isinstance(m, dict) and m.get("id")), None)
+        if first_m:
+            mid = first_m.get("id") or ""
+    if not mid:
+        mid = "Gemini 4 Argon (High)"
+    m_obj = next((m for m in models if isinstance(m, dict) and m.get("id") == mid), {})
+    return mid, (m_obj.get("endpoint") or "").strip(), (m_obj.get("apiKey") or "").strip()
+
+
+def _extract_json_block(text):
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.S)
+    candidate = m.group(1) if m else raw
+    start = candidate.find("{")
+    end = candidate.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        try:
+            return json.loads(candidate[start : end + 1])
+        except Exception:
+            pass
+    return None
+
+
+def run_gm_autopilot_cycle(manual=False):
+    with AUTOPILOT_LOCK:
+        cfg = _default_autopilot_config()
+        if os.path.exists(AUTOPILOT_CONFIG_FILE):
+            try:
+                with open(AUTOPILOT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                    if isinstance(loaded, dict):
+                        cfg.update(loaded)
+            except Exception:
+                pass
+        today = time.strftime("%Y-%m-%d")
+        if cfg.get("runsDate") != today:
+            cfg["runsDate"] = today
+            cfg["runsToday"] = 0
+        if cfg.get("isRunning"):
+            return {"ok": False, "error": "Patroli GM sedang berjalan."}
+        world = load_world_state()
+        if not manual and world.get("officeOff"):
+            return {"ok": False, "error": "Kantor sedang dalam mode Tutup/Istirahat."}
+        if not manual and int(cfg.get("runsToday") or 0) >= int(cfg.get("maxDailyRuns") or 8):
+            return {"ok": False, "error": "Batas kuota patroli harian sudah tercapai."}
+        cfg["isRunning"] = True
+        _save_autopilot_config_unlocked(cfg)
+
+    gm_id = int(cfg.get("gmAgentId") or 10)
+    gm_name = (cfg.get("gmAgentName") or "👑 Raka").strip()
+    gm_role = (cfg.get("gmAgentRole") or "General Manager / COO").strip()
+    ts_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
+
+    set_agents_busy([gm_id], True)
+    bump_world_chat_version(toast_msg=f"🤖 {gm_name} memulai patroli mandiri bisnis & operasional...")
+
+    decision = None
+    used_engine = ""
+    exec_result = None
+    error_msg = ""
+
+    try:
+        comp_prof = load_company_profile()
+        comp_name = comp_prof.get("companyName") or "AI Virtual HQ"
+        tb = load_taskboard()
+        pending_tasks = [t for t in tb if (t.get("status") or "").upper() != "DONE"][:10]
+        done_recent = [t for t in tb if (t.get("status") or "").upper() == "DONE"][:5]
+
+        fin = load_finance_ledger()
+        total_opex = sum(int(x.get("amount") or 0) for x in fin.get("monthly_fixed_opex", []))
+        total_inc = sum(int(t.get("amount") or 0) for t in fin.get("transactions", []) if t.get("type") == "INCOME")
+
+        vault_idx = ""
+        try:
+            idx_path = os.path.join(get_obsidian_vault_path(), "00-INDEX.md")
+            if os.path.exists(idx_path):
+                with open(idx_path, "r", encoding="utf-8", errors="ignore") as vf:
+                    vault_idx = vf.read()[:2200]
+        except Exception:
+            pass
+
+        live_ctx, _ = build_dynamic_mcp_context_with_trace(
+            f"Patroli mandiri GM {comp_name}: cek kesehatan sistem, taskboard, keuangan, dan prioritas hari ini",
+            room="ALL",
+            agent_id=gm_id,
+        )
+
+        gm_mid, gm_ep, gm_key = _resolve_agent_model_creds(gm_id)
+        dept_heads_ref = (
+            "Daftar Kepala Departemen yang bisa didelegasikan:\n"
+            "- ID 17 | ⭐ Senna | Manajer Dept 1 (SOCIAL) — Konten IG/TikTok, Copywriting, Riset Tren\n"
+            "- ID 5  | ⭐ Bima  | Manajer Dept 2 (THEMES) — Desain Produk/Tema, QA Visual\n"
+            "- ID 15 | ⭐ Aldo  | Manajer Dept 3 (GROWTH) — SEO, Funnel, Mitra & Growth\n"
+            "- ID 8  | ⭐ Putri | Manajer Dept 4 (ADMIN) — Operasional, SOP, Customer Service\n"
+            "- ID 22 | ⭐ Arya  | Manajer Dept 5 (ENGINEERING) — Backend, VPS, Kesehatan Server, Keamanan\n"
+            "- ID 29 | ⭐ Tika  | Manajer Dept 6 (FINANCE) — Keuangan, OPEX, Unit Economics, Anti-Rugi\n"
+        )
+
+        sys_prompt = (
+            f"Kamu adalah {gm_name} ({gm_role}) di {comp_name}.\n"
+            f"{build_company_context_block(comp_prof)}\n\n"
+            "PERAN PATROLI MANDIRI (AUTOPILOT GM):\n"
+            "Kamu baru saja bangun untuk melakukan patroli rutin sebagai Kepala Kantor tanpa menunggu perintah CEO.\n"
+            f"Fokus dari CEO: {cfg.get('focusAreas')}\n\n"
+            "ATURAN WEWENANG (WAJIB DIPATUHI):\n"
+            "1. INTERNAL_SAFE (BOLEH langsung didelegasikan & dikerjakan mandiri): riset tren, audit kesehatan platform, membuat draf konten/skrip, rekap keuangan/OPEX, menyusun SOP/rencana internal, atau mengeksekusi tugas PENDING internal di Taskboard.\n"
+            "2. NEEDS_CEO_APPROVAL (DILARANG dieksekusi langsung — wajib usulkan ke CEO): publish ke media sosial publik, ubah konfigurasi produksi/server live, pengeluaran uang/pembayaran, rekrut/pecat staf, atau install skill baru.\n"
+            "3. Jika tidak ada pekerjaan mendesak dan semua sudah berjalan baik hari ini, pilih ALL_CLEAR agar hemat token.\n\n"
+            "BALAS HANYA DENGAN JSON VALID (tanpa teks tambahan di luar JSON):\n"
+            "{\n"
+            '  "status": "EXECUTE_EXISTING" | "CREATE_AND_EXECUTE" | "PROPOSE_CEO_APPROVAL" | "ALL_CLEAR",\n'
+            '  "summary": "Ringkasan padat 1-2 kalimat hasil patroli GM",\n'
+            '  "taskId": "ID tugas dari Taskboard PENDING jika status EXECUTE_EXISTING, selain itu string kosong",\n'
+            '  "delegateAgentId": 17,\n'
+            '  "delegateAgentName": "⭐ Senna",\n'
+            '  "delegateAgentRole": "Manajer Dept 1 (Social)",\n'
+            '  "delegateDept": "SOCIAL",\n'
+            '  "taskTitle": "Judul tugas konkret jika CREATE_AND_EXECUTE atau PROPOSE_CEO_APPROVAL",\n'
+            '  "taskDetail": "Instruksi kerja detail dan faktual untuk dieksekusi",\n'
+            '  "riskLevel": "INTERNAL_SAFE" | "NEEDS_CEO_APPROVAL",\n'
+            '  "approvalReason": "Alasan singkat jika butuh ACC CEO"\n'
+            "}"
+        )
+
+        user_prompt = (
+            f"WAKTU PATROLI: {ts_str}\n\n"
+            f"{dept_heads_ref}\n"
+            f"KEUANGAN RINGKAS: OPEX Bulanan Rp {total_opex:,} | Pemasukan Tercatat Rp {total_inc:,}\n\n"
+            f"TASKBOARD PENDING ({len(pending_tasks)}):\n"
+            + (json.dumps([{"id": t.get("id"), "title": t.get("title"), "dept": t.get("dept"), "agentId": t.get("agentId", t.get("assigneeId")), "agentName": t.get("agentName", t.get("assigneeName")), "priority": t.get("priority")} for t in pending_tasks], ensure_ascii=False) if pending_tasks else "Tidak ada tugas PENDING.")
+            + f"\n\nTUGAS SELESAI TERBARU ({len(done_recent)}):\n"
+            + (json.dumps([{"title": t.get("title"), "dept": t.get("dept"), "updatedAt": t.get("updatedAt")} for t in done_recent], ensure_ascii=False) if done_recent else "Belum ada.")
+            + f"\n\nRINGKASAN MEMORI OBSIDIAN (00-INDEX.md):\n{vault_idx or '(Kosong)'}\n\n"
+            "Putuskan 1 tindakan paling berdampak dan aman sekarang dalam format JSON."
+        )
+
+        raw_reply, used_engine = run_agent_llm_unified(
+            gm_mid, gm_ep, gm_key, sys_prompt, [], user_prompt, live_mcp_ctx=live_ctx
+        )
+        decision = _extract_json_block(raw_reply)
+        if not isinstance(decision, dict):
+            decision = {
+                "status": "ALL_CLEAR",
+                "summary": (raw_reply or "Patroli selesai — kondisi operasional stabil.").strip()[:240],
+                "riskLevel": "INTERNAL_SAFE",
+            }
+    except Exception as e:
+        error_msg = str(e)
+        decision = {
+            "status": "ERROR",
+            "summary": f"Patroli GM gagal menghubungi model AI: {error_msg[:180]}",
+            "riskLevel": "INTERNAL_SAFE",
+        }
+    finally:
+        set_agents_busy([gm_id], False)
+
+    # Execute GM's decision cleanly
+    st_code = str(decision.get("status") or "ALL_CLEAR").upper().strip()
+    risk_lvl = str(decision.get("riskLevel") or "INTERNAL_SAFE").upper().strip()
+    summary = str(decision.get("summary") or "Patroli selesai.").strip()
+    artifact_file = ""
+
+    if st_code == "PROPOSE_CEO_APPROVAL" or risk_lvl == "NEEDS_CEO_APPROVAL":
+        approval_item = {
+            "id": f"apv_{int(time.time() * 1000)}",
+            "createdAt": ts_str,
+            "proposedBy": gm_name,
+            "title": str(decision.get("taskTitle") or summary)[:120],
+            "detail": str(decision.get("taskDetail") or summary)[:600],
+            "dept": str(decision.get("delegateDept") or "ALL").upper(),
+            "agentId": int(decision.get("delegateAgentId") or gm_id),
+            "agentName": str(decision.get("delegateAgentName") or gm_name),
+            "agentRole": str(decision.get("delegateAgentRole") or gm_role),
+            "reason": str(decision.get("approvalReason") or "Memerlukan persetujuan strategis CEO sebelum dieksekusi."),
+        }
+        with AUTOPILOT_LOCK:
+            cur = _default_autopilot_config()
+            if os.path.exists(AUTOPILOT_CONFIG_FILE):
+                try:
+                    with open(AUTOPILOT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                        cur.update(json.load(f))
+                except Exception:
+                    pass
+            apvs = cur.get("pendingApprovals") or []
+            apvs.insert(0, approval_item)
+            cur["pendingApprovals"] = apvs[:20]
+            _save_autopilot_config_unlocked(cur)
+        bump_world_chat_version(toast_msg=f"📋 {gm_name} mengusulkan 1 keputusan yang butuh ACC CEO: {approval_item['title']}")
+
+    elif st_code in ("EXECUTE_EXISTING", "CREATE_AND_EXECUTE"):
+        target_task = None
+        if st_code == "EXECUTE_EXISTING":
+            tid = str(decision.get("taskId") or "").strip()
+            tb_now = load_taskboard()
+            target_task = next((t for t in tb_now if t.get("id") == tid and (t.get("status") or "").upper() != "DONE"), None)
+
+        if target_task:
+            target_aid = int(target_task.get("agentId", target_task.get("assigneeId", gm_id)))
+            target_aname = target_task.get("agentName", target_task.get("assigneeName", gm_name))
+            target_dept = target_task.get("dept", "ALL")
+            t_type = target_task.get("taskType") or "execute_custom_directive"
+            t_mid, t_ep, t_key = _resolve_agent_model_creds(target_aid)
+            exec_payload = {
+                "taskId": target_task.get("id"),
+                "directive": f"{target_task.get('title', '')} — {target_task.get('detail', '')}",
+                "scope": target_dept,
+                "agentId": target_aid,
+                "agentName": target_aname,
+                "modelId": t_mid,
+                "endpoint": t_ep,
+                "apiKey": t_key,
+            }
+        else:
+            target_aid = int(decision.get("delegateAgentId") or gm_id)
+            target_aname = str(decision.get("delegateAgentName") or gm_name)
+            target_arole = str(decision.get("delegateAgentRole") or "Kepala Departemen")
+            target_dept = str(decision.get("delegateDept") or "ALL").upper()
+            t_type = "execute_custom_directive"
+            t_mid, t_ep, t_key = _resolve_agent_model_creds(target_aid)
+            exec_payload = {
+                "directive": f"[Autopilot GM] {decision.get('taskTitle') or summary} — {decision.get('taskDetail') or ''}",
+                "scope": target_dept,
+                "agentId": target_aid,
+                "agentName": target_aname,
+                "agentRole": target_arole,
+                "modelId": t_mid,
+                "endpoint": t_ep,
+                "apiKey": t_key,
+            }
+
+        set_agents_busy([target_aid], True)
+        bump_world_chat_version(toast_msg=f"⚡ {gm_name} mendelegasikan tugas ke {target_aname}: {str(decision.get('taskTitle') or summary)[:80]}")
+        try:
+            exec_result = execute_department_work_engine(t_type, exec_payload)
+            artifact_file = (exec_result or {}).get("report_file") or ""
+        except Exception as ex_err:
+            error_msg = str(ex_err)
+        finally:
+            set_agents_busy([target_aid], False)
+    else:
+        bump_world_chat_version(toast_msg=f"✅ Patroli {gm_name}: {summary[:100]}")
+
+    # Persist run stats & patrol log
+    with AUTOPILOT_LOCK:
+        cfg_end = _default_autopilot_config()
+        if os.path.exists(AUTOPILOT_CONFIG_FILE):
+            try:
+                with open(AUTOPILOT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                    cfg_end.update(json.load(f))
+            except Exception:
+                pass
+        today = time.strftime("%Y-%m-%d")
+        if cfg_end.get("runsDate") != today:
+            cfg_end["runsDate"] = today
+            cfg_end["runsToday"] = 0
+        cfg_end["isRunning"] = False
+        cfg_end["lastRunAt"] = time.time()
+        cfg_end["runsToday"] = int(cfg_end.get("runsToday") or 0) + 1
+        interval_sec = int(cfg_end.get("intervalMinutes") or 30) * 60
+        cfg_end["nextRunAt"] = (time.time() + interval_sec) if cfg_end.get("enabled") else 0
+        cfg_end["lastSummary"] = summary
+        logs = cfg_end.get("logs") or []
+        logs.insert(0, {
+            "ts": ts_str,
+            "manual": bool(manual),
+            "status": st_code,
+            "gm": gm_name,
+            "engine": used_engine,
+            "summary": summary,
+            "delegatedTo": str(decision.get("delegateAgentName") or "") if st_code in ("EXECUTE_EXISTING", "CREATE_AND_EXECUTE") else "",
+            "artifactFile": artifact_file,
+            "error": error_msg,
+        })
+        cfg_end["logs"] = logs[:30]
+        _save_autopilot_config_unlocked(cfg_end)
+        return {"ok": not bool(error_msg), "decision": decision, "artifactFile": artifact_file, "autopilot": dict(cfg_end)}
+
+
+def trigger_gm_autopilot_async(manual=True):
+    cfg = load_autopilot_config()
+    if cfg.get("isRunning"):
+        return {"ok": False, "error": "Patroli GM sedang berjalan.", "autopilot": cfg}
+    t = threading.Thread(target=run_gm_autopilot_cycle, kwargs={"manual": manual}, daemon=True)
+    t.start()
+    return {"ok": True, "started": True, "message": "Patroli GM dimulai di latar belakang — pantau status ⚡ Kerja di 3D!", "autopilot": cfg}
+
+
+def handle_autopilot_approval_action(approval_id, action):
+    target_item = None
+    with AUTOPILOT_LOCK:
+        cfg = _default_autopilot_config()
+        if os.path.exists(AUTOPILOT_CONFIG_FILE):
+            try:
+                with open(AUTOPILOT_CONFIG_FILE, "r", encoding="utf-8") as f:
+                    cfg.update(json.load(f))
+            except Exception:
+                pass
+        apvs = cfg.get("pendingApprovals") or []
+        kept = []
+        for item in apvs:
+            if item.get("id") == approval_id and target_item is None:
+                target_item = item
+            else:
+                kept.append(item)
+        cfg["pendingApprovals"] = kept
+        _save_autopilot_config_unlocked(cfg)
+
+    if not target_item:
+        return {"ok": False, "error": "Usulan tidak ditemukan.", "autopilot": load_autopilot_config()}
+
+    if action == "approve":
+        def _exec_approved():
+            aid = int(target_item.get("agentId") or 10)
+            aname = target_item.get("agentName") or "👑 Raka"
+            arole = target_item.get("agentRole") or "Kepala Departemen"
+            dept = target_item.get("dept") or "ALL"
+            mid, ep, key = _resolve_agent_model_creds(aid)
+            set_agents_busy([aid], True)
+            bump_world_chat_version(toast_msg=f"✅ CEO menyetujui usulan GM — {aname} sedang mengeksekusi: {target_item.get('title', '')[:80]}")
+            try:
+                execute_department_work_engine("execute_custom_directive", {
+                    "directive": f"[ACC CEO dari Usulan GM] {target_item.get('title', '')} — {target_item.get('detail', '')}",
+                    "scope": dept,
+                    "agentId": aid,
+                    "agentName": aname,
+                    "agentRole": arole,
+                    "modelId": mid,
+                    "endpoint": ep,
+                    "apiKey": key,
+                })
+            finally:
+                set_agents_busy([aid], False)
+        threading.Thread(target=_exec_approved, daemon=True).start()
+        return {"ok": True, "action": "approved", "autopilot": load_autopilot_config()}
+
+    return {"ok": True, "action": "dismissed", "autopilot": load_autopilot_config()}
+
+
+def _run_gm_autopilot_background_loop():
+    def _loop():
+        time.sleep(10)
+        while True:
+            try:
+                cfg = load_autopilot_config()
+                if cfg.get("enabled") and not cfg.get("isRunning"):
+                    world = load_world_state()
+                    if not world.get("officeOff"):
+                        now_ts = time.time()
+                        next_ts = float(cfg.get("nextRunAt") or 0)
+                        if next_ts == 0:
+                            update_autopilot_config({"enabled": True})
+                        elif now_ts >= next_ts and int(cfg.get("runsToday") or 0) < int(cfg.get("maxDailyRuns") or 8):
+                            run_gm_autopilot_cycle(manual=False)
+            except Exception:
+                pass
+            time.sleep(15)
+    t = threading.Thread(target=_loop, daemon=True)
+    t.start()
+
+
 def create_hq_server(host=None, port=None, start_heartbeat=True):
     try:
         ensure_obsidian_vault_seeded()
@@ -7232,6 +7738,7 @@ def create_hq_server(host=None, port=None, start_heartbeat=True):
         AGY_AUTH_SESSION["status"] = "Terhubung & Terverifikasi (Antigravity Live CLI)"
     if start_heartbeat:
         _run_background_model_and_vps_heartbeat()
+        _run_gm_autopilot_background_loop()
     bind_host = host if host is not None else (os.environ.get("APP_HOST", "127.0.0.1" if _is_desktop_mode() else "0.0.0.0").strip() or "0.0.0.0")
     bind_port = int(port) if port is not None else int(os.environ.get("APP_PORT", "8484"))
     ThreadingHTTPServer.allow_reuse_address = True
