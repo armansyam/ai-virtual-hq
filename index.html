@@ -4505,11 +4505,22 @@
       officeZones.forEach(z => {
         const zel = document.createElement("div");
         zel.id = z.id;
-        zel.className = "zone-badge px-2 py-0.5 rounded-md bg-[#12121a]/80 backdrop-blur-sm text-[9px] font-bold tracking-wide text-amber-300 border border-amber-400/40 shadow";
-        zel.textContent = z.label;
+        const isDeptRoom = z.room !== "CEO_OFFICE" && z.room !== "REST_MESS";
+        zel.className = "zone-badge px-2 py-0.5 rounded-md bg-[#12121a]/85 hover:bg-[#1e1e2e] backdrop-blur-sm text-[9.5px] font-bold tracking-wide text-amber-300 border border-amber-400/45 hover:border-amber-300 shadow cursor-pointer transition flex items-center gap-1";
+        zel.innerHTML = isDeptRoom
+          ? `<span>${escapeHtmlSafe(z.label)}</span><span class="text-[9px] text-sky-300">💬</span>`
+          : `<span>${escapeHtmlSafe(z.label)}</span>`;
+        zel.title = isDeptRoom ? "Klik untuk fokus kamera & mengintip obrolan ruangan ini" : "Klik untuk fokus kamera";
         zel.onclick = (e) => {
           e.stopPropagation();
           selectRoom(z.room);
+          if (!IS_LIVE_READONLY && isDeptRoom) {
+            if (z.room === "TOWNHALL") {
+              openTownHallDiscussionModal();
+            } else {
+              openDepartmentChatModal(z.room);
+            }
+          }
         };
         labelLayer.appendChild(zel);
       });
@@ -5337,8 +5348,70 @@
       summonAgentToCeoOffice(10, true);
     }
 
+    var currentDeptChatRoom = "";
+
+    function ensureDepartmentChatSeed(roomKey) {
+      const hKey = `DEPT_${roomKey}`;
+      if (Array.isArray(agentChatHistories[hKey]) && agentChatHistories[hKey].length > 0) return;
+      const members = agents.filter(a => a.room === roomKey);
+      const depts = (COMPANY_PROFILE_CACHE && COMPANY_PROFILE_CACHE.departments) || {};
+      const roomLabel = depts[roomKey] || roomKey;
+      if (members.length === 0) {
+        agentChatHistories[hKey] = [{
+          sender: `Ruang ${roomLabel}`,
+          isCEO: false,
+          text: `Belum ada staf yang ditempatkan di ruangan ${roomLabel}. Rekrut atau pindahkan staf ke departemen ini untuk memulai diskusi tim.`
+        }];
+        return;
+      }
+      const lead = members[0];
+      const second = members[1];
+      const seedMsgs = [
+        {
+          sender: `${lead.name} · ${lead.role}`,
+          isCEO: false,
+          text: `Tim ${roomLabel}, mari kita sinkronkan fokus kerja di ruangan kita hari ini.\nFokus saya saat ini: ${lead.progressMsg || "Menjaga target utama departemen."}`
+        }
+      ];
+      if (second) {
+        seedMsgs.push({
+          sender: `${second.name} · ${second.role}`,
+          isCEO: false,
+          text: `Siap ${lead.name}! Dari sisi saya (${second.role}): ${second.progressMsg || "Sudah siap dieksekusi."}`
+        });
+      }
+      agentChatHistories[hKey] = seedMsgs;
+    }
+
+    function openDepartmentChatModal(roomKey, fromRemoteSync = false) {
+      if (IS_LIVE_READONLY) return;
+      isTownHallChatMode = false;
+      currentDeptChatRoom = roomKey;
+      const members = agents.filter(a => a.room === roomKey);
+      const lead = members[0] || agents.find(a => a.id === 10) || agents[0];
+      currentModalAgentId = lead ? lead.id : 10;
+
+      const depts = (COMPANY_PROFILE_CACHE && COMPANY_PROFILE_CACHE.departments) || {};
+      const roomLabel = depts[roomKey] || roomKey;
+      const memberNames = members.map(m => m.name).join(", ") || "Belum ada staf";
+
+      ensureDepartmentChatSeed(roomKey);
+      document.getElementById("prog-modal-title").textContent = `Ruang Obrolan Departemen — ${roomLabel} (${members.length} Staf)`;
+      document.getElementById("prog-modal-sub").textContent = `Anggota di ruangan: ${memberNames} · Mengintip percakapan tim & beri arahan`;
+      document.getElementById("btn-approve-text").textContent = `Setujui & Eksekusi Hasil Diskusi ${roomLabel}`;
+
+      const modal = document.getElementById("modal-progress");
+      modal.classList.remove("hidden");
+      modal.classList.add("flex");
+      renderChatMessages(`DEPT_${roomKey}`, true);
+      if (!fromRemoteSync) {
+        setTimeout(() => document.getElementById("prog-input")?.focus(), 100);
+      }
+    }
+
     function openTownHallDiscussionModal(fromRemoteSync = false) {
       isTownHallChatMode = true;
+      currentDeptChatRoom = "";
       currentModalAgentId = 10;
       document.getElementById("prog-modal-title").textContent = `Rapat Besar Town Hall — Diskusi CEO & ${agents.length} Karyawan AI`;
       document.getElementById("prog-modal-sub").textContent = "Lokasi: Ruang Rapat Utama (36 Kursi) · Dipimpin oleh Kamu (CEO), GM Raka & 6 Manajer Dept";
@@ -5368,6 +5441,7 @@
     function openProgressModal(agentId, focusInput = false, fromRemoteSync = false) {
       if (IS_LIVE_READONLY) return;
       isTownHallChatMode = false;
+      currentDeptChatRoom = "";
       currentModalAgentId = agentId;
       const ag = agents.find(a => a.id === agentId);
       if (!ag) return;
@@ -5615,8 +5689,10 @@
       pendingChatAttachments = [];
       renderChatAttachmentsPreview();
 
-      const historyKey = isTownHallChatMode ? "TOWNHALL" : currentModalAgentId;
-      const ag = agents.find(a => a.id === currentModalAgentId) || agents.find(a => a.id === 10) || agents[0];
+      const isDeptChat = Boolean(currentDeptChatRoom && !isTownHallChatMode);
+      const historyKey = isTownHallChatMode ? "TOWNHALL" : (isDeptChat ? `DEPT_${currentDeptChatRoom}` : currentModalAgentId);
+      const deptMembers = isDeptChat ? agents.filter(a => a.room === currentDeptChatRoom) : [];
+      const ag = (isDeptChat && deptMembers[0]) ? deptMembers[0] : (agents.find(a => a.id === currentModalAgentId) || agents.find(a => a.id === 10) || agents[0]);
       if (!agentChatHistories[historyKey]) agentChatHistories[historyKey] = [];
 
       agentChatHistories[historyKey].push({
@@ -5641,16 +5717,17 @@
       syncAgent3DPillColors();
 
       agentChatHistories[historyKey].push({
-        sender: isTownHallChatMode ? "🎙️ Raka & 6 Manajer Departemen" : `${ag.name} (${ag.model})`,
+        sender: isTownHallChatMode ? "🎙️ Raka & 6 Manajer Departemen" : (isDeptChat ? `💬 Tim Departemen ${currentDeptChatRoom}` : `${ag.name} (${ag.model})`),
         isCEO: false,
         text: attachmentsToSend.length > 0
-          ? "⏳ Memindai lampiran gambar/file, memanggil tool MCP live, dan menyusun analisis untuk Bos..."
+          ? "⏳ Memindai lampiran gambar/file dan menyusun analisis..."
           : "Menyiapkan jawaban..."
       });
       renderChatMessages(historyKey);
 
       try {
-        const apiUrl = isTownHallChatMode ? "/api/townhall-chat" : "/api/run-agent";
+        const isMultiTurnRoom = isTownHallChatMode || isDeptChat;
+        const apiUrl = isMultiTurnRoom ? "/api/townhall-chat" : "/api/run-agent";
         const llmHistory = agentChatHistories[historyKey]
           .slice(0, -1)
           .map(x => ({ role: x.isCEO ? "user" : "assistant", content: x.text }));
@@ -5662,7 +5739,9 @@
             agentId: ag.id,
             agentName: ag.name,
             agentRole: ag.role,
-            room: ag.room,
+            room: isDeptChat ? currentDeptChatRoom : ag.room,
+            deptRoom: isDeptChat ? currentDeptChatRoom : "",
+            participants: isDeptChat ? deptMembers.map(m => ({ id: m.id, name: m.name, role: m.role })) : undefined,
             modelId: ag.model,
             endpoint,
             apiKey,
@@ -5678,11 +5757,11 @@
         if (data.ok) {
           ag.lastError = "";
           renderSidebarAndTable();
-          pendingDispatchRoom = data.suggestedRoom || ag.room || "ALL";
+          pendingDispatchRoom = isDeptChat ? currentDeptChatRoom : (data.suggestedRoom || ag.room || "ALL");
           const engineTag = data.engine ? ` · ${data.engine}` : "";
           const toolCalls = Array.isArray(data.toolCalls) ? data.toolCalls : [];
 
-          if (isTownHallChatMode && Array.isArray(data.turns) && data.turns.length > 0) {
+          if (isMultiTurnRoom && Array.isArray(data.turns) && data.turns.length > 0) {
             data.turns.forEach((turn, idx) => {
               setTimeout(() => {
                 agentChatHistories[historyKey].push({
@@ -5742,18 +5821,19 @@
     }
 
     async function approveAndDispatchFromChat() {
-      const historyKey = isTownHallChatMode ? "TOWNHALL" : currentModalAgentId;
+      const isDeptChat = Boolean(currentDeptChatRoom && !isTownHallChatMode);
+      const historyKey = isTownHallChatMode ? "TOWNHALL" : (isDeptChat ? `DEPT_${currentDeptChatRoom}` : currentModalAgentId);
       const list = agentChatHistories[historyKey] || [];
       const ag = agents.find(a => a.id === currentModalAgentId) || agents.find(a => a.id === 10) || agents[0];
       const lastUserMsg = [...list].reverse().find(m => m.isCEO);
       const lastAiMsg = [...list].reverse().find(m => !m.isCEO);
       const directiveText = lastUserMsg
         ? `${lastUserMsg.text}\n\nKonteks Kesepakatan Diskusi: ${(lastAiMsg ? lastAiMsg.text : "").slice(0, 450)}`
-        : "Eksekusi rencana prioritas hasil rapat lintas departemen Luxvite.";
+        : "Eksekusi rencana prioritas hasil diskusi departemen.";
       const summaryText = lastUserMsg
         ? `Arahan CEO: "${lastUserMsg.text}" | Kesepakatan: ${(lastAiMsg ? lastAiMsg.text : "").slice(0, 260)}`
-        : "Keputusan Rapat disetujui CEO untuk eksekusi lintas departemen.";
-      const scope = isTownHallChatMode ? "ALL" : (ag.room || pendingDispatchRoom || "ALL");
+        : "Keputusan diskusi disetujui CEO untuk eksekusi nyata.";
+      const scope = isTownHallChatMode ? "ALL" : (isDeptChat ? currentDeptChatRoom : (ag.room || pendingDispatchRoom || "ALL"));
 
       const modelObj = AVAILABLE_MODELS.find(m => m.id === ag.model) || {};
       const isAgyCliModel = !modelObj.endpoint && (
@@ -7857,6 +7937,21 @@
       if (interDeptConversationLogs.length > 40) interDeptConversationLogs.pop();
       const cntEl = document.getElementById("sidebar-log-count");
       if (cntEl) cntEl.textContent = String(interDeptConversationLogs.length);
+
+      // Also append live coordination dialogue into the respective Department Room Chat(s) so CEO can peek anytime!
+      [sender?.room, receiver?.room].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).forEach(rKey => {
+        ensureDepartmentChatSeed(rKey);
+        const hKey = `DEPT_${rKey}`;
+        if (item.fromBubble) {
+          agentChatHistories[hKey].push({ sender: `${sender.name} · ${sender.role}`, isCEO: false, text: item.fromBubble.replace(/^[^:]+:\s*/, "").replace(/^"|"$/g, "") });
+        }
+        if (item.toBubble) {
+          agentChatHistories[hKey].push({ sender: `${receiver.name} · ${receiver.role}`, isCEO: false, text: item.toBubble.replace(/^[^:]+:\s*/, "").replace(/^"|"$/g, "") });
+        }
+        if (currentDeptChatRoom === rKey && !document.getElementById("modal-progress")?.classList.contains("hidden")) {
+          renderChatMessages(hKey, true);
+        }
+      });
     }
 
     function openInterDeptLogModal(tab = "INTERDEPT") {

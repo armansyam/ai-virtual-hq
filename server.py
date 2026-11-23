@@ -4983,45 +4983,84 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             model_id = body.get("modelId", "Gemini 4 Argon (High)")
             history = body.get("history", [])
             attachments = body.get("attachments") or []
+            dept_room = str(body.get("deptRoom") or "").strip().upper()
+            raw_participants = body.get("participants") if isinstance(body.get("participants"), list) else []
 
-            sys_prompt = (
-                "Kamu sedang memimpin OBROLAN DISKUSI EKSEKUTIF 2 ARAH yang tajam, berbasis data nyata, dan hidup di Ruang Rapat Utama (Town Hall) Luxvite HQ "
-                "antara CEO (user) dengan GM Raka dan 6 Manajer Departemen:\n"
-                "- Raka (General Manager / COO @raka_ops)\n"
-                "- Senna (Manajer Dept 1: Social Media & Content @luxvite.id)\n"
-                "- Bima (Manajer Dept 2: Theme Product & Builder Lab @bima_creative)\n"
-                "- Aldo (Manajer Dept 3: Growth, Ads, B2B WO & SEO)\n"
-                "- Putri (Manajer Dept 4: Client Ops & CS @putri_cs)\n"
-                "- Arya (Manajer Dept 5: Head of Engineering, Coding & Server)\n"
-                "- Tika (Manajer Dept 6: Head of Finance, Cashflow, OPEX, Margin & Anti-Rugi)\n\n"
-                "ATURAN PERCAKAPAN WAJIB (SANGAT PENTING):\n"
-                "1. JANGAN PERNAH membuat daftar bernomor kaku (1. Raka... 2. Senna...) atau laporan template! Berbicaralah seperti tim eksekutif nyata yang sedang berdiskusi tajam dengan data faktual.\n"
-                "2. Pilih HANYA 2 atau maksimal 3 manajer yang paling relevan untuk menanggapi pesan CEO kali ini. Jika CEO menyinggung biaya, diskon, komisi, harga, atau untung-rugi, WAJIB hadirkan Tika (Mgr Dept 6 Finance) menghitung margin & BEP nyata.\n"
-                "3. Setiap manajer yang bicara WAJIB membawa data konkret dari blok DATA REAL-TIME MCP di bawah dan mengusulkan tindakan nyata.\n"
-                "4. WAJIB awali setiap giliran bicara dengan tag persis di baris baru: [[SPEAKER: Raka]] atau [[SPEAKER: Senna]] atau [[SPEAKER: Bima]] atau [[SPEAKER: Aldo]] atau [[SPEAKER: Putri]] atau [[SPEAKER: Arya]] atau [[SPEAKER: Tika]] diikuti kalimat bicaranya (tanpa tanda kutip pembuka/penutup)."
-            )
+            comp_prof = load_company_profile()
+            comp_name = comp_prof.get("companyName") or "AI Virtual HQ"
+            dept_map = comp_prof.get("departments") or {}
 
-            speaker_meta = {
-                "raka":  {"agentId": 10, "sender": "👑 Raka · GM / COO (@raka_ops)"},
-                "senna": {"agentId": 17, "sender": "⭐ Senna · Manajer Dept 1 (Social & Konten)"},
-                "bima":  {"agentId": 5,  "sender": "⭐ Bima · Manajer Dept 2 (Theme Product Lab)"},
-                "aldo":  {"agentId": 15, "sender": "⭐ Aldo · Manajer Dept 3 (Growth & B2B WO)"},
-                "putri": {"agentId": 8,  "sender": "⭐ Putri · Manajer Dept 4 (Client Ops & CS)"},
-                "arya":  {"agentId": 22, "sender": "⭐ Arya · Manajer Dept 5 (Head of Engineering)"},
-                "tika":  {"agentId": 29, "sender": "⭐ Tika · Manajer Dept 6 (Head of Finance & BEP)"}
-            }
+            if dept_room and raw_participants:
+                dept_label = dept_map.get(dept_room) or dept_room
+                speaker_meta = {}
+                part_lines = []
+                busy_ids = []
+                for idx_p, p in enumerate(raw_participants[:10]):
+                    if not isinstance(p, dict) or not p.get("name"):
+                        continue
+                    pname = str(p["name"]).strip()
+                    prole = str(p.get("role") or "Staf").strip()
+                    pid = p.get("id", idx_p)
+                    key_l = pname.split()[0].lower()
+                    speaker_meta[key_l] = {"agentId": pid, "sender": f"{pname} · {prole}"}
+                    part_lines.append(f"- {pname} ({prole})")
+                    busy_ids.append(pid)
+                if not speaker_meta:
+                    speaker_meta["raka"] = {"agentId": 10, "sender": "Raka · General Manager"}
+                    busy_ids = [10]
+                first_key = next(iter(speaker_meta.keys()))
+                allowed_tags = " atau ".join(f"[[SPEAKER: {k.capitalize()}]]" for k in speaker_meta.keys())
+                sys_prompt = (
+                    f"Ini adalah RUANG OBROLAN INTERNAL DEPARTEMEN {dept_room} ({dept_label}) di perusahaan {comp_name}.\n"
+                    f"{build_company_context_block(comp_prof)}\n\n"
+                    f"ANGGOTA DI RUANGAN INI:\n" + "\n".join(part_lines) + "\n\n"
+                    "ATURAN PERCAKAPAN RUANGAN DEPARTEMEN:\n"
+                    "1. Hadirkan 2 sampai 3 anggota di ruangan ini yang saling berdiskusi secara natural, teknis, dan solutif sesuai peran masing-masing (CEO sedang melihat/nimbrung di ruang obrolan ruangan ini).\n"
+                    f"2. WAJIB awali setiap giliran bicara di baris baru dengan tag persis: {allowed_tags} diikuti kalimatnya (tanpa tanda kutip pembuka/penutup)."
+                )
+                target_room = dept_room
+            else:
+                first_key = "raka"
+                sys_prompt = (
+                    f"Kamu sedang memimpin OBROLAN DISKUSI EKSEKUTIF 2 ARAH di Ruang Rapat Utama (Town Hall) {comp_name} "
+                    "antara CEO (user) dengan GM Raka dan 6 Manajer Departemen:\n"
+                    f"{build_company_context_block(comp_prof)}\n"
+                    "- Raka (General Manager / COO)\n"
+                    f"- Senna (Manajer Dept 1: {dept_map.get('SOCIAL', 'Social & Konten')})\n"
+                    f"- Bima (Manajer Dept 2: {dept_map.get('THEMES', 'Produk & Desain')})\n"
+                    f"- Aldo (Manajer Dept 3: {dept_map.get('GROWTH', 'Growth & Sales')})\n"
+                    f"- Putri (Manajer Dept 4: {dept_map.get('ADMIN', 'CS & Operasional')})\n"
+                    f"- Arya (Manajer Dept 5: {dept_map.get('ENGINEERING', 'Engineering & DevOps')})\n"
+                    f"- Tika (Manajer Dept 6: {dept_map.get('FINANCE', 'Finance & Cashflow')})\n\n"
+                    "ATURAN PERCAKAPAN WAJIB:\n"
+                    "1. Berbicaralah seperti tim eksekutif nyata yang sedang berdiskusi tajam (bukan daftar bernomor kaku).\n"
+                    "2. Pilih HANYA 2 atau maksimal 3 manajer yang paling relevan untuk menanggapi pesan CEO kali ini.\n"
+                    "3. WAJIB awali setiap giliran bicara di baris baru dengan tag: [[SPEAKER: Raka]] atau [[SPEAKER: Senna]] atau [[SPEAKER: Bima]] atau [[SPEAKER: Aldo]] atau [[SPEAKER: Putri]] atau [[SPEAKER: Arya]] atau [[SPEAKER: Tika]] diikuti kalimat bicaranya."
+                )
+                speaker_meta = {
+                    "raka":  {"agentId": 10, "sender": "Raka · GM / COO"},
+                    "senna": {"agentId": 17, "sender": f"Senna · Manajer Dept 1 ({dept_map.get('SOCIAL', 'Social')})"},
+                    "bima":  {"agentId": 5,  "sender": f"Bima · Manajer Dept 2 ({dept_map.get('THEMES', 'Produk')})"},
+                    "aldo":  {"agentId": 15, "sender": f"Aldo · Manajer Dept 3 ({dept_map.get('GROWTH', 'Growth')})"},
+                    "putri": {"agentId": 8,  "sender": f"Putri · Manajer Dept 4 ({dept_map.get('ADMIN', 'CS & Ops')})"},
+                    "arya":  {"agentId": 22, "sender": f"Arya · Manajer Dept 5 ({dept_map.get('ENGINEERING', 'Engineering')})"},
+                    "tika":  {"agentId": 29, "sender": f"Tika · Manajer Dept 6 ({dept_map.get('FINANCE', 'Finance')})"},
+                }
+                busy_ids = [10, 17, 5, 15, 8, 22, 29]
+                target_room = "TOWNHALL"
 
             def parse_turns(raw_text):
-                parts = re.split(r"\[\[SPEAKER:\s*([A-Za-z]+)\s*\]\]", raw_text)
+                parts = re.split(r"\[\[SPEAKER:\s*([A-Za-z0-9_-]+)\s*\]\]", raw_text)
                 turns = []
                 bubbles = []
+                default_meta = speaker_meta.get(first_key) or next(iter(speaker_meta.values()))
                 if len(parts) >= 3:
                     for i in range(1, len(parts), 2):
                         spk_key = parts[i].strip().lower()
                         msg_txt = parts[i + 1].strip().strip('"')
                         if not msg_txt:
                             continue
-                        meta = speaker_meta.get(spk_key, speaker_meta["raka"])
+                        meta = speaker_meta.get(spk_key, default_meta)
                         turns.append({
                             "agentId": meta["agentId"],
                             "sender": meta["sender"],
@@ -5037,22 +5076,22 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 if not turns:
                     clean_t = raw_text.strip()
                     turns.append({
-                        "agentId": 10,
-                        "sender": speaker_meta["raka"]["sender"],
+                        "agentId": default_meta["agentId"],
+                        "sender": default_meta["sender"],
                         "text": clean_t
                     })
                     bubbles.append({
-                        "agentId": 10,
-                        "text": f"👑 Raka: \"{clean_t[:68]}...\""
+                        "agentId": default_meta["agentId"],
+                        "text": f"{default_meta['sender'].split('·')[0].strip()}: \"{clean_t[:68]}...\""
                     })
                 return turns, bubbles
 
-            mgr_ids = [10, 17, 5, 15, 8, 22, 29]
-            set_agents_busy(mgr_ids, True)
+            set_agents_busy(busy_ids, True)
             try:
-                live_ctx, executed_tools = build_dynamic_mcp_context_with_trace(prompt, room="TOWNHALL")
-                reply, used_engine = run_agent_llm_unified(
-                    model_id, endpoint, api_key, sys_prompt, history, prompt, attachments=attachments, live_mcp_ctx=live_ctx
+                live_ctx, executed_tools = build_dynamic_mcp_context_with_trace(prompt, room=target_room)
+                reply, used_engine = run_agent_with_tool_loop(
+                    model_id, endpoint, api_key, sys_prompt, history, prompt,
+                    attachments=attachments, live_mcp_ctx=live_ctx, executed_tools=executed_tools, room=target_room
                 )
                 turns, speaker_bubbles = parse_turns(reply)
                 self._send_json(200, {
@@ -5070,7 +5109,7 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 self._send_json(200, {"ok": False, "modelError": True, "error": str(err)})
                 return
             finally:
-                set_agents_busy(mgr_ids, False)
+                set_agents_busy(busy_ids, False)
 
         if self.path.startswith("/api/run-agent"):
             agent_id = body.get("agentId")
