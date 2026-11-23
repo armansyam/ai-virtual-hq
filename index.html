@@ -9120,7 +9120,8 @@
         [modeCeo, restAll, wakeAll, idleBtn, reopenChatBtn, ceoGuestsBar].forEach(el => {
           if (el) el.classList.add("hidden");
         });
-        try { setControlMode("watcher"); } catch (e) {}
+        autoRotateWatcher = false;
+        try { setControlMode("watcher", true); } catch (e) {}
         closeModals();
       } else {
         if (sb) {
@@ -9284,19 +9285,20 @@
       updateCameraPosition();
     }
 
-    function setControlMode(mode) {
+    function setControlMode(mode, silent = false) {
       const bw = document.getElementById("mode-watcher");
       const bc = document.getElementById("mode-ceo");
       if (mode === "watcher") {
         bw.className = "px-2 py-0.5 rounded-md bg-[#6d3fc0] text-white font-semibold text-[10.5px] transition cursor-pointer";
         bc.className = "px-2 py-0.5 rounded-md text-slate-400 hover:text-white text-[10.5px] transition cursor-pointer";
-        updateToast("Mode Watcher aktif: Kamera berputar memantau seluruh Gedung Kampus HQ.");
+        autoRotateWatcher = false;
+        if (!silent) updateToast("Mode Watcher aktif: Kamera diam stabil — geser, zoom, atau pilih ruangan bebas.");
       } else {
         bc.className = "px-2 py-0.5 rounded-md bg-[#6d3fc0] text-white font-semibold text-[10.5px] transition cursor-pointer";
         bw.className = "px-2 py-0.5 rounded-md text-slate-400 hover:text-white text-[10.5px] transition cursor-pointer";
-        updateToast("Mode CEO aktif: Klik lantai atau agen untuk berdiskusi.");
+        autoRotateWatcher = false;
+        if (!silent) updateToast("Mode CEO aktif: Klik lantai atau agen untuk berdiskusi.");
       }
-      autoRotateWatcher = (mode === "watcher");
     }
 
     // --- 15. ANIMATION LOOP (Smooth Camera Glide + Waypoint Pathfinding + Town Hall + CEO) ---
