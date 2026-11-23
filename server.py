@@ -2128,172 +2128,131 @@ def get_remote_mcp_live_bundle(force=False, room=""):
 
 
 def build_dynamic_mcp_context_with_trace(user_prompt="", room="", agent_id=None):
-    snap = get_live_platform_snapshot(force=False)
-    health = snap.get("health", {})
-    cat = snap.get("catalog", {})
-    counts_mode = cat.get("counts_by_mode", {})
-    counts_style = cat.get("counts_by_style", {})
-    remote_mcp = get_remote_mcp_live_bundle(force=False, room=room)
-
-    executed_tools = []
-    if remote_mcp.get("connected"):
-        for c in (remote_mcp.get("calls") or []):
-            executed_tools.append({
-                "tool": c["tool"],
-                "source": "REMOTE_MCP",
-                "summary": f"VPS Remote MCP ({c.get('slot')}) · {c.get('ms', 0)}ms",
-            })
-    else:
-        executed_tools.extend([
-            {
-                "tool": "luxvite_get_platform_health",
-                "source": "LOCAL_FALLBACK",
-                "summary": f"HTTP {health.get('http_status', 200)} · {snap.get('prod_latency_ms') or 0}ms · {(health.get('release') or {}).get('release') or 'v1.1.0'}",
-            },
-            {
-                "tool": "luxvite_list_themes_catalog",
-                "source": "LOCAL_FALLBACK",
-                "summary": f"{cat.get('total_physical_themes', 81)} tema disk (API: {snap.get('prod_public_themes_count') or 81})",
-            },
-        ])
-
-    lines = [
-        "DATA REAL-TIME LANGSUNG DARI SERVER PRODUKSI & DISK (Remote MCP + luxvite-mcp v1.1.0):",
-        f"- Waktu Cek Real-Time: {snap.get('timestamp')}",
-        f"- Status HTTP https://luxvite.id/api/health: {health.get('http_status')} ({json.dumps(health.get('health_response', {}), ensure_ascii=False)}) · Latensi: {snap.get('prod_latency_ms')} ms",
-        f"- Versi Build Aktif (/api/public/version): {json.dumps(health.get('release', {}), ensure_ascii=False)}",
-        f"- Total Tema Fisik di Disk Local Codebase: {cat.get('total_physical_themes')} tema "
-        f"(WEDDING: {counts_mode.get('wedding', 0)}, PERSONAL: {counts_mode.get('personal', 0)}, EVENT: {counts_mode.get('event', 0)} | "
-        f"Minimalist: {counts_style.get('minimalist', 0)}, Modern: {counts_style.get('modern', 0)}, Traditional: {counts_style.get('traditional', 0)})",
-        f"- Total Tema Terpublikasi di API Produksi (https://luxvite.id/api/public/themes): {snap.get('prod_public_themes_count') or 'sinkron'}",
-        f"- Pengaturan Publik Live (/api/public/settings): {json.dumps(snap.get('live_settings') or {}, ensure_ascii=False)}",
-        f"- Status Remote MCP Server ({remote_mcp.get('endpoint')}): "
-        + (
-            f"TERHUBUNG RESMI (Slot RBAC: {remote_mcp.get('slot')} · Live DB PostgreSQL Produksi)"
-            if remote_mcp.get("connected")
-            else "BELUM TERHUBUNG (Masukkan Bearer API Key dari https://luxvite.id/admin?tab=mcp pada menu ⚙️ Pengaturan AI → Remote MCP Server)"
-        ),
-    ]
-    if remote_mcp.get("kpi"):
-        lines.append(f"- KPI BISNIS LIVE PRODUKSI (Remote MCP luxvite_get_business_kpi_report): {json.dumps(remote_mcp['kpi'], ensure_ascii=False)[:1800]}")
-    if remote_mcp.get("finance"):
-        lines.append(f"- LAPORAN KEUANGAN LIVE PRODUKSI (Remote MCP luxvite_get_finance_report): {json.dumps(remote_mcp['finance'], ensure_ascii=False)[:1800]}")
-
+    """True On-Demand / Lazy MCP Context: ZERO network calls for general ideation/discussion!
+    Tools are ONLY pre-fetched when the user prompt explicitly asks for live data,
+    or called autonomously by the AI via [[TOOL_CALL:...]] in run_agent_with_tool_loop."""
     low = (user_prompt or "").lower()
+    executed_tools = []
+    lines = []
 
-    # On-demand Remote MCP calls based on room & prompt (recorded directly in https://luxvite.id/admin?tab=mcp Activity Log!)
-    if remote_mcp.get("connected"):
-        if room in ("ENGINEERING", "TOWNHALL") or any(w in low for w in ["log", "error", "pm2", "vps", "server", "health"]):
+    # Read local Remote MCP server registry (from disk — 0 network latency!)
+    rmcp_pub = get_public_remote_mcp_config()
+    rmcp_connected = bool(rmcp_pub.get("connected"))
+    rmcp_servers = rmcp_pub.get("servers") or []
+
+    # 1. On-Demand Pre-Fetch ONLY when user prompt explicitly requests live metrics/ops
+    wants_finance = any(w in low for w in ["keuangan", "omzet", "profit", "laba", "rugi", "opex", "bep", "kas", "finance", "pendapatan", "pengeluaran", "margin"])
+    wants_kpi = any(w in low for w in ["kpi", "statistik", "laporan bisnis", "jumlah order", "jumlah user", "total transaksi", "performa penjualan"])
+    wants_ops = any(w in low for w in ["cek server", "status server", "health", "vps", "pm2", "log error", "ops log", "server down", "uptime"])
+    wants_packages = any(w in low for w in ["paket harga", "daftar paket", "serenade", "symphony", "eternity", "draf gratis", "setting publik"])
+    wants_invitations = any(w in low for w in ["cari undangan", "daftar undangan", "slug klien", "order klien", "cek undangan"])
+    wants_themes = any(w in low for w in ["katalog tema", "jumlah tema", "sync tema", "sinkronisasi tema", "audit tema", "draft tema"])
+    wants_dns = any(w in low for w in ["cek dns", "custom domain", "cname", "ssl domain", "a-record"])
+
+    if rmcp_connected:
+        if wants_finance:
+            r_fin = call_remote_mcp_tool("luxvite_get_finance_report", {}, room=room)
+            if r_fin.get("ok"):
+                lines.append(f"- LAPORAN KEUANGAN LIVE (Remote MCP): {json.dumps(r_fin['result'], ensure_ascii=False)[:1800]}")
+                executed_tools.append({"tool": "luxvite_get_finance_report", "source": "REMOTE_MCP", "summary": f"Finance · {r_fin.get('ms', 0)}ms"})
+
+        if wants_kpi:
+            r_kpi = call_remote_mcp_tool("luxvite_get_business_kpi_report", {}, room=room)
+            if r_kpi.get("ok"):
+                lines.append(f"- KPI BISNIS LIVE (Remote MCP): {json.dumps(r_kpi['result'], ensure_ascii=False)[:1800]}")
+                executed_tools.append({"tool": "luxvite_get_business_kpi_report", "source": "REMOTE_MCP", "summary": f"KPI · {r_kpi.get('ms', 0)}ms"})
+
+        if wants_ops:
+            r_health = call_remote_mcp_tool("luxvite_get_platform_health", {}, room=room)
+            if r_health.get("ok"):
+                lines.append(f"- HEALTH SERVER LIVE (Remote MCP): {json.dumps(r_health['result'], ensure_ascii=False)[:1200]}")
+                executed_tools.append({"tool": "luxvite_get_platform_health", "source": "REMOTE_MCP", "summary": f"Health · {r_health.get('ms', 0)}ms"})
             r_logs = call_remote_mcp_tool("luxvite_get_ops_logs", {}, room=room)
             if r_logs.get("ok"):
-                lines.append(f"- LOG OPS VPS LIVE (Remote MCP luxvite_get_ops_logs): {json.dumps(r_logs['result'], ensure_ascii=False)[:1400]}")
-                executed_tools.append({"tool": "luxvite_get_ops_logs", "source": "REMOTE_MCP", "summary": f"VPS Logs · {r_logs.get('ms', 0)}ms"})
+                lines.append(f"- LOG OPS SERVER LIVE (Remote MCP): {json.dumps(r_logs['result'], ensure_ascii=False)[:1400]}")
+                executed_tools.append({"tool": "luxvite_get_ops_logs", "source": "REMOTE_MCP", "summary": f"Ops Logs · {r_logs.get('ms', 0)}ms"})
 
-        if room in ("THEMES", "SOCIAL", "GROWTH") or any(w in low for w in ["paket", "harga", "serenade", "symphony", "eternity", "setting", "musik"]):
+        if wants_packages:
             r_pkg = call_remote_mcp_tool("luxvite_get_packages_and_settings", {}, room=room)
             if r_pkg.get("ok"):
-                lines.append(f"- PAKET & SETTING LIVE (Remote MCP luxvite_get_packages_and_settings): {json.dumps(r_pkg['result'], ensure_ascii=False)[:1400]}")
-                executed_tools.append({"tool": "luxvite_get_packages_and_settings", "source": "REMOTE_MCP", "summary": f"Live Packages · {r_pkg.get('ms', 0)}ms"})
+                lines.append(f"- PAKET & SETTING LIVE (Remote MCP): {json.dumps(r_pkg['result'], ensure_ascii=False)[:1400]}")
+                executed_tools.append({"tool": "luxvite_get_packages_and_settings", "source": "REMOTE_MCP", "summary": f"Packages · {r_pkg.get('ms', 0)}ms"})
 
-        if room in ("ADMIN",) or any(w in low for w in ["undangan", "klien", "slug", "cari", "mempelai", "order"]):
+        if wants_invitations:
             r_inv = call_remote_mcp_tool("luxvite_search_invitations", {"limit": 10}, room=room)
             if r_inv.get("ok"):
-                lines.append(f"- DAFTAR UNDANGAN KLIEN LIVE (Remote MCP luxvite_search_invitations): {json.dumps(r_inv['result'], ensure_ascii=False)[:1400]}")
-                executed_tools.append({"tool": "luxvite_search_invitations", "source": "REMOTE_MCP", "summary": f"Live Invitations · {r_inv.get('ms', 0)}ms"})
+                lines.append(f"- DAFTAR UNDANGAN LIVE (Remote MCP): {json.dumps(r_inv['result'], ensure_ascii=False)[:1400]}")
+                executed_tools.append({"tool": "luxvite_search_invitations", "source": "REMOTE_MCP", "summary": f"Invitations · {r_inv.get('ms', 0)}ms"})
 
-    if luxvite_ops and (room in ("THEMES", "ENGINEERING") or any(w in low for w in ["sync", "sinkron", "vps", "tema", "katalog", "deploy"])):
-        try:
-            sync_info = luxvite_ops.tool_audit_prod_vs_disk_sync()
-            lines.append(f"- AUDIT SINKRONISASI TEMA DISK VS API PRODUKSI: {json.dumps({'disk': sync_info.get('disk_total_themes'), 'prod_api': sync_info.get('prod_api_total_themes'), 'missing_in_prod': sync_info.get('on_disk_but_not_yet_on_prod_api_count'), 'is_synced': sync_info.get('is_100_percent_synced')}, ensure_ascii=False)}")
-            executed_tools.append({
-                "tool": "luxvite_audit_prod_vs_disk_sync",
-                "source": "LOCAL_DISK",
-                "summary": f"Disk {sync_info.get('disk_total_themes', 81)} vs API {sync_info.get('prod_api_total_themes', 81)}",
-            })
-        except Exception:
-            pass
+        if wants_themes:
+            r_th = call_remote_mcp_tool("luxvite_list_themes_catalog", {"eventType": "all"}, room=room)
+            if r_th.get("ok"):
+                lines.append(f"- KATALOG TEMA LIVE (Remote MCP): {json.dumps(r_th['result'], ensure_ascii=False)[:1400]}")
+                executed_tools.append({"tool": "luxvite_list_themes_catalog", "source": "REMOTE_MCP", "summary": f"Themes · {r_th.get('ms', 0)}ms"})
 
-    # Auto-trigger MCP theme audit or DNS check if user prompt mentions a known theme ID or domain!
-    if luxvite_mcp and user_prompt:
-        all_themes = []
-        for mode_map in cat.get("catalog_by_event_and_style", {}).values():
-            for items in mode_map.values():
-                all_themes.extend(items)
-        for tid in all_themes:
-            if re.search(rf"\b{re.escape(tid)}\b", low):
-                audit_res = luxvite_mcp.handle_tool_call("luxvite_audit_theme_zero_hardcode", {"themeId": tid})
-                lines.append(f"- HASIL AUDIT MCP LIVE (luxvite_audit_theme_zero_hardcode untuk '{tid}'): {json.dumps(audit_res, ensure_ascii=False)}")
-                executed_tools.append({
-                    "tool": f"luxvite_audit_theme_zero_hardcode({tid})",
-                    "source": "LOCAL_DISK",
-                    "summary": "LULUS 0 Hex Mati" if audit_res.get("zeroHardcodePassed") else f"{audit_res.get('hexViolationCount', 0)} temuan hex",
-                })
-                break
-
+    # On-demand DNS check ONLY if prompt explicitly asks for DNS + contains a domain
+    if wants_dns:
         dom_match = re.search(r"\b([a-z0-9][a-z0-9-]+\.(?:com|id|co\.id|net|org))\b", low)
-        if dom_match and dom_match.group(1) != "luxvite.id":
+        if dom_match:
             dname = dom_match.group(1)
-            if remote_mcp.get("connected"):
+            if rmcp_connected:
                 r_dns = call_remote_mcp_tool("luxvite_check_custom_domain_dns", {"domain": dname}, room=room)
                 if r_dns.get("ok"):
-                    lines.append(f"- HASIL CEK DNS REMOTE MCP LIVE ({dname}): {json.dumps(r_dns['result'], ensure_ascii=False)}")
-                    executed_tools.append({"tool": f"luxvite_check_custom_domain_dns({dname})", "source": "REMOTE_MCP", "summary": f"VPS DNS · {r_dns.get('ms', 0)}ms"})
-            else:
+                    lines.append(f"- HASIL CEK DNS ({dname}): {json.dumps(r_dns['result'], ensure_ascii=False)}")
+                    executed_tools.append({"tool": f"check_dns({dname})", "source": "REMOTE_MCP", "summary": f"DNS · {r_dns.get('ms', 0)}ms"})
+            elif luxvite_mcp:
                 dns_res = luxvite_mcp.handle_tool_call("luxvite_check_custom_domain_dns", {"domain": dname})
-                lines.append(f"- HASIL CEK DNS MCP LIVE (luxvite_check_custom_domain_dns untuk '{dname}'): {json.dumps(dns_res, ensure_ascii=False)}")
-                executed_tools.append({
-                    "tool": f"luxvite_check_custom_domain_dns({dname})",
-                    "source": "LOCAL_FALLBACK",
-                    "summary": f"TLS: {'OK' if (dns_res.get('tls_handshake') or {}).get('tls_ok') else 'Pending'}",
-                })
+                lines.append(f"- HASIL CEK DNS ({dname}): {json.dumps(dns_res, ensure_ascii=False)}")
+                executed_tools.append({"tool": f"check_dns({dname})", "source": "LOCAL_MCP", "summary": "DNS checked"})
 
-    fin = load_finance_ledger()
-    total_opex = sum(int(x.get("amount") or 0) for x in fin.get("monthly_fixed_opex", []))
-    total_rev = sum(int(t.get("amount") or 0) for t in fin.get("transactions", []) if t.get("type") == "INCOME")
-    total_exp_tx = sum(int(t.get("amount") or 0) for t in fin.get("transactions", []) if t.get("type") == "EXPENSE")
-    ue = fin.get("unit_economics_rules", {})
-    lines.append(
-        f"DATA KEUANGAN & ANTI-RUGI NYATA (DEPT 6 FINANCE — config/finance_ledger.json): "
-        f"Total OPEX Tetap/Bulan = Rp {total_opex:,} | Pemasukan Tercatat = Rp {total_rev:,} | Pengeluaran Tambahan = Rp {total_exp_tx:,} | "
-        f"Aturan Margin: Diskon Kupon Publik {ue.get('default_coupon_discount_percent', 10)}%, Potongan Langsung Mitra WO {ue.get('default_partner_commission_percent', 15)}% (Zero Utang/Payout, Anti-Stacking), "
-        f"Fee Midtrans {ue.get('midtrans_fee_percent', 0.7)}%, PPh Final {ue.get('pph_final_percent', 0.5)}%."
-    )
-    executed_tools.append({"tool": "finance_ledger.read", "summary": f"OPEX Rp {total_opex:,}/bln · Kas Rp {total_rev:,}"})
+    # Local finance ledger ONLY when finance is asked
+    if wants_finance:
+        fin = load_finance_ledger()
+        total_opex = sum(int(x.get("amount") or 0) for x in fin.get("monthly_fixed_opex", []))
+        total_rev = sum(int(t.get("amount") or 0) for t in fin.get("transactions", []) if t.get("type") == "INCOME")
+        total_exp_tx = sum(int(t.get("amount") or 0) for t in fin.get("transactions", []) if t.get("type") == "EXPENSE")
+        lines.append(f"- BUKU KAS LOKAL: OPEX Tetap/Bulan = Rp {total_opex:,} | Pemasukan = Rp {total_rev:,} | Pengeluaran Tambahan = Rp {total_exp_tx:,}")
+        executed_tools.append({"tool": "finance_ledger.read", "source": "LOCAL_DATA", "summary": f"OPEX Rp {total_opex:,}/bln"})
 
-    tb = load_taskboard()
-    if tb:
-        lines.append("PAPAN TUGAS AKTIF LUXVITE HQ (config/taskboard.json):")
-        for t in tb[:6]:
-            lines.append(f"- [{t.get('status', 'TODO')}] ({t.get('dept', 'ALL')}): {t.get('title', '')} — {t.get('detail', '')[:160]}")
+    # Lightweight local memory (zero network latency)
+    if any(w in low for w in ["tugas", "task", "taskboard", "prioritas", "roadmap", "progres", "progress"]):
+        tb = load_taskboard()
+        if tb:
+            lines.append("PAPAN TUGAS AKTIF:")
+            for t in tb[:5]:
+                lines.append(f"- [{t.get('status', 'TODO')}] ({t.get('dept', 'ALL')}): {t.get('title', '')}")
 
     if agent_id is not None:
         delivs = load_agent_deliverables()
         ag_deliv = delivs.get(str(agent_id))
-        if isinstance(ag_deliv, dict):
-            lines.append(f"HASIL KERJA TERBARU AGEN INI DI DISK: {ag_deliv.get('progressMsg', '')} | File: {ag_deliv.get('artifactFile', '-')}")
+        if isinstance(ag_deliv, dict) and ag_deliv.get("progressMsg"):
+            lines.append(f"CATATAN KERJA TERBARU AGEN INI: {ag_deliv.get('progressMsg', '')[:220]}")
 
-    # Append Authorized Local Folders & Local STDIO MCP Tools so every AI agent knows real tools available
+    # Lightweight catalog of available Remote MCP, Local STDIO MCP, and Authorized Folders (0 network calls — AI invokes on-demand via [[TOOL_CALL:...]])
     auth_folders = [f for f in load_authorized_folders() if f.get("enabled", True) and f.get("exists")]
     local_mcps = [s for s in load_local_stdio_mcps() if s.get("enabled", True)]
-    if auth_folders or local_mcps:
-        lines.append("\nKEMAMPUAN LOKAL & APLIKASI EKSTERNAL YANG DIIZINKAN CEO:")
+    active_rmcps = [s for s in rmcp_servers if s.get("connected")]
+
+    if active_rmcps or auth_folders or local_mcps:
+        lines.append("\nKATALOG TOOL ON-DEMAND (Panggil HANYA bila benar-benar dibutuhkan oleh pertanyaan CEO; JANGAN memanggil tool untuk diskusi ide biasa):")
+        if active_rmcps:
+            for rs in active_rmcps:
+                lt_any = (rs.get("lastTest") or {}).get("DEFAULT") or (list((rs.get("lastTest") or {}).values())[0] if rs.get("lastTest") else {})
+                t_names = (lt_any.get("tools") or []) if isinstance(lt_any, dict) else []
+                if t_names:
+                    lines.append(f"- Remote MCP `{rs['id']}` ({rs['name']}): [{', '.join(t_names[:16])}]")
         if auth_folders:
-            lines.append("1) FOLDER LOKAL BERIZIN (Authorized Folders):")
             for fld in auth_folders:
                 perm_lbl = "READ & WRITE" if fld["permission"] == "read_write" else "READ-ONLY"
-                lines.append(f"   - id=`{fld['id']}` | label=`{fld['label']}` | path=`{fld['path']}` | izin=`{perm_lbl}`")
+                lines.append(f"- Folder Lokal id=`{fld['id']}` ({fld['label']} · {perm_lbl})")
         if local_mcps:
-            lines.append("2) LOCAL STDIO MCP SERVERS (Aplikasi Eksternal seperti Adobe Premiere, Blender, Filesystem, dll.):")
             for sm in local_mcps:
-                lt = sm.get("lastTest") or {}
-                tlist = lt.get("tools") or []
-                t_preview = ", ".join(tlist[:20]) if tlist else "(belum diuji — jalankan Uji & Ambil Tools dulu)"
-                lines.append(f"   - serverId=`{sm['id']}` | nama=`{sm['name']}` | tools=[{t_preview}]")
+                tlist = (sm.get("lastTest") or {}).get("tools") or []
+                if tlist:
+                    lines.append(f"- Local STDIO MCP `{sm['id']}` ({sm['name']}): [{', '.join(tlist[:16])}]")
         lines.append(
-            "PROTOKOL EKSEKUSI TOOL NYATA (OPSIONAL — gunakan hanya bila perlu aksi/data nyata dari folder lokal atau aplikasi lokal):\n"
-            "- Untuk folder lokal: [[TOOL_CALL:{\"source\":\"local_folder\",\"action\":\"list|read|write\",\"folderId\":\"<id>\",\"relPath\":\"<subpath>\",\"content\":\"<isi jika write>\"}]]\n"
-            "- Untuk Local STDIO MCP: [[TOOL_CALL:{\"source\":\"local_mcp\",\"serverId\":\"<serverId>\",\"tool\":\"<nama_tool>\",\"args\":{}}]]\n"
-            "- Untuk Remote HTTP MCP: [[TOOL_CALL:{\"source\":\"remote_mcp\",\"tool\":\"<nama_tool>\",\"args\":{}}]]"
+            "Format panggil tool on-demand (hanya jika perlu): "
+            "[[TOOL_CALL:{\"source\":\"remote_mcp\"|\"local_mcp\"|\"local_folder\", ...}]]"
         )
 
     directives = load_ceo_directives()

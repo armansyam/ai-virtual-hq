@@ -5340,7 +5340,7 @@
     function openTownHallDiscussionModal(fromRemoteSync = false) {
       isTownHallChatMode = true;
       currentModalAgentId = 10;
-      document.getElementById("prog-modal-title").textContent = "🏛️ Rapat Besar Town Hall — Diskusi CEO & 35 Karyawan AI";
+      document.getElementById("prog-modal-title").textContent = `Rapat Besar Town Hall — Diskusi CEO & ${agents.length} Karyawan AI`;
       document.getElementById("prog-modal-sub").textContent = "Lokasi: Ruang Rapat Utama (36 Kursi) · Dipimpin oleh Kamu (CEO), GM Raka & 6 Manajer Dept";
       document.getElementById("btn-approve-text").textContent = "Setujui & Eksekusi Hasil Rapat ke Disk";
 
@@ -5645,7 +5645,7 @@
         isCEO: false,
         text: attachmentsToSend.length > 0
           ? "⏳ Memindai lampiran gambar/file, memanggil tool MCP live, dan menyusun analisis untuk Bos..."
-          : "⏳ Memanggil tool MCP live (luxvite.id & disk) serta menyiapkan analisis untuk Bos..."
+          : "Menyiapkan jawaban..."
       });
       renderChatMessages(historyKey);
 
