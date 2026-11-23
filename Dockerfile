@@ -5,7 +5,7 @@ WORKDIR /app
 COPY server.py index.html three.min.js .env.example ./
 COPY config/company_profile.example.json ./config/company_profile.example.json
 
-RUN mkdir -p /app/config /app/reports /app/daily-content /app/uploads
+RUN mkdir -p /app/config /app/memory /app/reports /app/daily-content /app/uploads
 
 EXPOSE 8484
 

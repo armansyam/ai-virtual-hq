@@ -91,13 +91,16 @@ LOCAL_STDIO_MCP_FILE = os.path.join(CONFIG_DIR, "local_stdio_mcps.json")
 AUTHORIZED_FOLDERS_FILE = os.path.join(CONFIG_DIR, "authorized_folders.json")
 ROSTER_FILE = os.path.join(CONFIG_DIR, "roster.json")
 COMPANY_PROFILE_FILE = os.path.join(CONFIG_DIR, "company_profile.json")
+MEMORY_CONFIG_FILE = os.path.join(CONFIG_DIR, "memory_config.json")
 ADMIN_AUTH_FILE = os.path.join(CONFIG_DIR, "admin_auth.json")
 SESSION_SECRET_FILE = os.path.join(CONFIG_DIR, ".session_secret")
+DEFAULT_MEMORY_DIR = os.path.join(DATA_DIR, "memory")
 UPLOADS_DIR = os.path.join(DATA_DIR, "uploads")
 DAILY_DIR = os.path.join(DATA_DIR, "daily-content")
 REPORTS_DIR = os.path.join(DATA_DIR, "reports")
 AGY_BIN = shutil.which("agy") or os.path.expanduser("~/.local/bin/agy")
 os.makedirs(CONFIG_DIR, exist_ok=True)
+os.makedirs(DEFAULT_MEMORY_DIR, exist_ok=True)
 os.makedirs(UPLOADS_DIR, exist_ok=True)
 os.makedirs(DAILY_DIR, exist_ok=True)
 os.makedirs(REPORTS_DIR, exist_ok=True)
@@ -1192,8 +1195,12 @@ def submit_agy_oauth_code(raw_input):
 def call_verified_agy_cli(model_display_or_id, system_prompt, history_messages, latest_prompt, attachments=None, live_mcp_ctx=None):
     # Honor the user's true selected model fidelity (High / XHigh / Medium) without silent downgrade!
     agy_model = MODEL_DISPLAY_TO_AGY_ID.get(model_display_or_id, model_display_or_id if str(model_display_or_id).startswith(("gemini-", "claude-")) else "gemini-4-argon-high")
+    win_size = int(load_memory_config().get("slidingWindow") or 6)
     convo_text = ""
-    recent = history_messages[-14:] if isinstance(history_messages, list) else []
+    raw_hist = list(history_messages or []) if isinstance(history_messages, list) else []
+    if raw_hist and raw_hist[-1].get("role") == "user" and str(raw_hist[-1].get("content") or "").strip() == str(latest_prompt or "").strip():
+        raw_hist = raw_hist[:-1]
+    recent = raw_hist[-win_size:]
     for m in recent:
         who = "CEO" if m.get("role") == "user" else "TIM AI"
         convo_text += f"{who}: {m.get('content', '')}\n\n"
@@ -1205,14 +1212,10 @@ def call_verified_agy_cli(model_display_or_id, system_prompt, history_messages, 
     extra_att_block = "\n\n".join(x for x in [att_ctx, vision_ctx] if x)
     full_prompt = (
         f"{system_prompt}\n\n"
-        "INSTRUKSI TEKNIS EKSEKUSI: Seluruh hasil eksekusi tool MCP real-time (luxvite-mcp & Remote MCP VPS), "
-        "data keuangan aktual, papan tugas, lampiran file, dan pembacaan gambar visual sudah diinjeksikan secara live di bawah. "
-        "Gunakan data faktual tersebut untuk memberikan analisis, solusi konkret, dan output kerja nyata dalam Bahasa Indonesia!\n\n"
-        f"{LUXVITE_MASTER_CONTEXT}\n\n"
         f"{live_mcp_ctx}\n\n"
-        f"{extra_att_block}\n\n"
-        f"RIWAYAT PERCAKAPAN SEBELUMNYA:\n{convo_text}"
-        f"PESAN TERBARU DARI CEO YANG HARUS KAMU JAWAB SEKARANG:\n{latest_prompt}"
+        + (f"{extra_att_block}\n\n" if extra_att_block else "")
+        + (f"RIWAYAT OBROLAN TERAKHIR (SLIDING WINDOW {len(recent)} PESAN):\n{convo_text}" if convo_text else "")
+        + f"PESAN TERBARU DARI CEO YANG HARUS KAMU JAWAB SEKARANG:\n{latest_prompt}"
     )
     env = os.environ.copy()
     env["BROWSER"] = "/usr/bin/true"
@@ -1434,8 +1437,12 @@ def call_local_claude_cli(model_display_or_id, system_prompt, history_messages, 
         raise RuntimeError("Sesi lokal Claude Code belum aktif. Buka ⚙️ Pengaturan AI & Model -> klik 'Login Sesi Lokal Claude' terlebih dahulu.")
 
     alias = CLAUDE_LOCAL_MODELS.get(model_display_or_id, "sonnet")
+    win_size = int(load_memory_config().get("slidingWindow") or 6)
     convo_text = ""
-    recent = history_messages[-14:] if isinstance(history_messages, list) else []
+    raw_hist = list(history_messages or []) if isinstance(history_messages, list) else []
+    if raw_hist and raw_hist[-1].get("role") == "user" and str(raw_hist[-1].get("content") or "").strip() == str(latest_prompt or "").strip():
+        raw_hist = raw_hist[:-1]
+    recent = raw_hist[-win_size:]
     for m in recent:
         who = "CEO" if m.get("role") == "user" else "TIM AI"
         convo_text += f"{who}: {m.get('content', '')}\n\n"
@@ -1447,13 +1454,10 @@ def call_local_claude_cli(model_display_or_id, system_prompt, history_messages, 
     extra_att_block = "\n\n".join(x for x in [att_ctx, vision_ctx] if x)
     full_prompt = (
         f"{system_prompt}\n\n"
-        "INSTRUKSI TEKNIS EKSEKUSI: Seluruh hasil eksekusi tool MCP real-time (luxvite-mcp & Remote MCP VPS), "
-        "data keuangan aktual, dan papan tugas sudah diinjeksikan di bawah. Jawab langsung dalam teks Bahasa Indonesia yang tajam, strategis, dan natural.\n\n"
-        f"{LUXVITE_MASTER_CONTEXT}\n\n"
         f"{live_mcp_ctx}\n\n"
-        f"{extra_att_block}\n\n"
-        f"RIWAYAT PERCAKAPAN SEBELUMNYA:\n{convo_text}"
-        f"PESAN TERBARU DARI CEO:\n{latest_prompt}"
+        + (f"{extra_att_block}\n\n" if extra_att_block else "")
+        + (f"RIWAYAT OBROLAN TERAKHIR (SLIDING WINDOW {len(recent)} PESAN):\n{convo_text}" if convo_text else "")
+        + f"PESAN TERBARU DARI CEO:\n{latest_prompt}"
     )
 
     env = os.environ.copy()
@@ -1629,6 +1633,670 @@ def build_company_context_block(profile=None):
     if prof.get("businessBrief"):
         lines.append(f"- Brief Bisnis & SOP: {prof['businessBrief']}")
     return "\n".join(lines)
+
+
+# ================= OBSIDIAN-STYLE MARKDOWN MEMORY VAULT & SLIDING WINDOW ENGINE =================
+def load_memory_config():
+    cfg = {
+        "vaultPath": DEFAULT_MEMORY_DIR,
+        "slidingWindow": 6,
+        "autoExecuteOnApprove": True,
+        "updatedAt": "",
+    }
+    if os.path.exists(MEMORY_CONFIG_FILE):
+        try:
+            with open(MEMORY_CONFIG_FILE, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+            if isinstance(raw, dict):
+                vp = str(raw.get("vaultPath") or "").strip()
+                if vp:
+                    abs_vp = os.path.abspath(os.path.expanduser(vp))
+                    try:
+                        os.makedirs(abs_vp, exist_ok=True)
+                        cfg["vaultPath"] = abs_vp
+                    except Exception:
+                        cfg["vaultPath"] = DEFAULT_MEMORY_DIR
+                sw = raw.get("slidingWindow")
+                if sw is not None:
+                    try:
+                        cfg["slidingWindow"] = max(2, min(16, int(sw)))
+                    except Exception:
+                        pass
+                if "autoExecuteOnApprove" in raw:
+                    cfg["autoExecuteOnApprove"] = bool(raw["autoExecuteOnApprove"])
+                cfg["updatedAt"] = str(raw.get("updatedAt") or "")
+        except Exception:
+            pass
+    os.makedirs(cfg["vaultPath"], exist_ok=True)
+    return cfg
+
+
+def save_memory_config(new_data):
+    cur = load_memory_config()
+    if isinstance(new_data, dict):
+        raw_vp = str(new_data.get("vaultPath") or "").strip()
+        if raw_vp:
+            abs_vp = os.path.abspath(os.path.expanduser(raw_vp))
+            try:
+                os.makedirs(abs_vp, exist_ok=True)
+                cur["vaultPath"] = abs_vp
+            except Exception as e:
+                return {"ok": False, "error": f"Tidak dapat membuat/mengakses folder Memory Vault: {abs_vp} ({e})"}
+        if "slidingWindow" in new_data:
+            try:
+                cur["slidingWindow"] = max(2, min(16, int(new_data["slidingWindow"])))
+            except Exception:
+                pass
+        if "autoExecuteOnApprove" in new_data:
+            cur["autoExecuteOnApprove"] = bool(new_data["autoExecuteOnApprove"])
+    cur["updatedAt"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    with open(MEMORY_CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(cur, f, indent=2, ensure_ascii=False)
+    ensure_obsidian_vault_seeded(force_sync=True)
+    return {"ok": True, "config": cur, "notes": list_obsidian_vault_notes()}
+
+
+def get_active_memory_dir():
+    vp = load_memory_config()["vaultPath"]
+    os.makedirs(vp, exist_ok=True)
+    return vp
+
+
+def _dept_collaboration_links(room_key):
+    collab_map = {
+        "SOCIAL": ["[[DEPT-THEMES]]", "[[DEPT-GROWTH]]"],
+        "THEMES": ["[[DEPT-SOCIAL]]", "[[DEPT-ENGINEERING]]"],
+        "GROWTH": ["[[DEPT-SOCIAL]]", "[[DEPT-FINANCE]]", "[[DEPT-ADMIN]]"],
+        "ADMIN": ["[[DEPT-ENGINEERING]]", "[[DEPT-GROWTH]]"],
+        "ENGINEERING": ["[[DEPT-THEMES]]", "[[DEPT-ADMIN]]"],
+        "FINANCE": ["[[DEPT-GROWTH]]", "[[DEPT-ADMIN]]"],
+    }
+    return ", ".join(collab_map.get(room_key, ["[[TOWNHALL-DECISIONS]]"]))
+
+
+def ensure_obsidian_vault_seeded(force_sync=False):
+    vault_dir = get_active_memory_dir()
+    deliv_dir = os.path.join(vault_dir, "deliverables")
+    os.makedirs(deliv_dir, exist_ok=True)
+
+    # Create Obsidian .obsidian/graph.json so opening in Obsidian immediately has color-coded nodes!
+    obs_dir = os.path.join(vault_dir, ".obsidian")
+    graph_cfg_path = os.path.join(obs_dir, "graph.json")
+    if not os.path.exists(graph_cfg_path):
+        try:
+            os.makedirs(obs_dir, exist_ok=True)
+            with open(graph_cfg_path, "w", encoding="utf-8") as gf:
+                json.dump({
+                    "collapse-filter": False,
+                    "search": "",
+                    "showTags": True,
+                    "showAttachments": False,
+                    "hideUnresolved": False,
+                    "showOrphans": True,
+                    "collapse-color-groups": False,
+                    "colorGroups": [
+                        {"query": "file:00-INDEX", "color": {"a": 1, "rgb": 16435733}},
+                        {"query": "tag:#dept-social", "color": {"a": 1, "rgb": 11032055}},
+                        {"query": "tag:#dept-themes", "color": {"a": 1, "rgb": 16350230}},
+                        {"query": "tag:#dept-growth", "color": {"a": 1, "rgb": 1096065}},
+                        {"query": "tag:#dept-admin", "color": {"a": 1, "rgb": 3718648}},
+                        {"query": "tag:#dept-engineering", "color": {"a": 1, "rgb": 6518513}},
+                        {"query": "tag:#dept-finance", "color": {"a": 1, "rgb": 15381256}},
+                        {"query": "tag:#deliverable", "color": {"a": 1, "rgb": 3462297}}
+                    ],
+                    "collapse-display": False,
+                    "showArrow": True,
+                    "textFadeMultiplier": 0,
+                    "nodeSizeMultiplier": 1.15,
+                    "lineSizeMultiplier": 1,
+                }, gf, indent=2)
+        except Exception:
+            pass
+
+    prof = load_company_profile()
+    comp_name = prof.get("companyName") or "AI Virtual HQ"
+    industry = prof.get("industry") or "Teknologi & Digital"
+    website = prof.get("website") or "-"
+    brief = prof.get("businessBrief") or ""
+    depts = dict(DEFAULT_COMPANY_DEPARTMENTS)
+    if isinstance(prof.get("departments"), dict):
+        depts.update(prof["departments"])
+    layout = load_hq_layout()
+    for cd in (layout.get("custom_departments") or []):
+        if isinstance(cd, dict) and cd.get("key") and cd.get("name"):
+            depts[cd["key"]] = cd["name"]
+
+    ts_now = time.strftime("%Y-%m-%d %H:%M")
+
+    # 1. Seed 00-INDEX.md (Map of Content / MOC Utama)
+    idx_path = os.path.join(vault_dir, "00-INDEX.md")
+    if not os.path.exists(idx_path):
+        dept_links_md = "\n".join(
+            f"- **[[DEPT-{k}]]** — {v}" for k, v in depts.items()
+        )
+        directives = load_ceo_directives()
+        dir_lines = []
+        for d in directives[:6]:
+            sc = d.get("scope") or "ALL"
+            sc_link = f"[[DEPT-{sc}]]" if sc in depts else "[[TOWNHALL-DECISIONS]]"
+            dir_lines.append(f"- **{d.get('timestamp', ts_now)}** · {sc_link} — {d.get('summary', '')}")
+        if not dir_lines:
+            dir_lines.append(f"- **{ts_now}** · [[TOWNHALL-DECISIONS]] — Inisialisasi Memory Vault Obsidian `{comp_name}` aktif.")
+
+        is_luxvite = "luxvite" in comp_name.lower() or "luxvite" in website.lower()
+        core_truths = (
+            "- Produk: Platform SaaS Undangan Digital Editorial & Resepsionis Online (`https://luxvite.id` · `@luxvite.id`).\n"
+            "- Katalog Produksi: 81 Tema Master Fisik (3 Mode Struktural: `WEDDING`, `PERSONAL`, `EVENT` + `subEvent` dinamis) dengan Palet Warna Terkunci per Tema (*Zero-Hardcode* `:root`).\n"
+            "- Paket Harga: **Serenade Rp99.000**, **Symphony Rp149.000** (QR Check-in + Guest Camera 500 foto), **Eternity Rp249.000** (Custom Domain + 1.000 foto).\n"
+            "- Model Mitra WO (*Zero-Debt*): Potongan langsung klien di `/partner` tanpa utang komisi/payout; anti-stacking dengan kupon publik.\n"
+            "- Aset Visual & Mockup: **WAJIB** menggunakan screenshot UI nyata & fakta fitur asli produksi (dilarang mengarang mockup/angka fiktif)."
+            if is_luxvite else
+            f"- Nama Perusahaan: **{comp_name}** ({industry})\n"
+            f"- Website: `{website}`\n"
+            f"- Brief & Pakem Utama: {brief}"
+        )
+
+        idx_md = (
+            f"---\n"
+            f"title: 00-INDEX — Peta Memori Utama {comp_name}\n"
+            f"updated: {ts_now}\n"
+            f"scope: GLOBAL_MOC\n"
+            f"tags:\n"
+            f"  - hq-memory\n"
+            f"  - moc\n"
+            f"---\n"
+            f"# 🧠 Peta Memori Utama (MOC) — {comp_name}\n\n"
+            f"> [!IMPORTANT] Single Source of Truth (Anti-Halusinasi)\n"
+            f"> Catatan ini adalah acuan kebenaran utama bagi seluruh karyawan AI di **{comp_name}**. Hanya keputusan yang sudah **disetujui CEO** yang dicatat di dalam Vault ini.\n\n"
+            f"## 🏛️ Pakem & Aturan Mutlak Bisnis\n"
+            f"{core_truths}\n\n"
+            f"## 🗺️ Jaringan Memori Departemen (Wikilinks)\n"
+            f"- **[[TOWNHALL-DECISIONS]]** — Keputusan Rapat Besar Lintas-Departemen (GM & Seluruh Manajer)\n"
+            f"{dept_links_md}\n\n"
+            f"## ⚡ Keputusan & Eksekusi Terbaru yang Disetujui CEO\n"
+            + "\n".join(dir_lines) + "\n"
+        )
+        with open(idx_path, "w", encoding="utf-8") as f:
+            f.write(idx_md)
+
+    # 2. Seed TOWNHALL-DECISIONS.md
+    th_path = os.path.join(vault_dir, "TOWNHALL-DECISIONS.md")
+    if not os.path.exists(th_path):
+        all_dept_links = ", ".join(f"[[DEPT-{k}]]" for k in depts.keys())
+        th_md = (
+            f"---\n"
+            f"title: Keputusan Rapat Besar Town Hall\n"
+            f"updated: {ts_now}\n"
+            f"department: TOWNHALL\n"
+            f"tags:\n"
+            f"  - hq-memory\n"
+            f"  - townhall\n"
+            f"---\n"
+            f"# 🏛️ Memori Rapat Besar Town Hall — {comp_name}\n\n"
+            f"← Kembali ke Peta Utama: [[00-INDEX]] | Terhubung ke: {all_dept_links}\n\n"
+            f"## 📌 Keputusan Lintas-Departemen yang Disetujui CEO\n"
+            f"- **{ts_now}**: Seluruh departemen menggunakan sistem **Obsidian Markdown Memory + Sliding Window** agar diskusi hemat token, tajam, dan bebas halusinasi.\n"
+            f"- Setiap usulan di ruang obrolan wajib dikonfirmasi ke CEO terlebih dahulu; begitu CEO menyatakan **Setuju / Eksekusi**, tim otomatis mengerjakan dan menautkan hasilnya via `[[wikilink]]`.\n\n"
+            f"## 📂 Riwayat Dokumen Hasil Rapat (Wikilinks)\n"
+            f"- Lihat daftar tugas aktif di Papan Tugas dan indeks [[00-INDEX]].\n"
+        )
+        with open(th_path, "w", encoding="utf-8") as f:
+            f.write(th_md)
+
+    # 3. Seed per-department Markdown files: DEPT-<KEY>.md
+    tb = load_taskboard()
+    for dkey, dlabel in depts.items():
+        dpath = os.path.join(vault_dir, f"DEPT-{dkey}.md")
+        if os.path.exists(dpath):
+            continue
+        dept_tasks = [t for t in tb if str(t.get("dept") or "").upper() == dkey]
+        task_bullets = []
+        artifact_links = []
+        for t in dept_tasks[:5]:
+            st_icon = "✅" if t.get("status") == "DONE" else "⏳"
+            task_bullets.append(f"- {st_icon} **{t.get('title', '')}** — {t.get('detail', '')}")
+            af = str(t.get("artifactFile") or "").strip()
+            if af:
+                artifact_links.append(f"- `{af}` — {t.get('title', '')}")
+        if not task_bullets:
+            task_bullets.append(f"- Menjalankan operasional dan target utama departemen **{dlabel}**.")
+        if not artifact_links:
+            artifact_links.append(f"- Belum ada dokumen baru yang ditautkan pada sesi ini (terhubung ke [[00-INDEX]]).")
+
+        collab_links = _dept_collaboration_links(dkey)
+        d_md = (
+            f"---\n"
+            f"title: Memory Index — Dept {dkey} ({dlabel})\n"
+            f"updated: {ts_now}\n"
+            f"department: {dkey}\n"
+            f"tags:\n"
+            f"  - hq-memory\n"
+            f"  - dept-{dkey.lower()}\n"
+            f"---\n"
+            f"# 📂 Memory Index — {dlabel} (`{dkey}`)\n\n"
+            f"← Peta Utama: [[00-INDEX]] | Rapat Eksekutif: [[TOWNHALL-DECISIONS]] | Kolaborasi Lintas-Dept: {collab_links}\n\n"
+            f"> [!NOTE] Aturan Kerja Ruangan `{dkey}`\n"
+            f"> Staf di ruangan ini berdiskusi aktif dengan CEO, memastikan persetujuan sebelum eksekusi, dan hanya menyimpan keputusan final yang sudah disetujui ke catatan ini.\n\n"
+            f"## 📌 Keputusan & Pakem Disetujui CEO (Truth)\n"
+            + "\n".join(task_bullets) + "\n\n"
+            f"## 🎯 Fokus & Rencana Aktif Saat Ini\n"
+            f"- Menjaga kualitas eksekusi {dlabel} sesuai pakem [[00-INDEX]] dan berkoordinasi dengan {collab_links}.\n\n"
+            f"## 📂 Riwayat Hasil Kerja & Wikilinks\n"
+            + "\n".join(artifact_links) + "\n"
+        )
+        with open(dpath, "w", encoding="utf-8") as f:
+            f.write(d_md)
+
+    return vault_dir
+
+
+def _extract_wikilinks(md_text):
+    links = []
+    for m in re.findall(r"\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]", str(md_text or "")):
+        clean = m.strip()
+        if clean and clean not in links:
+            links.append(clean)
+    return links
+
+
+def list_obsidian_vault_notes():
+    vault_dir = ensure_obsidian_vault_seeded()
+    notes = []
+    for root, dirs, files in os.walk(vault_dir):
+        # Skip hidden .obsidian folder
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for fname in sorted(files):
+            if not fname.lower().endswith(".md"):
+                continue
+            abs_p = os.path.join(root, fname)
+            rel_p = os.path.relpath(abs_p, vault_dir).replace("\\", "/")
+            try:
+                st = os.stat(abs_p)
+                with open(abs_p, "r", encoding="utf-8", errors="ignore") as f:
+                    txt = f.read(12000)
+                wlinks = _extract_wikilinks(txt)
+                title_m = re.search(r"^#\s+(.+)$", txt, re.M)
+                title = title_m.group(1).strip() if title_m else fname[:-3]
+                notes.append({
+                    "relPath": rel_p,
+                    "name": fname[:-3],
+                    "title": title,
+                    "sizeKb": round(st.st_size / 1024.0, 1),
+                    "updatedAt": time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime)),
+                    "wikilinks": wlinks,
+                    "wikilinksCount": len(wlinks),
+                    "isIndex": rel_p == "00-INDEX.md",
+                    "isDept": rel_p.startswith("DEPT-") or rel_p == "TOWNHALL-DECISIONS.md",
+                })
+            except Exception:
+                continue
+
+    def _sort_key(n):
+        rp = n["relPath"]
+        if rp == "00-INDEX.md":
+            return (0, rp)
+        if rp == "TOWNHALL-DECISIONS.md":
+            return (1, rp)
+        if rp.startswith("DEPT-"):
+            return (2, rp)
+        return (3, rp)
+
+    notes.sort(key=_sort_key)
+    return notes
+
+
+def _resolve_vault_note_path(rel_note):
+    vault_dir = os.path.realpath(ensure_obsidian_vault_seeded())
+    clean = str(rel_note or "00-INDEX.md").strip().lstrip("/\\")
+    if not clean.lower().endswith(".md"):
+        clean += ".md"
+    candidate = os.path.realpath(os.path.abspath(os.path.join(vault_dir, clean)))
+    if os.path.commonpath([vault_dir, candidate]) != vault_dir:
+        raise ValueError("Path catatan berada di luar folder Memory Vault.")
+    return vault_dir, candidate, clean
+
+
+def read_obsidian_vault_note(rel_note="00-INDEX.md"):
+    try:
+        vault_dir, abs_p, clean = _resolve_vault_note_path(rel_note)
+        if not os.path.exists(abs_p):
+            return {"ok": False, "error": f"Catatan '{clean}' belum ada di Memory Vault."}
+        with open(abs_p, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+        return {
+            "ok": True,
+            "relPath": clean,
+            "absPath": abs_p,
+            "vaultPath": vault_dir,
+            "content": content,
+            "wikilinks": _extract_wikilinks(content),
+            "obsidianUri": f"obsidian://open?path={urllib.parse.quote(abs_p)}",
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def save_obsidian_vault_note(rel_note, content):
+    try:
+        vault_dir, abs_p, clean = _resolve_vault_note_path(rel_note)
+        os.makedirs(os.path.dirname(abs_p), exist_ok=True)
+        with open(abs_p, "w", encoding="utf-8") as f:
+            f.write(str(content or ""))
+        return {
+            "ok": True,
+            "relPath": clean,
+            "absPath": abs_p,
+            "wikilinks": _extract_wikilinks(content),
+            "notes": list_obsidian_vault_notes(),
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def build_obsidian_memory_context(room="", is_townhall=False):
+    """Loads compact, token-efficient Obsidian Markdown memory: 00-INDEX.md + room-specific DEPT-<ROOM>.md."""
+    vault_dir = ensure_obsidian_vault_seeded()
+    notes_read = []
+    blocks = []
+
+    idx_p = os.path.join(vault_dir, "00-INDEX.md")
+    if os.path.exists(idx_p):
+        try:
+            with open(idx_p, "r", encoding="utf-8", errors="ignore") as f:
+                idx_txt = f.read(2200).strip()
+            blocks.append(f"=== [OBSIDIAN MEMORY: [[00-INDEX]]] ===\n{idx_txt}")
+            notes_read.append("00-INDEX.md")
+        except Exception:
+            pass
+
+    room_u = str(room or "").strip().upper()
+    target_note = "TOWNHALL-DECISIONS.md" if (is_townhall or room_u in ("", "ALL", "TOWNHALL")) else f"DEPT-{room_u}.md"
+    target_p = os.path.join(vault_dir, target_note)
+    if os.path.exists(target_p):
+        try:
+            with open(target_p, "r", encoding="utf-8", errors="ignore") as f:
+                rm_txt = f.read(2400).strip()
+            blocks.append(f"=== [OBSIDIAN MEMORY RUANGAN: [[{target_note[:-3]}]]] ===\n{rm_txt}")
+            if target_note not in notes_read:
+                notes_read.append(target_note)
+        except Exception:
+            pass
+
+    return "\n\n".join(blocks), notes_read
+
+
+def _prepend_markdown_bullet_under_heading(md_text, heading_prefix, bullet_line, max_ts_str=""):
+    lines = md_text.splitlines()
+    if max_ts_str:
+        for i, l in enumerate(lines[:10]):
+            if l.startswith("updated:"):
+                lines[i] = f"updated: {max_ts_str}"
+                break
+    inserted = False
+    for i, l in enumerate(lines):
+        if l.strip().startswith(heading_prefix):
+            insert_at = i + 1
+            while insert_at < len(lines) and (lines[insert_at].strip() == "" or lines[insert_at].strip().startswith(">")):
+                insert_at += 1
+            lines.insert(insert_at, bullet_line)
+            inserted = True
+            break
+    if not inserted:
+        lines.append(f"\n{heading_prefix}\n{bullet_line}")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def record_decision_to_obsidian_vault(room, title, decision_summary, agent_name="Tim AI", agent_role="Staf", deliverable_md="", related_depts=None, used_engine="Live AI", task_id=""):
+    """Writes the executed deliverable to reports/ or daily-content/, creates an atomic note in memory/deliverables/ with [[wikilinks]],
+    and updates memory/DEPT-<ROOM>.md + memory/00-INDEX.md + taskboard.json + ceo_directives.json."""
+    vault_dir = ensure_obsidian_vault_seeded()
+    ts = time.strftime("%Y-%m-%d %H:%M:%S WITA")
+    ts_short = time.strftime("%Y-%m-%d %H:%M")
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    room_u = str(room or "ADMIN").strip().upper()
+    if room_u in ("ALL", "TOWNHALL", ""):
+        room_u = "ADMIN"
+
+    clean_title = str(title or "Eksekusi Keputusan CEO").strip()[:120]
+    clean_decision = str(decision_summary or clean_title).strip()[:450]
+    slug = re.sub(r"[^a-z0-9]+", "-", clean_title.lower()).strip("-")[:40] or "keputusan-ceo"
+
+    # 1. Save full deliverable file in reports/ or daily-content/
+    target_folder = "daily-content" if "SOCIAL" in room_u else "reports"
+    rel_file = f"{target_folder}/{stamp}-{slug}.md"
+    full_path = os.path.join(DATA_DIR, rel_file)
+    os.makedirs(os.path.dirname(full_path), exist_ok=True)
+
+    rel_depts_clean = []
+    for rd in (related_depts or []):
+        rd_u = str(rd or "").strip().upper().replace("[[", "").replace("]]", "")
+        if not rd_u.startswith("DEPT-") and rd_u not in ("00-INDEX", "TOWNHALL-DECISIONS"):
+            rd_u = f"DEPT-{rd_u}"
+        if rd_u and rd_u != f"DEPT-{room_u}" and rd_u not in rel_depts_clean:
+            rel_depts_clean.append(rd_u)
+    wikilinks_bar = " · ".join([f"[[00-INDEX]]", f"[[DEPT-{room_u}]]"] + [f"[[{x}]]" for x in rel_depts_clean])
+
+    body_md = (deliverable_md or clean_decision).strip()
+    safe_yaml_title = clean_title.replace('"', "'")
+    doc_md = (
+        f"---\n"
+        f"title: \"{safe_yaml_title}\"\n"
+        f"created: {ts_short}\n"
+        f"department: {room_u}\n"
+        f"author: \"{agent_name} ({agent_role})\"\n"
+        f"status: done\n"
+        f"tags:\n"
+        f"  - deliverable\n"
+        f"  - dept-{room_u.lower()}\n"
+        f"---\n"
+        f"# 📄 {clean_title}\n\n"
+        f"**Wikilinks Memori:** {wikilinks_bar}\n"
+        f"**Pelaksana:** {agent_name} ({agent_role} · `{used_engine}`) · **Waktu:** {ts}\n\n"
+        f"> [!IMPORTANT] Keputusan yang Dikunci ke Memory Obsidian\n"
+        f"> {clean_decision}\n\n"
+        f"---\n\n"
+        f"{body_md}\n"
+    )
+    with open(full_path, "w", encoding="utf-8") as f:
+        f.write(doc_md)
+
+    # 2. Save atomic deliverable note inside Obsidian Vault (<vaultPath>/deliverables/...) so Obsidian Graph View links it!
+    vault_deliv_rel = f"deliverables/{stamp}-{slug}.md"
+    vault_deliv_abs = os.path.join(vault_dir, "deliverables", f"{stamp}-{slug}.md")
+    os.makedirs(os.path.dirname(vault_deliv_abs), exist_ok=True)
+    with open(vault_deliv_abs, "w", encoding="utf-8") as vf:
+        vf.write(doc_md)
+
+    vault_wikilink = f"[[deliverables/{stamp}-{slug}|{clean_title}]]"
+    updated_notes = []
+
+    # 3. Update DEPT-<ROOM>.md
+    dept_note_name = f"DEPT-{room_u}.md"
+    dept_note_abs = os.path.join(vault_dir, dept_note_name)
+    if os.path.exists(dept_note_abs):
+        try:
+            with open(dept_note_abs, "r", encoding="utf-8", errors="ignore") as f:
+                d_txt = f.read()
+            extra_links = (" · Terkait: " + ", ".join(f"[[{x}]]" for x in rel_depts_clean)) if rel_depts_clean else ""
+            d_txt = _prepend_markdown_bullet_under_heading(
+                d_txt,
+                "## 📌 Keputusan & Pakem Disetujui CEO",
+                f"- ✅ **[{ts_short}] {clean_title}**: {clean_decision} ( oleh *{agent_name}* → {vault_wikilink}{extra_links} )",
+                max_ts_str=ts_short,
+            )
+            d_txt = _prepend_markdown_bullet_under_heading(
+                d_txt,
+                "## 📂 Riwayat Hasil Kerja",
+                f"- 📄 {vault_wikilink} (`{rel_file}`) — *{ts_short}*",
+            )
+            with open(dept_note_abs, "w", encoding="utf-8") as f:
+                f.write(d_txt)
+            updated_notes.append(dept_note_name)
+        except Exception:
+            pass
+
+    # 4. Update 00-INDEX.md
+    idx_abs = os.path.join(vault_dir, "00-INDEX.md")
+    if os.path.exists(idx_abs):
+        try:
+            with open(idx_abs, "r", encoding="utf-8", errors="ignore") as f:
+                i_txt = f.read()
+            i_txt = _prepend_markdown_bullet_under_heading(
+                i_txt,
+                "## ⚡ Keputusan & Eksekusi Terbaru",
+                f"- **{ts_short}** · [[DEPT-{room_u}]] → **{clean_title}**: {clean_decision} (Hasil: {vault_wikilink})",
+                max_ts_str=ts_short,
+            )
+            with open(idx_abs, "w", encoding="utf-8") as f:
+                f.write(i_txt)
+            updated_notes.append("00-INDEX.md")
+        except Exception:
+            pass
+
+    updated_notes.append(vault_deliv_rel)
+
+    # 5. Update CEO Directives, Agent Deliverables, Taskboard & 3D Coordination Event
+    append_ceo_directive({
+        "id": f"dir_{int(time.time() * 1000)}",
+        "timestamp": ts,
+        "scope": room_u,
+        "summary": f"{clean_title}: {clean_decision}",
+        "artifactFile": rel_file,
+    })
+
+    tb = load_taskboard()
+    tb.insert(0, {
+        "id": task_id or f"task_{int(time.time() * 1000)}",
+        "title": clean_title,
+        "dept": room_u,
+        "agentId": 10,
+        "agentName": agent_name,
+        "taskType": "execute_custom_directive",
+        "priority": "HIGH",
+        "status": "DONE",
+        "detail": f"{clean_decision} (Tersimpan di Memory [[DEPT-{room_u}]] & {rel_file})",
+        "artifactFile": rel_file,
+        "updatedAt": ts,
+    })
+    save_taskboard(tb[:35])
+
+    return {
+        "executed": True,
+        "title": clean_title,
+        "decision": clean_decision,
+        "dept": room_u,
+        "artifactFile": rel_file,
+        "vaultDeliverableNote": vault_deliv_rel,
+        "updatedMemoryNotes": updated_notes,
+        "vaultPath": vault_dir,
+    }
+
+
+def _is_explicit_ceo_approval_message(user_prompt, history):
+    """Detects when the CEO replies with explicit approval/execution command after a prior discussion turn."""
+    if not history or not isinstance(history, list):
+        return False
+    has_assistant_turn = any(isinstance(m, dict) and m.get("role") == "assistant" for m in history)
+    if not has_assistant_turn:
+        return False
+    low = str(user_prompt or "").strip().lower()
+    if not low or "?" in low:
+        return False
+    negations = ["jangan", "belum", "tidak setuju", "gak setuju", "batal", "tunggu dulu", "nanti dulu", "revisi dulu", "kurang pas"]
+    if any(neg in low for neg in negations):
+        return False
+    strong_phrases = [
+        "setuju", "oke kerjakan", "ok kerjakan", "langsung kerjakan", "silakan kerjakan",
+        "oke eksekusi", "ok eksekusi", "langsung eksekusi", "silakan eksekusi", "lanjut eksekusi",
+        "gas kerjakan", "gas eksekusi", "acc", "kunci ke memory", "simpan ke memory",
+        "oke lanjut kerjakan", "deal kerjakan", "sepakat kerjakan",
+    ]
+    if any(p in low for p in strong_phrases):
+        return True
+    if re.match(r"^(oke|ok|yap|yaps|ya|sip|siap|lanjut|gas|deal|sepakat)\b", low) and any(
+        w in low for w in ["kerjakan", "eksekusi", "simpan", "buatkan", "jalankan", "kunci", "terapkan"]
+    ):
+        return True
+    return False
+
+
+def extract_and_execute_approved_from_reply(raw_reply, user_prompt, history, room="ADMIN", agent_id=10, agent_name="Raka", agent_role="GM / COO", used_engine="Live AI"):
+    """Parses [[EXECUTE_APPROVED:{...}]] emitted by the AI (or falls back when CEO explicitly approved in chat),
+    executes the deliverable + updates the Obsidian Markdown Memory Vault, and returns (clean_reply, auto_exec_info, coord_event)."""
+    txt = str(raw_reply or "")
+    m = re.search(r"\[\[EXECUTE_APPROVED:\s*(\{[\s\S]*?\})\s*\]\]", txt)
+    exec_obj = None
+    clean_reply = txt
+
+    if m:
+        clean_reply = (txt[:m.start()] + txt[m.end():]).strip()
+        try:
+            exec_obj = json.loads(m.group(1))
+        except Exception:
+            exec_obj = None
+
+    if exec_obj is None and _is_explicit_ceo_approval_message(user_prompt, history):
+        # Fallback: CEO explicitly said "setuju / kerjakan / eksekusi", distill the agreed reply into Obsidian Vault automatically
+        clean_body_for_title = re.sub(r"\[\[SPEAKER:[^\]]+\]\]", "", clean_reply).strip()
+        first_line = next((l.strip("#* -•\t") for l in clean_body_for_title.splitlines() if len(l.strip()) > 8), "")
+        auto_title = first_line[:95] if first_line else f"Keputusan & Eksekusi {room} ({agent_name})"
+        exec_obj = {
+            "title": auto_title,
+            "dept": room if room not in ("", "ALL", "TOWNHALL") else "ADMIN",
+            "decision": f"Disetujui CEO ('{user_prompt[:90]}'): {first_line[:220]}",
+            "relatedDepts": [],
+            "deliverableMd": re.sub(r"\[\[SPEAKER:\s*([A-Za-z0-9_-]+)\s*\]\]", r"\n### 💬 \1\n", clean_reply).strip(),
+        }
+
+    if not isinstance(exec_obj, dict):
+        return clean_reply, None, None
+
+    target_dept = str(exec_obj.get("dept") or room or "ADMIN").strip().upper()
+    if target_dept in ("", "ALL", "TOWNHALL"):
+        target_dept = "ADMIN"
+    title = str(exec_obj.get("title") or f"Eksekusi Keputusan {target_dept}").strip()
+    decision = str(exec_obj.get("decision") or exec_obj.get("summary") or title).strip()
+    deliv_md = str(exec_obj.get("deliverableMd") or exec_obj.get("content") or clean_reply).strip()
+    rel_depts = exec_obj.get("relatedDepts") if isinstance(exec_obj.get("relatedDepts"), list) else []
+
+    auto_info = record_decision_to_obsidian_vault(
+        room=target_dept,
+        title=title,
+        decision_summary=decision,
+        agent_name=agent_name,
+        agent_role=agent_role,
+        deliverable_md=deliv_md,
+        related_depts=rel_depts,
+        used_engine=used_engine,
+    )
+
+    update_agent_deliverable(
+        agent_id if agent_id is not None else 10,
+        f"Selesai mengeksekusi & mencatat ke Memory [[DEPT-{target_dept}]]: {title}",
+        f"[EKSEKUSI OTOMATIS & MEMORY OBSIDIAN — {target_dept}]\n• Keputusan: {decision}\n• File: {auto_info['artifactFile']}",
+        auto_info["artifactFile"],
+    )
+
+    dept_to_mgr = {"SOCIAL": (17, "⭐ Senna"), "THEMES": (5, "⭐ Bima"), "GROWTH": (15, "⭐ Aldo"), "ADMIN": (8, "⭐ Putri"), "ENGINEERING": (22, "⭐ Arya"), "FINANCE": (29, "⭐ Tika")}
+    mgr_id, mgr_name = dept_to_mgr.get(target_dept, (10, "👑 Raka"))
+    from_id = int(agent_id) if agent_id is not None else mgr_id
+    to_id = 10 if from_id != 10 else mgr_id
+    to_name = "👑 Raka" if from_id != 10 else mgr_name
+
+    coord = generate_data_driven_coordination_event(custom_context={
+        "fromId": from_id,
+        "fromName": agent_name,
+        "fromRole": agent_role,
+        "toId": to_id,
+        "toName": to_name,
+        "toRole": "Sinkronisasi Memory Obsidian",
+        "walkMsg": f"🧠 {agent_name} mengunci keputusan CEO ke Memory [[DEPT-{target_dept}]] & menyimpan hasil kerja ({auto_info['artifactFile']})...",
+        "fromBubble": f"✅ \"{to_name}, keputusan Bos sudah dikunci ke Memory [[DEPT-{target_dept}]] dan dieksekusi ke {auto_info['artifactFile']}!\"",
+        "toBubble": f"🧠 \"Mantap {agent_name}! Wikilink [[00-INDEX]] & Papan Tugas sudah otomatis tersambung!\"",
+        "artifactFile": auto_info["artifactFile"],
+    })
+
+    return clean_reply, auto_info, coord
 
 
 _REMOTE_MCP_CACHE = {"ts": 0, "data": None}
@@ -2255,11 +2923,19 @@ def build_dynamic_mcp_context_with_trace(user_prompt="", room="", agent_id=None)
             "[[TOOL_CALL:{\"source\":\"remote_mcp\"|\"local_mcp\"|\"local_folder\", ...}]]"
         )
 
-    directives = load_ceo_directives()
-    if directives:
-        lines.append("KEPUTUSAN & ARAHAN AKTIF CEO TERAKHIR (MEMORI BERSAMA SELURUH DEPARTEMEN):")
-        for d in directives[:5]:
-            lines.append(f"- [{d.get('timestamp', '')}] ({d.get('scope', 'ALL')}): {d.get('summary', '')}")
+    # Obsidian Markdown Memory Vault (00-INDEX.md + DEPT-<ROOM>.md — Token-Saving Single Source of Truth)
+    obs_md_ctx, obs_notes_read = build_obsidian_memory_context(
+        room=room,
+        is_townhall=(str(room or "").upper() in ("", "ALL", "TOWNHALL")),
+    )
+    if obs_md_ctx:
+        lines.append(obs_md_ctx)
+        notes_label = " + ".join(f"[[{n[:-3]}]]" for n in obs_notes_read)
+        executed_tools.append({
+            "tool": notes_label or "[[00-INDEX]]",
+            "source": "OBSIDIAN_MEMORY",
+            "summary": "Memory .md",
+        })
 
     ext_custom = load_custom_extensions()
     if ext_custom.get("skills"):
@@ -3260,8 +3936,11 @@ def save_taskboard(tasks):
 
 def run_agent_llm_unified(model_id, endpoint, api_key, sys_prompt, history, prompt, attachments=None, live_mcp_ctx=None):
     """Unified caller for Claude Code Local Session, External OpenAI/Anthropic/Gemini Router, or Antigravity CLI."""
+    win_size = int(load_memory_config().get("slidingWindow") or 6)
+    sliced_history = list(history[-win_size:]) if isinstance(history, list) else []
+
     if model_id in CLAUDE_LOCAL_MODELS:
-        reply, used_model = call_local_claude_cli(model_id, sys_prompt, history, prompt, attachments=attachments, live_mcp_ctx=live_mcp_ctx)
+        reply, used_model = call_local_claude_cli(model_id, sys_prompt, sliced_history, prompt, attachments=attachments, live_mcp_ctx=live_mcp_ctx)
         return reply, f"Claude Code Local ({used_model})"
 
     if endpoint and api_key and model_id not in MODEL_DISPLAY_TO_AGY_ID:
@@ -3271,14 +3950,17 @@ def run_agent_llm_unified(model_id, endpoint, api_key, sys_prompt, history, prom
             if live_mcp_ctx is None:
                 live_mcp_ctx = build_dynamic_mcp_context(prompt)
             full_sys = f"{sys_prompt}\n\n{build_company_context_block()}\n\n{live_mcp_ctx}"
-        msgs = history if (isinstance(history, list) and len(history) > 0) else [{"role": "user", "content": prompt}]
+        msgs = list(sliced_history) if len(sliced_history) > 0 else [{"role": "user", "content": prompt}]
+        if not msgs or msgs[-1].get("role") != "user" or str(msgs[-1].get("content") or "").strip() != str(prompt or "").strip():
+            msgs.append({"role": "user", "content": prompt})
+        msgs = msgs[-(win_size + 1):]
         try:
             reply = call_live_llm(endpoint, api_key, model_id, full_sys, msgs, attachments=attachments)
             return reply, f"API ({model_id})"
         except Exception as llm_err:
             raise RuntimeError(format_llm_http_error(llm_err, model_id, endpoint))
 
-    reply, used_model = call_verified_agy_cli(model_id, sys_prompt, history, prompt, attachments=attachments, live_mcp_ctx=live_mcp_ctx)
+    reply, used_model = call_verified_agy_cli(model_id, sys_prompt, sliced_history, prompt, attachments=attachments, live_mcp_ctx=live_mcp_ctx)
     return reply, f"Antigravity CLI ({used_model})"
 
 
@@ -4211,6 +4893,20 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             self._send_json(200, {"ok": True, "remote_mcp": get_public_remote_mcp_config()})
             return
 
+        if self.path.startswith("/api/memory-vault"):
+            m_cfg = load_memory_config()
+            notes = list_obsidian_vault_notes()
+            req_note = (qs_map.get("note") or [""])[0].strip()
+            note_obj = read_obsidian_vault_note(req_note) if req_note else read_obsidian_vault_note("00-INDEX.md")
+            self._send_json(200, {
+                "ok": True,
+                "config": m_cfg,
+                "notes": notes,
+                "activeNote": note_obj if note_obj.get("ok") else None,
+                "obsidianVaultUri": f"obsidian://open?path={urllib.parse.quote(m_cfg['vaultPath'])}",
+            })
+            return
+
         if self.path.startswith("/api/hub-status"):
             status = get_antigravity_and_claude_status()
             mcp = get_mcp_status()
@@ -4226,6 +4922,7 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 "office_off": bool(world.get("officeOff", False)),
                 "world": world,
                 "company_profile": load_company_profile(),
+                "memory_config": load_memory_config(),
                 "roster": load_roster(),
                 "roster_templates": get_roster_templates_meta(),
                 "remote_mcp": get_public_remote_mcp_config(),
@@ -4806,7 +5503,22 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
 
         if self.path.startswith("/api/company-profile"):
             saved_prof = save_company_profile(body)
+            ensure_obsidian_vault_seeded(force_sync=True)
             self._send_json(200, {"ok": True, "company_profile": saved_prof})
+            return
+
+        if self.path.startswith("/api/memory-vault/config"):
+            res = save_memory_config(body)
+            self._send_json(200 if res.get("ok") else 400, res)
+            return
+
+        if self.path.startswith("/api/memory-vault/pick-folder"):
+            self._send_json(200, pick_native_os_folder())
+            return
+
+        if self.path.startswith("/api/memory-vault/save-note"):
+            res = save_obsidian_vault_note(body.get("relPath") or "00-INDEX.md", body.get("content") or "")
+            self._send_json(200 if res.get("ok") else 400, res)
             return
 
         if self.path.startswith("/api/architect/plan"):
@@ -5049,6 +5761,15 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 busy_ids = [10, 17, 5, 15, 8, 22, 29]
                 target_room = "TOWNHALL"
 
+            obsidian_approval_instruction = (
+                "\nATURAN MEMORI OBSIDIAN & EKSEKUSI OTOMATIS DARI OBROLAN (WAJIB DIPATUHI):\n"
+                "1. ACUAN KEBENARAN: Selalu patuhi catatan `OBSIDIAN MEMORY` (`[[00-INDEX]]` & `[[DEPT-...]]`) di bawah sebagai Single Source of Truth agar tidak halusinasi.\n"
+                "2. FASE DISKUSI & KONFIRMASI AKTIF: Jika CEO baru bertanya, melempar ide, atau mengkritik/merevisi, diskusikan solusi konkret secara tajam, lalu WAJIB tutup pesan terakhir dengan pertanyaan konfirmasi persetujuan yang jelas (contoh: \"Apakah Bos setuju dengan rencana ini untuk langsung kami kunci ke Memory Obsidian & eksekusi sekarang?\").\n"
+                "3. FASE EKSEKUSI OTOMATIS SAAT DISETUJUI: Jika pesan terbaru CEO menyatakan SETUJU / ACC / PERINTAH EKSEKUSI atas rencana yang dibahas (misal: \"setuju\", \"oke kerjakan\", \"eksekusi\", \"lanjut\", \"gas\", \"simpan\", \"acc\"), langsung kerjakan hasilnya dan WAJIB sertakan tepat 1 blok tag berikut di baris paling akhir setelah seluruh dialog selesai:\n"
+                "[[EXECUTE_APPROVED:{\"title\":\"Judul singkat keputusan/tugas\",\"dept\":\"" + (dept_room or "ADMIN") + "\",\"decision\":\"1-2 kalimat keputusan final yang dikunci ke Memory Obsidian\",\"relatedDepts\":[\"DEPT-THEMES\"],\"deliverableMd\":\"# Dokumen Hasil Eksekusi Lengkap...\\n(Tulis hasil kerja lengkap dalam Markdown)\"}]]"
+            )
+            sys_prompt = sys_prompt + "\n" + obsidian_approval_instruction
+
             def parse_turns(raw_text):
                 parts = re.split(r"\[\[SPEAKER:\s*([A-Za-z0-9_-]+)\s*\]\]", raw_text)
                 turns = []
@@ -5089,12 +5810,19 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             set_agents_busy(busy_ids, True)
             try:
                 live_ctx, executed_tools = build_dynamic_mcp_context_with_trace(prompt, room=target_room)
-                reply, used_engine = run_agent_with_tool_loop(
+                reply_raw, used_engine = run_agent_with_tool_loop(
                     model_id, endpoint, api_key, sys_prompt, history, prompt,
                     attachments=attachments, live_mcp_ctx=live_ctx, executed_tools=executed_tools, room=target_room
                 )
+                lead_meta = speaker_meta.get(first_key) or {"agentId": 10, "sender": "Raka · GM / COO"}
+                lead_name = lead_meta["sender"].split("·")[0].strip()
+                lead_role = lead_meta["sender"].split("·")[-1].strip() if "·" in lead_meta["sender"] else "Manajer"
+                reply, auto_exec, coord_ev = extract_and_execute_approved_from_reply(
+                    reply_raw, prompt, history, room=target_room,
+                    agent_id=lead_meta["agentId"], agent_name=lead_name, agent_role=lead_role, used_engine=used_engine
+                )
                 turns, speaker_bubbles = parse_turns(reply)
-                self._send_json(200, {
+                resp_payload = {
                     "ok": True,
                     "live": True,
                     "engine": used_engine,
@@ -5102,8 +5830,15 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                     "turns": turns,
                     "speakerBubbles": speaker_bubbles,
                     "toolCalls": executed_tools,
-                    "world": load_world_state()
-                })
+                    "autoExecution": auto_exec,
+                    "coordination": coord_ev,
+                    "world": load_world_state(),
+                }
+                if auto_exec:
+                    resp_payload["taskboard"] = load_taskboard()
+                    resp_payload["deliverables"] = load_agent_deliverables()
+                    resp_payload["directives"] = load_ceo_directives()
+                self._send_json(200, resp_payload)
                 return
             except Exception as err:
                 self._send_json(200, {"ok": False, "modelError": True, "error": str(err)})
@@ -5130,28 +5865,42 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 f"Kamu adalah {agent_name}, menjabat sebagai {agent_role} (berada di Departemen {room}) di perusahaan {comp_name}.\n"
                 f"{build_company_context_block(comp_prof)}\n\n"
                 f"User yang berbicara denganmu adalah {ceo_label} dari {comp_name}.\n"
-                "ATURAN WAJIB:\n"
+                "ATURAN WAJIB & MEMORI OBSIDIAN:\n"
+                "- Patuhi catatan `OBSIDIAN MEMORY` (`[[00-INDEX]]` & `[[DEPT-...]]`) di bawah sebagai Single Source of Truth agar bebas halusinasi.\n"
                 "- Jawab pertanyaan atau instruksi CEO secara 100% langsung, cerdas, spesifik, berbasis data real-time MCP di bawah (jika tersedia), dan sesuai peranmu.\n"
-                "- Berikan analisis strategis, angka faktual, draf/solusi konkret, dan rekomendasi tajam sesuai jabatanmu (JANGAN hanya melempar balik pertanyaan tanpa solusi!).\n"
-                "- Gunakan format Markdown yang rapi (bullet points, bold, atau kode jika relevan)."
+                "- FASE DISKUSI & KONFIRMASI AKTIF: Jika CEO sedang berdiskusi, melempar ide, atau mengkritik/merevisi, berikan analisis & solusi konkret, lalu WAJIB tutup jawabanmu dengan pertanyaan konfirmasi persetujuan yang jelas (contoh: \"Apakah Bos setuju dengan rencana ini untuk langsung saya kunci ke Memory Obsidian & eksekusi sekarang?\").\n"
+                "- FASE EKSEKUSI OTOMATIS SAAT DISETUJUI: Jika pesan terbaru CEO menyatakan SETUJU / ACC / PERINTAH EKSEKUSI (misal: \"setuju\", \"oke kerjakan\", \"eksekusi\", \"lanjut\", \"gas\", \"simpan\", \"acc\"), langsung kerjakan hasilnya secara tuntas dan WAJIB sertakan tepat 1 blok tag berikut di baris paling akhir jawabanmu:\n"
+                f"[[EXECUTE_APPROVED:{{\"title\":\"Judul singkat keputusan/tugas\",\"dept\":\"{room}\",\"decision\":\"1-2 kalimat keputusan final yang dikunci ke Memory Obsidian\",\"relatedDepts\":[],\"deliverableMd\":\"# Dokumen Hasil Eksekusi Lengkap...\\n(Tulis hasil kerja lengkap dalam Markdown)\"}}]]"
             )
 
             set_agents_busy([agent_id] if agent_id is not None else [10], True)
             try:
                 live_ctx, executed_tools = build_dynamic_mcp_context_with_trace(prompt, room=room, agent_id=agent_id)
-                reply, used_engine = run_agent_with_tool_loop(
+                reply_raw, used_engine = run_agent_with_tool_loop(
                     model_id, endpoint, api_key, sys_prompt, history, prompt,
                     attachments=attachments, live_mcp_ctx=live_ctx, executed_tools=executed_tools, room=room
                 )
-                self._send_json(200, {
+                reply, auto_exec, coord_ev = extract_and_execute_approved_from_reply(
+                    reply_raw, prompt, history, room=room,
+                    agent_id=agent_id if agent_id is not None else 10,
+                    agent_name=agent_name, agent_role=agent_role, used_engine=used_engine
+                )
+                resp_payload = {
                     "ok": True,
                     "live": True,
                     "engine": used_engine,
                     "reply": reply,
                     "suggestedRoom": room,
                     "toolCalls": executed_tools,
-                    "world": load_world_state()
-                })
+                    "autoExecution": auto_exec,
+                    "coordination": coord_ev,
+                    "world": load_world_state(),
+                }
+                if auto_exec:
+                    resp_payload["taskboard"] = load_taskboard()
+                    resp_payload["deliverables"] = load_agent_deliverables()
+                    resp_payload["directives"] = load_ceo_directives()
+                self._send_json(200, resp_payload)
                 return
             except Exception as err:
                 self._send_json(200, {"ok": False, "modelError": True, "error": str(err)})
@@ -5605,6 +6354,10 @@ def _run_background_model_and_vps_heartbeat():
 
 
 def create_hq_server(host=None, port=None, start_heartbeat=True):
+    try:
+        ensure_obsidian_vault_seeded()
+    except Exception:
+        pass
     _init_cfg = load_saved_config()
     if _init_cfg.get("agy_verified"):
         AGY_AUTH_SESSION["verified"] = True

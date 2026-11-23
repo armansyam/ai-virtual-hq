@@ -574,7 +574,10 @@
           </p>
         </div>
         <div class="flex items-center gap-1.5 shrink-0">
-          <button onclick="resetCurrentChatThread()" class="px-2 py-1 rounded-lg bg-white/5 hover:bg-rose-500/20 text-slate-300 hover:text-rose-200 border border-white/10 text-[10px] font-medium cursor-pointer whitespace-nowrap" title="Mulai ulang riwayat obrolan ini">
+          <button type="button" onclick="toggleInlineMemoryViewer()" class="px-2 py-1 rounded-lg bg-purple-500/15 hover:bg-purple-500/30 text-purple-200 border border-purple-400/35 text-[10px] font-semibold cursor-pointer whitespace-nowrap" title="Lihat & edit catatan Memory Markdown Obsidian ruangan ini">
+            🧠 Memory (.md)
+          </button>
+          <button onclick="resetCurrentChatThread()" class="px-2 py-1 rounded-lg bg-white/5 hover:bg-rose-500/20 text-slate-300 hover:text-rose-200 border border-white/10 text-[10px] font-medium cursor-pointer whitespace-nowrap" title="Mulai ulang riwayat obrolan tampilan ini (Memory .md tetap aman)">
             🗑️ Reset
           </button>
           <button onclick="closeModals()" class="text-slate-400 hover:text-white text-sm px-1.5 cursor-pointer">✕</button>
@@ -597,14 +600,37 @@
         </button>
       </div>
 
+      <!-- Inline Obsidian Markdown Memory Drawer (Toggled via 🧠 Memory .md) -->
+      <div id="chat-inline-memory-drawer" class="hidden border-b border-purple-500/40 bg-[#131320] p-3 space-y-2 text-[10.5px]">
+        <div class="flex flex-wrap items-center justify-between gap-1.5">
+          <div class="flex items-center gap-1.5">
+            <span class="font-bold text-purple-300">🧠 Obsidian Memory Vault</span>
+            <select id="chat-memory-note-select" onchange="loadInlineMemoryNote(this.value)" class="px-2 py-0.5 rounded bg-[#1d1d2e] border border-purple-400/35 text-amber-200 font-mono text-[10px]"></select>
+          </div>
+          <div class="flex items-center gap-1">
+            <a id="chat-memory-open-obsidian" href="obsidian://open" class="px-2 py-0.5 rounded bg-purple-600/30 hover:bg-purple-600/50 border border-purple-400/40 text-purple-200 font-semibold text-[9.5px]">
+              🟣 Buka di Obsidian
+            </a>
+            <button type="button" onclick="saveInlineMemoryNote()" class="px-2 py-0.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[9.5px] cursor-pointer">
+              💾 Simpan .md
+            </button>
+            <button type="button" onclick="toggleInlineMemoryViewer(false)" class="px-1.5 py-0.5 rounded bg-white/10 text-slate-300 hover:text-white text-[9.5px] cursor-pointer">✕</button>
+          </div>
+        </div>
+        <div id="chat-memory-wikilinks-bar" class="flex flex-wrap items-center gap-1 text-[9.5px]"></div>
+        <textarea id="chat-memory-editor" rows="7" class="w-full p-2.5 rounded-lg bg-[#0b0b12] border border-white/15 font-mono text-[10px] text-slate-200 leading-relaxed focus:outline-none focus:border-purple-400" placeholder="Memuat catatan Markdown..."></textarea>
+      </div>
+
       <div id="chat-messages-box" class="flex-1 p-3.5 overflow-y-auto space-y-2.5 bg-[#101017]"></div>
 
-      <div id="chat-approval-bar" class="px-3.5 py-2 bg-amber-500/10 border-t border-amber-500/30 flex items-center justify-between gap-2">
-        <span class="text-[10px] text-amber-200 font-medium">
-          ⚡ Sudah sepakat dengan hasil diskusi?
-        </span>
-        <button onclick="approveAndDispatchFromChat()" class="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10.5px] shadow cursor-pointer flex items-center gap-1 shrink-0">
-          <span>🚀</span> <span id="btn-approve-text">Setujui & Suruh Tim Kerja</span>
+      <div id="chat-memory-status-bar" class="px-3.5 py-1.5 bg-[#141420] border-t border-purple-500/25 flex items-center justify-between gap-2 text-[10px]">
+        <div class="flex items-center gap-1.5 min-w-0 text-slate-300 truncate" title="Hanya mengirim catatan Markdown Obsidian + beberapa pesan terakhir agar hemat token & bebas halusinasi. Balas 'Setuju / Kerjakan' di chat untuk eksekusi otomatis.">
+          <span class="text-purple-300 font-semibold shrink-0">🧠 Memory:</span>
+          <span id="chat-active-memory-pill" class="font-mono text-amber-200 truncate">[[00-INDEX]]</span>
+          <span id="chat-sliding-window-pill" class="text-slate-400 shrink-0">· 6 chat terakhir · Auto-Eksekusi saat disetujui</span>
+        </div>
+        <button type="button" onclick="toggleInlineMemoryViewer()" class="px-2 py-0.5 rounded bg-purple-500/20 hover:bg-purple-500/35 border border-purple-400/35 text-purple-200 font-semibold cursor-pointer shrink-0">
+          Lihat [[Wikilink]]
         </button>
       </div>
 
@@ -1175,6 +1201,78 @@
               <div class="text-[10px] text-purple-300 font-mono">35 Staf</div>
               <div class="text-[9.5px] text-slate-400 mt-0.5">6 Departemen Penuh</div>
             </button>
+          </div>
+        </div>
+
+        <!-- Kartu Penempatan Memory Vault (Kerangka Markdown Obsidian & Hemat Token) -->
+        <div class="rounded-xl bg-[#13131b] border border-emerald-500/35 p-4 space-y-3">
+          <div class="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="font-semibold text-white text-xs">🧠 Penempatan Memory Vault (Kerangka Markdown Obsidian &amp; Hemat Token)</span>
+                <span id="memory-vault-count-badge" class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-mono">8 Catatan .md</span>
+              </div>
+              <p class="text-[10.5px] text-slate-400 mt-0.5">
+                Tentukan folder penyimpanan catatan Markdown (<code>00-INDEX.md</code>, <code>DEPT-*.md</code>, &amp; <code>[[wikilink]]</code>). Anda bisa membuka folder ini langsung sebagai Vault di aplikasi <b>Obsidian</b> untuk melihat Graph View &amp; progres koneksi antar-departemen.
+              </p>
+            </div>
+            <a id="setup-open-obsidian-btn" href="obsidian://open" class="px-2.5 py-1 rounded-lg bg-purple-600/30 hover:bg-purple-600/50 border border-purple-400/40 text-purple-200 text-[10.5px] font-semibold shrink-0">
+              🟣 Buka Vault di Obsidian
+            </a>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-end">
+            <div class="md:col-span-7">
+              <label class="block text-[10px] text-emerald-300 font-semibold mb-1">Path Folder Memory Vault Obsidian (.md)</label>
+              <div class="flex items-center gap-1.5">
+                <input id="memory-vault-path-input" type="text" placeholder="/Users/.../memory" class="flex-1 px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white font-mono text-[11px]" />
+                <button type="button" onclick="pickMemoryVaultFolderNative()" class="px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 border border-white/15 text-slate-200 text-[10.5px] font-medium cursor-pointer shrink-0">
+                  📂 Pilih Folder...
+                </button>
+              </div>
+            </div>
+            <div class="md:col-span-3">
+              <label class="block text-[10px] text-slate-300 mb-1">Batas Sliding Window Chat</label>
+              <select id="memory-sliding-window-select" class="w-full px-2.5 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-[11px]">
+                <option value="4">4 Chat Terakhir (Super Hemat ~90%)</option>
+                <option value="6" selected>6 Chat Terakhir (Ideal · Rekomendasi)</option>
+                <option value="8">8 Chat Terakhir (Seimbang)</option>
+                <option value="12">12 Chat Terakhir (Diskusi Panjang)</option>
+              </select>
+            </div>
+            <div class="md:col-span-2">
+              <button type="button" onclick="saveMemoryVaultConfigUI()" class="w-full px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-[11px] cursor-pointer">
+                Simpan Vault
+              </button>
+            </div>
+          </div>
+
+          <!-- Daftar File Markdown & Wikilinks di dalam Vault -->
+          <div class="space-y-1.5 pt-1">
+            <div class="flex items-center justify-between text-[10.5px]">
+              <span class="text-slate-400">Daftar Catatan Markdown Aktif &amp; Jaringan <code>[[Wikilink]]</code> (Klik catatan untuk lihat/edit):</span>
+              <button type="button" onclick="refreshMemoryVaultSettingsUI()" class="text-sky-300 hover:underline cursor-pointer text-[10px]">🔄 Segarkan</button>
+            </div>
+            <div id="setup-memory-notes-grid" class="grid grid-cols-1 md:grid-cols-2 gap-1.5 max-h-44 overflow-y-auto"></div>
+          </div>
+
+          <!-- Inline Preview / Editor di Setup 1 Pintu -->
+          <div id="setup-memory-note-editor-wrap" class="hidden pt-2 border-t border-white/10 space-y-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span id="setup-memory-editor-title" class="font-mono font-bold text-amber-300 text-[11px]">00-INDEX.md</span>
+                <div id="setup-memory-editor-wikilinks" class="flex flex-wrap items-center gap-1"></div>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <button type="button" onclick="saveSetupMemoryNoteUI()" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-[10.5px] cursor-pointer">
+                  💾 Simpan Perubahan .md
+                </button>
+                <button type="button" onclick="document.getElementById('setup-memory-note-editor-wrap').classList.add('hidden')" class="px-2 py-1 rounded-lg bg-white/10 text-slate-300 text-[10.5px] cursor-pointer">
+                  Tutup
+                </button>
+              </div>
+            </div>
+            <textarea id="setup-memory-editor-textarea" rows="8" class="w-full p-3 rounded-lg bg-[#0c0c14] border border-white/15 font-mono text-[10.5px] text-slate-200 leading-relaxed focus:outline-none focus:border-emerald-400"></textarea>
           </div>
         </div>
 
@@ -4162,6 +4260,9 @@
         if (data && data.company_profile) {
           applyCompanyProfileUI(data.company_profile);
         }
+        if (data && data.memory_config) {
+          MEMORY_CONFIG_CACHE = { ...MEMORY_CONFIG_CACHE, ...data.memory_config };
+        }
         if (data && data.roster) {
           applyRosterFromServer(data.roster);
         }
@@ -5167,6 +5268,22 @@
     hydrateChatStateFromServer();
     setInterval(() => syncWorldStateFromServer(false), 1800);
 
+    var MEMORY_CONFIG_CACHE = { vaultPath: "", slidingWindow: 6, autoExecuteOnApprove: true };
+    var MEMORY_NOTES_CACHE = [];
+
+    function _updateChatMemoryStatusBar(roomKey, isTownHall = false) {
+      const pill = document.getElementById("chat-active-memory-pill");
+      const winPill = document.getElementById("chat-sliding-window-pill");
+      const sw = Number(MEMORY_CONFIG_CACHE.slidingWindow || 6);
+      const rClean = (roomKey || "ADMIN").toUpperCase();
+      const targetNote = isTownHall ? "[[TOWNHALL-DECISIONS]]" : `[[DEPT-${rClean}]]`;
+      if (pill) pill.textContent = `[[00-INDEX]] + ${targetNote}`;
+      if (winPill) winPill.textContent = `· ${sw} chat terakhir · Auto-Eksekusi saat disetujui`;
+      // Hide inline drawer on room switch so it reloads fresh when clicked
+      const drw = document.getElementById("chat-inline-memory-drawer");
+      if (drw) drw.classList.add("hidden");
+    }
+
     function ensureAgentChatSeed(agentId) {
       const ag = agents.find(a => a.id === agentId);
       if (!ag) return;
@@ -5176,7 +5293,7 @@
             {
               sender: "👑 Raka (GM / COO @raka_ops)",
               isCEO: false,
-              text: "Siap Bos! Saya sudah menghadap ke posisi Bos. Seluruh data server produksi `https://luxvite.id`, 81 tema fisik, dan buku kas Dept 6 sudah terhubung via **luxvite-mcp**.\n\nBos ingin kita berdiskusi lalu mengeksekusi tugas nyata di **Dept 1 (Konten & Carousel)**, **Dept 2 (81 Tema & Builder 3.0)**, **Dept 3 (Mitra WO Zero-Debt & SEO)**, **Dept 4 (CS & Custom Domain)**, **Dept 5 (Engineering & VPS)**, atau **Dept 6 (Keuangan & Anti-Rugi)**?"
+              text: "Siap Bos! Saya sudah menghadap ke posisi Bos. Memori utama **[[00-INDEX]]** dan data seluruh departemen sudah sinkron.\n\nSilakan sampaikan rencana atau masalah yang ingin kita bahas. Saya akan mendiskusikan solusinya dan memastikan persetujuan Bos — cukup balas **\"Setuju / Kerjakan\"** di obrolan saat sudah pas, tim akan langsung mengeksekusi & menguncinya ke Memory Obsidian!"
             }
           ];
         } else {
@@ -5184,7 +5301,7 @@
             {
               sender: `${ag.name} (${ag.role})`,
               isCEO: false,
-              text: `Halo Bos! Saya **${ag.name}** di ${ag.deskLabel} (Model: \`${ag.model}\`).\n\n**Fokus & Status Terkini:**\n${ag.progressMsg}\n\nSilakan beri instruksi atau diskusikan rencana apa pun — begitu Bos klik **"🚀 Setujui & Suruh Tim Kerja"**, saya akan langsung mengeksekusi dan menyimpan berkas hasilnya ke disk!`
+              text: `Halo Bos! Saya **${ag.name}** di ${ag.deskLabel} (Model: \`${ag.model}\` · Memori: **[[00-INDEX]]** & **[[DEPT-${ag.room || 'ADMIN'}]]**).\n\n**Fokus & Status Terkini:**\n${ag.progressMsg}\n\nMari kita diskusikan rencana atau revisi yang Bos inginkan. Begitu Bos membalas **\"Setuju / Kerjakan\"** di obrolan ini, saya akan otomatis mengeksekusi hasil kerjanya dan mencatatnya ke Memory Obsidian!`
             }
           ];
         }
@@ -5398,7 +5515,7 @@
       ensureDepartmentChatSeed(roomKey);
       document.getElementById("prog-modal-title").textContent = `Ruang Obrolan Departemen — ${roomLabel} (${members.length} Staf)`;
       document.getElementById("prog-modal-sub").textContent = `Anggota di ruangan: ${memberNames} · Mengintip percakapan tim & beri arahan`;
-      document.getElementById("btn-approve-text").textContent = `Setujui & Eksekusi Hasil Diskusi ${roomLabel}`;
+      _updateChatMemoryStatusBar(roomKey, false);
 
       const modal = document.getElementById("modal-progress");
       modal.classList.remove("hidden");
@@ -5415,14 +5532,14 @@
       currentModalAgentId = 10;
       document.getElementById("prog-modal-title").textContent = `Rapat Besar Town Hall — Diskusi CEO & ${agents.length} Karyawan AI`;
       document.getElementById("prog-modal-sub").textContent = "Lokasi: Ruang Rapat Utama (36 Kursi) · Dipimpin oleh Kamu (CEO), GM Raka & 6 Manajer Dept";
-      document.getElementById("btn-approve-text").textContent = "Setujui & Eksekusi Hasil Rapat ke Disk";
+      _updateChatMemoryStatusBar("TOWNHALL", true);
 
       if (!agentChatHistories["TOWNHALL"]) {
         agentChatHistories["TOWNHALL"] = [
           {
-            sender: "🎙️ GM Raka & 6 Manajer Departemen (Live AI + MCP Engine)",
+            sender: "🎙️ GM Raka & 6 Manajer Departemen (Live AI + Obsidian Memory)",
             isCEO: false,
-            text: "Selamat datang di Ruang Rapat Utama (Town Hall), Bos! Seluruh **35 Karyawan AI** dari **6 Departemen** (`⭐ Senna` · Social, `⭐ Bima` · 81 Themes & Builder 3.0, `⭐ Aldo` · Growth/WO, `⭐ Putri` · Ops & CS, `⭐ Arya` · Engineering/VPS, dan `⭐ Tika` · Keuangan & Anti-Rugi) sudah berkumpul.\n\nSilakan sampaikan instruksi atau topik rapat — setiap manajer akan menjawab dengan data real-time MCP, dan saat Bos klik **\"🚀 Setujui & Eksekusi\"**, tim langsung mengerjakan dan menyimpan berkas hasilnya ke disk!"
+            text: "Selamat datang di Ruang Rapat Utama (Town Hall), Bos! Seluruh manajer departemen terhubung ke memori **[[00-INDEX]]** dan **[[TOWNHALL-DECISIONS]]**.\n\nSilakan sampaikan topik rapat atau kritik/evaluasi — para manajer akan berdiskusi aktif dan meminta konfirmasi Bos. Begitu Bos membalas **\"Setuju / Kerjakan\"** di obrolan, tim langsung otomatis mengeksekusi hasilnya ke disk & memperbarui jaringan `[[wikilink]]` Obsidian!"
           }
         ];
       }
@@ -5453,9 +5570,7 @@
       ensureAgentChatSeed(agentId);
       document.getElementById("prog-modal-title").textContent = `Diskusi & Eksekusi — CEO & ${ag.name} (${ag.role})`;
       document.getElementById("prog-modal-sub").textContent = `Lokasi: ${ag.deskLabel} · Model Aktif: ${ag.model}`;
-      document.getElementById("btn-approve-text").textContent = ag.name === "Raka"
-        ? "Setujui & Eksekusi Bersama Tim"
-        : `Setujui & Suruh ${ag.name} Eksekusi Nyata`;
+      _updateChatMemoryStatusBar(ag.room || "ADMIN", false);
 
       const modal = document.getElementById("modal-progress");
       modal.classList.remove("hidden");
@@ -5578,6 +5693,13 @@
       s = s.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, lang, code) =>
         `<pre class="my-1.5 p-2.5 rounded-lg bg-black/50 border border-white/10 font-mono text-[10.5px] text-emerald-300 overflow-x-auto">${code.trim()}</pre>`
       );
+      // Obsidian [[wikilink]] or [[target|alias]] interactive badges
+      s = s.replace(/\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]/g, (_, target, alias) => {
+        const cleanT = target.trim();
+        const label = (alias || cleanT).trim();
+        const noteFile = cleanT.toLowerCase().endsWith(".md") ? cleanT : `${cleanT}.md`;
+        return `<button type="button" onclick="openInlineMemoryNoteFromWikilink('${noteFile.replace(/'/g, "\\'")}')" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-purple-500/20 hover:bg-purple-500/35 border border-purple-400/40 font-mono text-[10px] text-purple-200 cursor-pointer" title="Buka catatan Obsidian [[${cleanT}]]">[[${label}]]</button>`;
+      });
       // Inline code
       s = s.replace(/`([^`\n]+)`/g, '<code class="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 font-mono text-[10.5px] text-amber-300">$1</code>');
       // Bold & italic
@@ -5620,7 +5742,11 @@
         const toolsHtml = (Array.isArray(m.toolCalls) && m.toolCalls.length > 0)
           ? `<div class="mb-2 flex flex-wrap gap-1">
                ${m.toolCalls.map(tc => {
+                 const isObs = tc.source === "OBSIDIAN_MEMORY";
                  const isRemote = tc.source === "REMOTE_MCP";
+                 if (isObs) {
+                   return `<button type="button" onclick="toggleInlineMemoryViewer(true)" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border bg-purple-500/20 border-purple-400/45 text-purple-200 font-semibold text-[9.5px] font-mono cursor-pointer" title="Klik untuk melihat/edit catatan Memory Markdown Obsidian">🧠 ${escapeHtmlSafe(tc.tool)} <span class="text-purple-300/80">· ${escapeHtmlSafe(tc.summary || 'Memory .md')}</span></button>`;
+                 }
                  const cls = isRemote
                    ? "bg-emerald-500/20 border-emerald-400/45 text-emerald-200 font-semibold"
                    : "bg-sky-500/15 border-sky-500/30 text-sky-300";
@@ -5630,17 +5756,35 @@
              </div>`
           : "";
 
-        const artifactHtml = m.artifactFile
-          ? `<div class="mt-2.5 p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-between gap-2">
-               <div class="min-w-0">
-                 <div class="text-[10px] font-bold text-emerald-300">📄 BERKAS KERJA NYATA TERSIMPAN DI DISK:</div>
-                 <div class="text-[10.5px] font-mono text-white truncate">${escapeHtmlSafe(m.artifactFile)}</div>
+        const autoExec = m.autoExecution;
+        const autoExecHtml = (autoExec && autoExec.executed)
+          ? `<div class="mt-2.5 p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-400/45 space-y-1.5">
+               <div class="flex items-center justify-between gap-2">
+                 <span class="text-[10px] font-bold text-emerald-300">🧠 KEPUTUSAN DIKUNCI KE MEMORY OBSIDIAN &amp; DIEKSEKUSI OTOMATIS</span>
+                 <button type="button" onclick="toggleInlineMemoryViewer(true)" class="px-2 py-0.5 rounded bg-purple-600/40 hover:bg-purple-600/60 border border-purple-400/40 text-purple-100 font-mono text-[9.5px] cursor-pointer">
+                   [[DEPT-${escapeHtmlSafe(autoExec.dept || 'ADMIN')}]]
+                 </button>
                </div>
-               <button onclick="openAllOutputsModal()" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] shrink-0 cursor-pointer">
-                 📂 Buka Hasil
-               </button>
+               <div class="text-[10.5px] text-white font-semibold">${escapeHtmlSafe(autoExec.title || '')}</div>
+               <div class="text-[10px] text-slate-300">${escapeHtmlSafe(autoExec.decision || '')}</div>
+               <div class="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-white/10">
+                 <span class="text-[9.5px] font-mono text-emerald-200 truncate">📄 ${escapeHtmlSafe(autoExec.artifactFile || '')}</span>
+                 <button type="button" onclick="openAllOutputsModal()" class="px-2.5 py-0.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[9.5px] shrink-0 cursor-pointer">
+                   📂 Buka Dokumen Hasil
+                 </button>
+               </div>
              </div>`
-          : "";
+          : (m.artifactFile
+              ? `<div class="mt-2.5 p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/40 flex items-center justify-between gap-2">
+                   <div class="min-w-0">
+                     <div class="text-[10px] font-bold text-emerald-300">📄 BERKAS KERJA NYATA TERSIMPAN DI DISK:</div>
+                     <div class="text-[10.5px] font-mono text-white truncate">${escapeHtmlSafe(m.artifactFile)}</div>
+                   </div>
+                   <button onclick="openAllOutputsModal()" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] shrink-0 cursor-pointer">
+                     📂 Buka Hasil
+                   </button>
+                 </div>`
+              : "");
 
         if (m.isCEO) {
           return `
@@ -5658,11 +5802,11 @@
             <div class="max-w-[92%] rounded-2xl rounded-tl-sm bg-[#1a1a26] border border-white/10 text-slate-200 px-3.5 py-3 text-xs leading-relaxed shadow">
               <div class="text-[10.5px] font-bold text-amber-300 mb-1.5 flex items-center justify-between gap-2">
                 <span>${escapeHtmlSafe(m.sender)}</span>
-                <span class="text-[9.5px] font-mono text-emerald-400 shrink-0">● Live AI + MCP</span>
+                <span class="text-[9.5px] font-mono text-emerald-400 shrink-0">● Live AI + Obsidian</span>
               </div>
               ${toolsHtml}
               <div class="whitespace-pre-line select-text space-y-1">${renderRichMarkdown(m.text)}</div>
-              ${artifactHtml}
+              ${autoExecHtml}
             </div>
           </div>
         `;
@@ -5728,8 +5872,10 @@
       try {
         const isMultiTurnRoom = isTownHallChatMode || isDeptChat;
         const apiUrl = isMultiTurnRoom ? "/api/townhall-chat" : "/api/run-agent";
+        const winSize = Math.max(2, Number(MEMORY_CONFIG_CACHE.slidingWindow || 6));
         const llmHistory = agentChatHistories[historyKey]
           .slice(0, -1)
+          .slice(-(winSize + 1))
           .map(x => ({ role: x.isCEO ? "user" : "assistant", content: x.text }));
 
         const res = await fetch(apiUrl, {
@@ -5756,19 +5902,26 @@
 
         if (data.ok) {
           ag.lastError = "";
+          if (Array.isArray(data.directives)) activeCeoDirectives = data.directives;
+          if (Array.isArray(data.taskboard)) TASKBOARD_ITEMS = data.taskboard;
+          if (data.deliverables) applyServerDeliverables(data.deliverables);
           renderSidebarAndTable();
           pendingDispatchRoom = isDeptChat ? currentDeptChatRoom : (data.suggestedRoom || ag.room || "ALL");
           const engineTag = data.engine ? ` · ${data.engine}` : "";
           const toolCalls = Array.isArray(data.toolCalls) ? data.toolCalls : [];
+          const autoExec = data.autoExecution || null;
 
           if (isMultiTurnRoom && Array.isArray(data.turns) && data.turns.length > 0) {
+            const lastIdx = data.turns.length - 1;
             data.turns.forEach((turn, idx) => {
               setTimeout(() => {
                 agentChatHistories[historyKey].push({
                   sender: `${turn.sender} (${data.engine || 'Live AI'})`,
                   isCEO: false,
                   text: turn.text,
-                  toolCalls: idx === 0 ? toolCalls : []
+                  toolCalls: idx === 0 ? toolCalls : [],
+                  autoExecution: idx === lastIdx ? autoExec : null,
+                  artifactFile: (idx === lastIdx && autoExec) ? autoExec.artifactFile : ""
                 });
                 renderChatMessages(historyKey);
                 persistChatHistories();
@@ -5789,14 +5942,24 @@
               sender: isTownHallChatMode ? `🎙️ GM Raka & 6 Manajer Dept (${data.engine || 'Live AI'})` : `${ag.name} (${ag.role}${engineTag})`,
               isCEO: false,
               text: data.reply,
-              toolCalls
+              toolCalls,
+              autoExecution: autoExec,
+              artifactFile: autoExec ? autoExec.artifactFile : ""
             });
             renderChatMessages(historyKey);
             const shortLine = (data.reply || "").split("\n")[0];
             ag.activeBubbleText = `💬 ${ag.name}: "${shortLine.length > 60 ? shortLine.slice(0, 57) + '...' : shortLine}"`;
             setTimeout(() => { ag.activeBubbleText = ""; }, 4000);
           }
-          ag.progressMsg = `Berdiskusi dengan CEO mengenai: "${val}"`;
+          ag.progressMsg = autoExec
+            ? `Selesai mengeksekusi & mengunci ke Memory [[DEPT-${autoExec.dept}]]: ${autoExec.title}`
+            : `Berdiskusi dengan CEO mengenai: "${val}"`;
+          if (autoExec) {
+            updateToast(`🧠 Keputusan dikunci ke Memory [[DEPT-${autoExec.dept}]] & dieksekusi ke ${autoExec.artifactFile}!`);
+            if (data.coordination) {
+              setTimeout(() => runCoordinationAnimation(data.coordination), 650);
+            }
+          }
         } else {
           ag.lastError = data.error || "Model error / tidak terhubung";
           renderSidebarAndTable();
@@ -6091,6 +6254,9 @@
         }
         if (data && data.company_profile) {
           applyCompanyProfileUI(data.company_profile);
+        }
+        if (data && data.memory_config) {
+          MEMORY_CONFIG_CACHE = { ...MEMORY_CONFIG_CACHE, ...data.memory_config };
         }
         if (data && data.roster) {
           applyRosterFromServer(data.roster);
@@ -6504,6 +6670,7 @@
       });
       if (tabKey === "SETUP") {
         loadCompanyProfile();
+        refreshMemoryVaultSettingsUI();
       }
       if (tabKey === "MCP") {
         loadRemoteMcpConfig();
@@ -6512,6 +6679,218 @@
       }
       if (tabKey !== "API" && tabKey !== "SETUP") {
         loadExtensionsStatus();
+      }
+    }
+
+    // ================= OBSIDIAN MARKDOWN MEMORY VAULT UI (SETUP 1 PINTU & IN-CHAT DRAWER) =================
+    var _CURRENT_SETUP_EDIT_NOTE = "00-INDEX.md";
+
+    async function refreshMemoryVaultSettingsUI(targetNote = "") {
+      try {
+        const q = targetNote ? `?note=${encodeURIComponent(targetNote)}` : "";
+        const res = await fetch(`/api/memory-vault${q}`);
+        const data = await res.json();
+        if (!data || !data.ok) return data;
+        if (data.config) {
+          MEMORY_CONFIG_CACHE = { ...MEMORY_CONFIG_CACHE, ...data.config };
+          const pathInp = document.getElementById("memory-vault-path-input");
+          if (pathInp) pathInp.value = data.config.vaultPath || "";
+          const swSel = document.getElementById("memory-sliding-window-select");
+          if (swSel && data.config.slidingWindow) swSel.value = String(data.config.slidingWindow);
+        }
+        const obsBtn = document.getElementById("setup-open-obsidian-btn");
+        if (obsBtn && data.obsidianVaultUri) obsBtn.href = data.obsidianVaultUri;
+
+        MEMORY_NOTES_CACHE = Array.isArray(data.notes) ? data.notes : [];
+        const cntBadge = document.getElementById("memory-vault-count-badge");
+        if (cntBadge) cntBadge.textContent = `${MEMORY_NOTES_CACHE.length} Catatan .md`;
+
+        const grid = document.getElementById("setup-memory-notes-grid");
+        if (grid) {
+          grid.innerHTML = MEMORY_NOTES_CACHE.map(n => {
+            const safeRel = n.relPath.replace(/'/g, "\\'");
+            const wlTags = (n.wikilinks || []).slice(0, 4).map(w =>
+              `<span class="px-1.5 py-0.5 rounded bg-purple-500/15 border border-purple-400/30 font-mono text-[9px] text-purple-200">[[${escapeHtmlSafe(w)}]]</span>`
+            ).join(" ");
+            return `
+              <div onclick="openSetupMemoryNoteEditor('${safeRel}')" class="p-2.5 rounded-lg bg-[#181824] hover:bg-white/10 border ${n.isIndex ? 'border-amber-400/45' : 'border-white/10'} transition cursor-pointer flex flex-col gap-1">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="font-mono font-bold text-[10.5px] ${n.isIndex ? 'text-amber-300' : 'text-emerald-300'} truncate">📄 ${escapeHtmlSafe(n.relPath)}</span>
+                  <span class="text-[9.5px] font-mono text-slate-400 shrink-0">${n.wikilinksCount || 0} [[link]] · ${n.sizeKb}KB</span>
+                </div>
+                <div class="text-[10px] text-slate-300 truncate">${escapeHtmlSafe(n.title || n.name)}</div>
+                ${wlTags ? `<div class="flex flex-wrap gap-1 pt-0.5">${wlTags}</div>` : ""}
+              </div>
+            `;
+          }).join("");
+        }
+        return data;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    async function pickMemoryVaultFolderNative() {
+      try {
+        const res = await fetch("/api/memory-vault/pick-folder", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        const data = await res.json();
+        if (data && data.ok && data.path) {
+          const inp = document.getElementById("memory-vault-path-input");
+          if (inp) inp.value = data.path;
+          await saveMemoryVaultConfigUI();
+        } else if (data && !data.cancelled && data.error) {
+          updateToast(data.error);
+        }
+      } catch (e) {
+        updateToast("Gagal membuka dialog pemilihan folder.");
+      }
+    }
+
+    async function saveMemoryVaultConfigUI() {
+      const vaultPath = (document.getElementById("memory-vault-path-input")?.value || "").trim();
+      const slidingWindow = Number(document.getElementById("memory-sliding-window-select")?.value || 6);
+      try {
+        const res = await fetch("/api/memory-vault/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ vaultPath, slidingWindow }),
+        });
+        const data = await res.json();
+        if (data && data.ok) {
+          MEMORY_CONFIG_CACHE = { ...MEMORY_CONFIG_CACHE, ...(data.config || {}) };
+          await refreshMemoryVaultSettingsUI();
+          updateToast(`🧠 Memory Vault Obsidian disimpan di ${MEMORY_CONFIG_CACHE.vaultPath} (Sliding Window: ${MEMORY_CONFIG_CACHE.slidingWindow} chat)!`);
+        } else {
+          updateToast((data && data.error) || "Gagal menyimpan pengaturan Memory Vault.");
+        }
+      } catch (e) {
+        updateToast("Error menyimpan konfigurasi Memory Vault.");
+      }
+    }
+
+    async function openSetupMemoryNoteEditor(relPath) {
+      _CURRENT_SETUP_EDIT_NOTE = relPath || "00-INDEX.md";
+      const data = await refreshMemoryVaultSettingsUI(_CURRENT_SETUP_EDIT_NOTE);
+      const wrap = document.getElementById("setup-memory-note-editor-wrap");
+      const titleEl = document.getElementById("setup-memory-editor-title");
+      const ta = document.getElementById("setup-memory-editor-textarea");
+      const wlBox = document.getElementById("setup-memory-editor-wikilinks");
+      if (!wrap || !data || !data.activeNote) return;
+      wrap.classList.remove("hidden");
+      if (titleEl) titleEl.textContent = `📄 ${data.activeNote.relPath}`;
+      if (ta) ta.value = data.activeNote.content || "";
+      if (wlBox) {
+        wlBox.innerHTML = (data.activeNote.wikilinks || []).map(w => {
+          const targetMd = w.toLowerCase().endsWith(".md") ? w : `${w}.md`;
+          return `<button type="button" onclick="openSetupMemoryNoteEditor('${targetMd.replace(/'/g, "\\'")}')" class="px-1.5 py-0.5 rounded bg-purple-500/20 hover:bg-purple-500/40 border border-purple-400/35 font-mono text-[9.5px] text-purple-200 cursor-pointer">[[${escapeHtmlSafe(w)}]]</button>`;
+        }).join("");
+      }
+    }
+
+    async function saveSetupMemoryNoteUI() {
+      const ta = document.getElementById("setup-memory-editor-textarea");
+      if (!ta) return;
+      try {
+        const res = await fetch("/api/memory-vault/save-note", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ relPath: _CURRENT_SETUP_EDIT_NOTE, content: ta.value }),
+        });
+        const data = await res.json();
+        if (data && data.ok) {
+          await refreshMemoryVaultSettingsUI(_CURRENT_SETUP_EDIT_NOTE);
+          updateToast(`💾 Catatan Obsidian "${_CURRENT_SETUP_EDIT_NOTE}" berhasil disimpan & langsung dipatuhi tim AI!`);
+        } else {
+          updateToast((data && data.error) || "Gagal menyimpan catatan.");
+        }
+      } catch (e) {
+        updateToast("Error menyimpan catatan Markdown.");
+      }
+    }
+
+    function _getActiveChatDefaultMemoryNote() {
+      if (isTownHallChatMode) return "TOWNHALL-DECISIONS.md";
+      if (currentDeptChatRoom) return `DEPT-${currentDeptChatRoom.toUpperCase()}.md`;
+      const ag = agents.find(a => a.id === currentModalAgentId);
+      const rm = (ag && ag.room) ? ag.room.toUpperCase() : "ADMIN";
+      return `DEPT-${rm}.md`;
+    }
+
+    async function toggleInlineMemoryViewer(forceOpen = null, specificNote = "") {
+      const drw = document.getElementById("chat-inline-memory-drawer");
+      if (!drw) return;
+      const shouldOpen = forceOpen !== null ? Boolean(forceOpen) : drw.classList.contains("hidden");
+      drw.classList.toggle("hidden", !shouldOpen);
+      if (shouldOpen) {
+        const target = specificNote || _getActiveChatDefaultMemoryNote();
+        await loadInlineMemoryNote(target);
+      }
+    }
+
+    async function openInlineMemoryNoteFromWikilink(noteFile) {
+      await toggleInlineMemoryViewer(true, noteFile);
+    }
+
+    async function loadInlineMemoryNote(relNote) {
+      try {
+        const res = await fetch(`/api/memory-vault?note=${encodeURIComponent(relNote || "00-INDEX.md")}`);
+        const data = await res.json();
+        if (!data || !data.ok) return;
+        const sel = document.getElementById("chat-memory-note-select");
+        const notes = Array.isArray(data.notes) ? data.notes : [];
+        if (sel) {
+          sel.innerHTML = notes.map(n =>
+            `<option value="${escapeHtmlSafe(n.relPath)}">${escapeHtmlSafe(n.relPath)} (${n.wikilinksCount || 0} link)</option>`
+          ).join("");
+          if (data.activeNote && data.activeNote.relPath) {
+            sel.value = data.activeNote.relPath;
+          }
+        }
+        const obsLink = document.getElementById("chat-memory-open-obsidian");
+        if (obsLink) {
+          obsLink.href = (data.activeNote && data.activeNote.obsidianUri) || data.obsidianVaultUri || "obsidian://open";
+        }
+        const ta = document.getElementById("chat-memory-editor");
+        if (ta && data.activeNote) {
+          ta.value = data.activeNote.content || "";
+        }
+        const wlBar = document.getElementById("chat-memory-wikilinks-bar");
+        if (wlBar && data.activeNote) {
+          const wlinks = data.activeNote.wikilinks || [];
+          wlBar.innerHTML = wlinks.length
+            ? `<span class="text-slate-400">Wikilinks:</span> ` + wlinks.map(w => {
+                const targetMd = w.toLowerCase().endsWith(".md") ? w : `${w}.md`;
+                return `<button type="button" onclick="loadInlineMemoryNote('${targetMd.replace(/'/g, "\\'")}')" class="px-1.5 py-0.5 rounded bg-purple-500/20 hover:bg-purple-500/40 border border-purple-400/35 font-mono text-purple-200 cursor-pointer">[[${escapeHtmlSafe(w)}]]</button>`;
+              }).join("")
+            : `<span class="text-slate-500">Gunakan format [[NAMA-CATATAN]] untuk menambah koneksi Obsidian.</span>`;
+        }
+      } catch (e) {}
+    }
+
+    async function saveInlineMemoryNote() {
+      const sel = document.getElementById("chat-memory-note-select");
+      const ta = document.getElementById("chat-memory-editor");
+      const relPath = (sel && sel.value) || _getActiveChatDefaultMemoryNote();
+      if (!ta) return;
+      try {
+        const res = await fetch("/api/memory-vault/save-note", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ relPath, content: ta.value }),
+        });
+        const data = await res.json();
+        if (data && data.ok) {
+          await loadInlineMemoryNote(relPath);
+          updateToast(`🧠 Memory Obsidian [[${relPath.replace(/\.md$/i, "")}]] diperbarui & langsung aktif!`);
+        } else {
+          updateToast((data && data.error) || "Gagal menyimpan Memory .md");
+        }
+      } catch (e) {
+        updateToast("Error menyimpan Memory .md");
       }
     }
 
