@@ -270,13 +270,21 @@
         </button>
       </div>
 
-      <!-- Right: Single Compact Location Selector -->
-      <div class="flex items-center gap-1 px-1.5 py-1 rounded-xl bg-[#13131a]/88 backdrop-blur-md border border-white/10 shadow-lg text-[11px] pointer-events-auto ml-auto">
-        <span class="text-slate-400 text-[10px] pl-1 hidden md:inline">Lokasi:</span>
-        <select id="room-select-dropdown" onchange="selectRoom(this.value)" class="bg-[#1c1c26] text-slate-100 border border-white/10 rounded-lg px-2 py-1 text-[11px] font-medium focus:outline-none focus:border-amber-400/50 cursor-pointer max-w-[145px] sm:max-w-[200px] truncate"></select>
-        <button id="btn-top-add-building" onclick="openExpandHqModal()" class="hidden px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white text-[11px] cursor-pointer shrink-0" title="Tambah Gedung Baru">+ <span class="hidden sm:inline">Gedung</span></button>
-        <div id="floor-switcher-bar" class="hidden"></div>
-        <div id="room-tabs-bar" class="hidden"></div>
+      <!-- Right: Live Server Office Clock + Single Compact Location Selector -->
+      <div class="flex items-center gap-1.5 pointer-events-auto ml-auto shrink-0">
+        <button id="hq-office-clock-pill" onclick="openOfficeSchedulePanel()" class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-[#13131a]/88 hover:bg-[#1a1a26] backdrop-blur-md border border-white/10 shadow-lg text-[11px] cursor-pointer transition whitespace-nowrap" title="Jam Zona Waktu Server & Jadwal Kerja Kantor (Klik untuk atur)">
+          <span id="hq-clock-dot" class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
+          <span id="hq-clock-time" class="font-mono font-bold text-white tracking-tight">--:--:--</span>
+          <span id="hq-clock-tz" class="text-[10px] font-mono text-slate-400">WITA</span>
+          <span id="hq-clock-phase-badge" class="px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 text-[9.5px] font-bold hidden sm:inline">BUKA</span>
+        </button>
+        <div class="flex items-center gap-1 px-1.5 py-1 rounded-xl bg-[#13131a]/88 backdrop-blur-md border border-white/10 shadow-lg text-[11px]">
+          <span class="text-slate-400 text-[10px] pl-1 hidden md:inline">Lokasi:</span>
+          <select id="room-select-dropdown" onchange="selectRoom(this.value)" class="bg-[#1c1c26] text-slate-100 border border-white/10 rounded-lg px-2 py-1 text-[11px] font-medium focus:outline-none focus:border-amber-400/50 cursor-pointer max-w-[145px] sm:max-w-[200px] truncate"></select>
+          <button id="btn-top-add-building" onclick="openExpandHqModal()" class="hidden px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white text-[11px] cursor-pointer shrink-0" title="Tambah Gedung Baru">+ <span class="hidden sm:inline">Gedung</span></button>
+          <div id="floor-switcher-bar" class="hidden"></div>
+          <div id="room-tabs-bar" class="hidden"></div>
+        </div>
       </div>
     </div>
 
@@ -361,11 +369,11 @@
       <div id="hq-brand-signature" class="hidden"></div>
     </div>
 
-    <!-- Compact Single-Line Status Pill when Office is OFF -->
+    <!-- Compact Single-Line Status Pill when Office is OFF / Break / Closed -->
     <div id="office-off-banner" class="hidden absolute top-14 left-1/2 -translate-x-1/2 z-30 px-3 py-1.5 rounded-full bg-[#13131e]/92 border border-indigo-400/35 shadow-lg flex items-center gap-2.5 backdrop-blur-md whitespace-nowrap max-w-[calc(100vw-24px)]">
-      <span class="w-2 h-2 rounded-full bg-indigo-400 shrink-0"></span>
-      <span class="text-[11px] font-semibold text-indigo-100">Kantor OFF</span>
-      <span class="text-[10.5px] text-slate-400 hidden sm:inline">· Staf istirahat</span>
+      <span id="office-off-banner-dot" class="w-2 h-2 rounded-full bg-indigo-400 shrink-0"></span>
+      <span id="office-off-banner-title" class="text-[11px] font-semibold text-indigo-100">Kantor OFF</span>
+      <span id="office-off-banner-detail" class="text-[10.5px] text-slate-400 hidden sm:inline truncate max-w-[260px]">· Staf istirahat</span>
       <button id="btn-banner-wake-all" onclick="wakeAllStaffToWork()" class="px-2.5 py-0.5 rounded-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-[10.5px] cursor-pointer shrink-0">
         Aktifkan
       </button>
@@ -2499,6 +2507,87 @@
               </select>
             </div>
           </div>
+        </div>
+
+        <!-- Real Office Working Hours & Server Timezone Schedule Card -->
+        <div id="ap-office-schedule-card" class="p-3.5 rounded-xl bg-sky-500/[0.06] border border-sky-500/25 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 class="text-xs font-bold text-sky-200 flex items-center gap-1.5">
+                <span>🕒</span> Jam Kerja Kantor &amp; Zona Waktu Server
+              </h3>
+              <div id="ap-clock-live-display" class="text-[11px] font-mono text-white mt-0.5">Memuat waktu server...</div>
+            </div>
+            <div class="text-right">
+              <span id="ap-clock-phase-pill" class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold">BUKA</span>
+              <div id="ap-clock-next-display" class="text-[10px] text-slate-400 mt-0.5">-</div>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+            <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+              <input id="ap-sched-enabled" type="checkbox" checked onchange="saveAutopilotSettings(true)" class="w-4 h-4 accent-sky-500 cursor-pointer" />
+              <span class="font-semibold text-[11.5px] text-slate-100">Otomatis Buka, Istirahat &amp; Tutup sesuai Jam Kantor</span>
+            </label>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button type="button" onclick="applyOfficeSchedulePreset('normal')" class="px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 text-slate-200 text-[10px] font-semibold cursor-pointer">🏢 Normal 08–17</button>
+              <button type="button" onclick="applyOfficeSchedulePreset('extended')" class="px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 text-slate-200 text-[10px] font-semibold cursor-pointer">🚀 Panjang 08–22</button>
+              <button type="button" onclick="applyOfficeSchedulePreset('always247')" class="px-2 py-1 rounded-md bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-200 text-[10px] font-semibold cursor-pointer">⚡ 24/7 Non-Stop</button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div>
+              <label class="block text-[10.5px] text-slate-400 mb-1">Zona Waktu Kantor Server</label>
+              <select id="ap-office-tz" onchange="saveAutopilotSettings(true)" class="w-full px-2.5 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-xs cursor-pointer">
+                <option value="SERVER_LOCAL">Otomatis Zona Server</option>
+                <option value="Asia/Jakarta">WIB · Asia/Jakarta (UTC+7)</option>
+                <option value="Asia/Makassar">WITA · Asia/Makassar (UTC+8)</option>
+                <option value="Asia/Jayapura">WIT · Asia/Jayapura (UTC+9)</option>
+                <option value="Asia/Singapore">SGT · Asia/Singapore (UTC+8)</option>
+                <option value="UTC">UTC (UTC+0)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[10.5px] text-slate-400 mb-1">Jam Buka (Masuk Kerja)</label>
+              <input id="ap-open-time" type="time" value="08:00" onchange="saveAutopilotSettings(true)" class="w-full px-2.5 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-xs font-mono" />
+            </div>
+            <div>
+              <label class="block text-[10.5px] text-slate-400 mb-1">Jam Tutup (Pulang / Mess)</label>
+              <input id="ap-close-time" type="time" value="18:00" onchange="saveAutopilotSettings(true)" class="w-full px-2.5 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-xs font-mono" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-end">
+            <label class="inline-flex items-center gap-2 cursor-pointer select-none py-1.5">
+              <input id="ap-break-enabled" type="checkbox" checked onchange="saveAutopilotSettings(true)" class="w-4 h-4 accent-amber-400 cursor-pointer" />
+              <span class="text-[11px] text-amber-200 font-medium">☕ Jam Istirahat Siang</span>
+            </label>
+            <div>
+              <label class="block text-[10.5px] text-slate-400 mb-1">Mulai Istirahat</label>
+              <input id="ap-break-start" type="time" value="12:30" onchange="saveAutopilotSettings(true)" class="w-full px-2.5 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-xs font-mono" />
+            </div>
+            <div>
+              <label class="block text-[10.5px] text-slate-400 mb-1">Selesai Istirahat</label>
+              <input id="ap-break-end" type="time" value="13:00" onchange="saveAutopilotSettings(true)" class="w-full px-2.5 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-xs font-mono" />
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-[10.5px] text-slate-400 mb-1.5">Hari Kerja Aktif (Di luar hari ini kantor libur di Mess)</label>
+            <div id="ap-workdays-bar" class="flex flex-wrap items-center gap-1.5">
+              <button type="button" data-day="1" onclick="toggleOfficeWorkday(1)" class="ap-workday-btn px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer border">Sen</button>
+              <button type="button" data-day="2" onclick="toggleOfficeWorkday(2)" class="ap-workday-btn px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer border">Sel</button>
+              <button type="button" data-day="3" onclick="toggleOfficeWorkday(3)" class="ap-workday-btn px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer border">Rab</button>
+              <button type="button" data-day="4" onclick="toggleOfficeWorkday(4)" class="ap-workday-btn px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer border">Kam</button>
+              <button type="button" data-day="5" onclick="toggleOfficeWorkday(5)" class="ap-workday-btn px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer border">Jum</button>
+              <button type="button" data-day="6" onclick="toggleOfficeWorkday(6)" class="ap-workday-btn px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer border">Sab</button>
+              <button type="button" data-day="7" onclick="toggleOfficeWorkday(7)" class="ap-workday-btn px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer border">Min</button>
+            </div>
+          </div>
+          <p class="text-[10px] text-slate-400">
+            Saat jam istirahat/tutup, seluruh 35 karyawan otomatis berjalan ke Gedung D (Mess) &amp; Autopilot berhenti sementara (0 token). Jika CEO menekan <b>Aktifkan</b> secara manual (lembur), jadwal otomatis menghormati keputusan CEO hingga sesi berikutnya.
+          </p>
         </div>
 
         <!-- Settings Grid -->
@@ -5444,9 +5533,32 @@
 
     function updateOfficeOffUI() {
       const banner = document.getElementById("office-off-banner");
+      const bannerDot = document.getElementById("office-off-banner-dot");
+      const bannerTitle = document.getElementById("office-off-banner-title");
+      const bannerDetail = document.getElementById("office-off-banner-detail");
+      const btnBannerWake = document.getElementById("btn-banner-wake-all");
       const btnRest = document.getElementById("btn-office-rest-all");
       const btnWake = document.getElementById("btn-office-wake-all");
       if (banner) banner.classList.toggle("hidden", !OFFICE_OFF_MODE);
+      if (OFFICE_OFF_MODE && typeof SERVER_CLOCK_STATE !== "undefined" && SERVER_CLOCK_STATE) {
+        const sc = SERVER_CLOCK_STATE;
+        if (sc.scheduleEnabled && sc.phase === "BREAK") {
+          if (bannerDot) bannerDot.className = "w-2 h-2 rounded-full bg-amber-400 shrink-0";
+          if (bannerTitle) bannerTitle.textContent = `☕ Jam Istirahat (${sc.breakStart}–${sc.breakEnd} ${sc.tzLabel})`;
+          if (bannerDetail) bannerDetail.textContent = `· ${sc.nextTransitionLabel || "Staf istirahat di Mess"}`;
+          if (btnBannerWake) btnBannerWake.textContent = "Aktifkan (Lembur)";
+        } else if (sc.scheduleEnabled && sc.phase === "CLOSED") {
+          if (bannerDot) bannerDot.className = "w-2 h-2 rounded-full bg-indigo-400 shrink-0";
+          if (bannerTitle) bannerTitle.textContent = `🌙 Kantor Tutup (${sc.tzLabel})`;
+          if (bannerDetail) bannerDetail.textContent = `· ${sc.nextTransitionLabel || "Staf istirahat di Mess"}`;
+          if (btnBannerWake) btnBannerWake.textContent = "Aktifkan (Lembur)";
+        } else {
+          if (bannerDot) bannerDot.className = "w-2 h-2 rounded-full bg-indigo-400 shrink-0";
+          if (bannerTitle) bannerTitle.textContent = "Kantor OFF";
+          if (bannerDetail) bannerDetail.textContent = "· Staf istirahat (Manual CEO)";
+          if (btnBannerWake) btnBannerWake.textContent = "Aktifkan";
+        }
+      }
       if (btnRest) {
         btnRest.className = OFFICE_OFF_MODE
           ? "px-2.5 py-1 rounded-md bg-rose-600 text-white border border-rose-300 font-extrabold text-[10.5px] transition cursor-pointer shadow"
@@ -5474,7 +5586,10 @@
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ office_off: OFFICE_OFF_MODE })
-        }).then(() => {
+        }).then(r => r.json()).then(d => {
+          if (d && d.server_clock && typeof syncServerClockFromPayload === "function") {
+            syncServerClockFromPayload(d.server_clock);
+          }
           if (typeof notifyOtherTabsSync === "function") notifyOtherTabsSync();
         }).catch(() => {});
       }
@@ -6275,8 +6390,13 @@
         const url = `/api/world-state?chatVersion=${LOCAL_CHAT_VERSION}${isInitialLoad ? "&includeChat=1" : ""}`;
         const res = await fetch(url);
         const data = await res.json();
-        if (data && data.ok && data.world) {
-          applyWorldStateSnapshot(data.world, data, isInitialLoad);
+        if (data && data.ok) {
+          if (data.server_clock && typeof syncServerClockFromPayload === "function") {
+            syncServerClockFromPayload(data.server_clock);
+          }
+          if (data.world) {
+            applyWorldStateSnapshot(data.world, data, isInitialLoad);
+          }
         }
       } catch (e) {}
     }
@@ -11363,17 +11483,189 @@
     // ================= AUTOPILOT GM (KEPALA KANTOR MANDIRI) =================
     var AUTOPILOT_STATE = null;
 
+    let SERVER_CLOCK_STATE = null;
+    let SERVER_CLOCK_OFFSET_MS = 0;
+    let OFFICE_WORKDAYS_DRAFT = [1, 2, 3, 4, 5, 6];
+
+    function syncServerClockFromPayload(clk) {
+      if (!clk || typeof clk !== "object") return;
+      SERVER_CLOCK_STATE = clk;
+      if (clk.epoch) {
+        SERVER_CLOCK_OFFSET_MS = (Number(clk.epoch) * 1000) - Date.now();
+      }
+      renderLiveServerOfficeClockTick();
+      if (typeof updateOfficeOffUI === "function") updateOfficeOffUI();
+    }
+
+    function _formatServerClockNow(clk) {
+      if (!clk) return { timeStr: "--:--:--", dateStr: "", tzLabel: "", tzOffset: "" };
+      const offMin = Number(clk.tzOffsetMinutes || 0);
+      const serverNowMs = Date.now() + SERVER_CLOCK_OFFSET_MS;
+      // Compute wall-clock components in server's target UTC offset using UTC getters
+      const shifted = new Date(serverNowMs + offMin * 60000);
+      const hh = String(shifted.getUTCHours()).padStart(2, "0");
+      const mm = String(shifted.getUTCMinutes()).padStart(2, "0");
+      const ss = String(shifted.getUTCSeconds()).padStart(2, "0");
+      const days = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
+      const mons = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+      const dateStr = `${days[shifted.getUTCDay()]}, ${String(shifted.getUTCDate()).padStart(2, "0")} ${mons[shifted.getUTCMonth()]} ${shifted.getUTCFullYear()}`;
+      return {
+        timeStr: `${hh}:${mm}:${ss}`,
+        dateStr,
+        tzLabel: clk.tzLabel || "WITA",
+        tzOffset: clk.tzOffset || "UTC+8",
+      };
+    }
+
+    function renderLiveServerOfficeClockTick() {
+      const clk = SERVER_CLOCK_STATE;
+      const pill = document.getElementById("hq-office-clock-pill");
+      const dot = document.getElementById("hq-clock-dot");
+      const timeEl = document.getElementById("hq-clock-time");
+      const tzEl = document.getElementById("hq-clock-tz");
+      const badgeEl = document.getElementById("hq-clock-phase-badge");
+
+      const live = _formatServerClockNow(clk);
+      if (timeEl) timeEl.textContent = live.timeStr;
+      if (tzEl) tzEl.textContent = live.tzLabel || "WITA";
+
+      if (clk) {
+        const phase = String(clk.phase || "OPEN");
+        const isManualOff = Boolean(OFFICE_OFF_MODE && (phase === "OPEN" || phase === "ALWAYS_ON"));
+        const isManualLembur = Boolean(!OFFICE_OFF_MODE && (phase === "BREAK" || phase === "CLOSED"));
+
+        let dotCls = "w-2 h-2 rounded-full bg-emerald-400 shrink-0";
+        let badgeCls = "px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 text-[9.5px] font-bold hidden sm:inline";
+        let badgeTxt = phase === "ALWAYS_ON" ? "24/7" : "BUKA";
+
+        if (isManualOff) {
+          dotCls = "w-2 h-2 rounded-full bg-rose-400 shrink-0";
+          badgeCls = "px-1.5 py-0.5 rounded-md bg-rose-500/20 text-rose-300 text-[9.5px] font-bold hidden sm:inline";
+          badgeTxt = "OFF";
+        } else if (isManualLembur) {
+          dotCls = "w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0";
+          badgeCls = "px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-200 text-[9.5px] font-bold hidden sm:inline";
+          badgeTxt = "LEMBUR";
+        } else if (phase === "BREAK") {
+          dotCls = "w-2 h-2 rounded-full bg-amber-400 shrink-0";
+          badgeCls = "px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-200 text-[9.5px] font-bold hidden sm:inline";
+          badgeTxt = "ISTIRAHAT";
+        } else if (phase === "CLOSED") {
+          dotCls = "w-2 h-2 rounded-full bg-indigo-400 shrink-0";
+          badgeCls = "px-1.5 py-0.5 rounded-md bg-indigo-500/20 text-indigo-200 text-[9.5px] font-bold hidden sm:inline";
+          badgeTxt = "TUTUP";
+        }
+
+        if (dot) dot.className = dotCls;
+        if (badgeEl) {
+          badgeEl.className = badgeCls;
+          badgeEl.textContent = badgeTxt;
+        }
+        if (pill) {
+          pill.title = `${live.dateStr} · ${live.timeStr} ${live.tzLabel} (${live.tzOffset})\nStatus: ${clk.phaseLabel || badgeTxt}${clk.nextTransitionLabel ? `\nBerikutnya: ${clk.nextTransitionLabel}` : ""}\nKlik untuk atur jam kantor & zona waktu server`;
+        }
+
+        // Also live-update Autopilot Modal clock readout if open
+        const apClockEl = document.getElementById("ap-clock-live-display");
+        const apPhaseEl = document.getElementById("ap-clock-phase-pill");
+        const apNextEl = document.getElementById("ap-clock-next-display");
+        if (apClockEl) {
+          apClockEl.textContent = `${live.dateStr} · ${live.timeStr} ${live.tzLabel} (${live.tzOffset})`;
+        }
+        if (apPhaseEl) {
+          apPhaseEl.className = badgeCls.replace("hidden sm:inline", "inline-block");
+          apPhaseEl.textContent = clk.phaseLabel || badgeTxt;
+        }
+        if (apNextEl) {
+          apNextEl.textContent = clk.nextTransitionLabel || "";
+        }
+      }
+    }
+
+    setInterval(renderLiveServerOfficeClockTick, 1000);
+
+    async function openOfficeSchedulePanel() {
+      if (!IS_AUTHENTICATED) {
+        updateToast("🔒 Login sebagai CEO/Admin untuk mengatur jadwal jam kantor server.");
+        return;
+      }
+      await openAutopilotModal();
+      const card = document.getElementById("ap-office-schedule-card");
+      if (card && typeof card.scrollIntoView === "function") {
+        setTimeout(() => card.scrollIntoView({ behavior: "smooth", block: "center" }), 120);
+      }
+    }
+
+    function renderOfficeWorkdayButtons() {
+      const set = new Set((OFFICE_WORKDAYS_DRAFT || []).map(Number));
+      document.querySelectorAll(".ap-workday-btn").forEach(btn => {
+        const d = Number(btn.getAttribute("data-day"));
+        const active = set.has(d);
+        btn.className = active
+          ? "ap-workday-btn px-2.5 py-1 rounded-md text-[11px] font-bold cursor-pointer border bg-sky-500/25 border-sky-400/50 text-sky-200"
+          : "ap-workday-btn px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer border bg-white/[0.03] border-white/10 text-slate-400 hover:text-white";
+      });
+    }
+
+    function toggleOfficeWorkday(dayNum) {
+      const d = Number(dayNum);
+      const set = new Set((OFFICE_WORKDAYS_DRAFT || []).map(Number));
+      if (set.has(d)) {
+        if (set.size > 1) set.delete(d);
+      } else {
+        set.add(d);
+      }
+      OFFICE_WORKDAYS_DRAFT = Array.from(set).sort((a, b) => a - b);
+      renderOfficeWorkdayButtons();
+      saveAutopilotSettings(true);
+    }
+
+    function applyOfficeSchedulePreset(preset) {
+      const enEl = document.getElementById("ap-sched-enabled");
+      const openEl = document.getElementById("ap-open-time");
+      const closeEl = document.getElementById("ap-close-time");
+      const brkEnEl = document.getElementById("ap-break-enabled");
+      const brkSEl = document.getElementById("ap-break-start");
+      const brkEEl = document.getElementById("ap-break-end");
+      if (preset === "always247") {
+        if (enEl) enEl.checked = false;
+        OFFICE_WORKDAYS_DRAFT = [1, 2, 3, 4, 5, 6, 7];
+      } else if (preset === "extended") {
+        if (enEl) enEl.checked = true;
+        if (openEl) openEl.value = "08:00";
+        if (closeEl) closeEl.value = "22:00";
+        if (brkEnEl) brkEnEl.checked = true;
+        if (brkSEl) brkSEl.value = "12:30";
+        if (brkEEl) brkEEl.value = "13:00";
+        OFFICE_WORKDAYS_DRAFT = [1, 2, 3, 4, 5, 6, 7];
+      } else {
+        // normal
+        if (enEl) enEl.checked = true;
+        if (openEl) openEl.value = "08:00";
+        if (closeEl) closeEl.value = "17:00";
+        if (brkEnEl) brkEnEl.checked = true;
+        if (brkSEl) brkSEl.value = "12:00";
+        if (brkEEl) brkEEl.value = "13:00";
+        OFFICE_WORKDAYS_DRAFT = [1, 2, 3, 4, 5, 6];
+      }
+      renderOfficeWorkdayButtons();
+      saveAutopilotSettings(true);
+    }
+
     async function fetchAutopilotStatus() {
       if (!IS_AUTHENTICATED) return;
       try {
         const res = await fetch("/api/autopilot/status");
         const data = await res.json();
-        if (data && data.ok && data.autopilot) {
-          AUTOPILOT_STATE = data.autopilot;
-          renderAutopilotBadge();
-          const modal = document.getElementById("modal-autopilot");
-          if (modal && !modal.classList.contains("hidden")) {
-            renderAutopilotModalBody();
+        if (data && data.ok) {
+          if (data.server_clock) syncServerClockFromPayload(data.server_clock);
+          if (data.autopilot) {
+            AUTOPILOT_STATE = data.autopilot;
+            renderAutopilotBadge();
+            const modal = document.getElementById("modal-autopilot");
+            if (modal && !modal.classList.contains("hidden")) {
+              renderAutopilotModalBody();
+            }
           }
         }
       } catch (e) {}
@@ -11455,6 +11747,27 @@
       if (autoDeptsEl) autoDeptsEl.checked = cfg.autonomousDepts !== false;
       if (maxConcEl && cfg.maxConcurrentDepts) maxConcEl.value = String(cfg.maxConcurrentDepts);
       if (coolEl && cfg.deptCooldownMinutes) coolEl.value = String(cfg.deptCooldownMinutes);
+
+      // Hydrate Real Office Clock & Schedule controls
+      const schedEnEl = document.getElementById("ap-sched-enabled");
+      const tzEl = document.getElementById("ap-office-tz");
+      const openEl = document.getElementById("ap-open-time");
+      const closeEl = document.getElementById("ap-close-time");
+      const brkEnEl = document.getElementById("ap-break-enabled");
+      const brkSEl = document.getElementById("ap-break-start");
+      const brkEEl = document.getElementById("ap-break-end");
+      if (schedEnEl) schedEnEl.checked = cfg.officeScheduleEnabled !== false;
+      if (tzEl && cfg.officeTimezone) tzEl.value = String(cfg.officeTimezone);
+      if (openEl && cfg.officeOpenTime && document.activeElement !== openEl) openEl.value = cfg.officeOpenTime;
+      if (closeEl && cfg.officeCloseTime && document.activeElement !== closeEl) closeEl.value = cfg.officeCloseTime;
+      if (brkEnEl) brkEnEl.checked = cfg.officeBreakEnabled !== false;
+      if (brkSEl && cfg.officeBreakStart && document.activeElement !== brkSEl) brkSEl.value = cfg.officeBreakStart;
+      if (brkEEl && cfg.officeBreakEnd && document.activeElement !== brkEEl) brkEEl.value = cfg.officeBreakEnd;
+      if (Array.isArray(cfg.officeWorkDays) && cfg.officeWorkDays.length) {
+        OFFICE_WORKDAYS_DRAFT = cfg.officeWorkDays.map(Number);
+      }
+      renderOfficeWorkdayButtons();
+      renderLiveServerOfficeClockTick();
       if (focusEl && document.activeElement !== focusEl) focusEl.value = cfg.focusAreas || "";
       if (runBtn) {
         runBtn.disabled = Boolean(cfg.isRunning);
@@ -11535,11 +11848,26 @@
       const autoDeptsEl = document.getElementById("ap-auto-depts");
       const maxConcEl = document.getElementById("ap-max-conc-depts");
       const coolEl = document.getElementById("ap-dept-cooldown");
+      const schedEnEl = document.getElementById("ap-sched-enabled");
+      const tzEl = document.getElementById("ap-office-tz");
+      const openEl = document.getElementById("ap-open-time");
+      const closeEl = document.getElementById("ap-close-time");
+      const brkEnEl = document.getElementById("ap-break-enabled");
+      const brkSEl = document.getElementById("ap-break-start");
+      const brkEEl = document.getElementById("ap-break-end");
       const payload = {
         enabled: enEl ? Boolean(enEl.checked) : false,
         autonomousDepts: autoDeptsEl ? Boolean(autoDeptsEl.checked) : true,
         maxConcurrentDepts: maxConcEl ? Number(maxConcEl.value) : 2,
         deptCooldownMinutes: coolEl ? Number(coolEl.value) : 15,
+        officeScheduleEnabled: schedEnEl ? Boolean(schedEnEl.checked) : true,
+        officeTimezone: tzEl ? tzEl.value : "SERVER_LOCAL",
+        officeOpenTime: openEl ? openEl.value : "08:00",
+        officeCloseTime: closeEl ? closeEl.value : "18:00",
+        officeBreakEnabled: brkEnEl ? Boolean(brkEnEl.checked) : true,
+        officeBreakStart: brkSEl ? brkSEl.value : "12:30",
+        officeBreakEnd: brkEEl ? brkEEl.value : "13:00",
+        officeWorkDays: Array.isArray(OFFICE_WORKDAYS_DRAFT) && OFFICE_WORKDAYS_DRAFT.length ? OFFICE_WORKDAYS_DRAFT : [1, 2, 3, 4, 5, 6],
         gmAgentId: gmId,
         gmAgentName: gmObj ? gmObj.name : "👑 Raka",
         gmAgentRole: gmObj ? gmObj.role : "General Manager / COO",
@@ -11556,9 +11884,14 @@
         const data = await res.json();
         if (data && data.ok && data.autopilot) {
           AUTOPILOT_STATE = data.autopilot;
+          if (data.server_clock) syncServerClockFromPayload(data.server_clock);
           renderAutopilotBadge();
           renderAutopilotModalBody();
-          if (showToastMsg) updateToast(`✅ Pengaturan Autopilot GM disimpan (${AUTOPILOT_STATE.enabled ? "ON" : "OFF"}).`);
+          syncWorldStateFromServer(false);
+          if (showToastMsg) {
+            const schedTxt = AUTOPILOT_STATE.officeScheduleEnabled ? `${AUTOPILOT_STATE.officeOpenTime}–${AUTOPILOT_STATE.officeCloseTime}` : "24/7 Non-Stop";
+            updateToast(`✅ Pengaturan disimpan · Autopilot ${AUTOPILOT_STATE.enabled ? "ON" : "OFF"} · Jadwal ${schedTxt}`);
+          }
         }
       } catch (e) {
         updateToast("⚠️ Gagal menyimpan pengaturan Autopilot GM.");
@@ -11878,6 +12211,9 @@
             }
           });
           renderRoomTabsAndFloorBar();
+        }
+        if (data.server_clock && typeof syncServerClockFromPayload === "function") {
+          syncServerClockFromPayload(data.server_clock);
         }
         if (data.world) {
           applyWorldStateSnapshot(data.world, null, isFirst);

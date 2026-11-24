@@ -16,8 +16,13 @@ import subprocess
 import urllib.request
 import urllib.error
 import urllib.parse
+from datetime import datetime, timedelta, timezone
 from http.cookies import SimpleCookie
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+try:
+    from zoneinfo import ZoneInfo
+except Exception:
+    ZoneInfo = None
 
 BASE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
@@ -987,6 +992,7 @@ def _get_public_live_state():
             "agents": pub_roster_agents,
         },
         "officeOff": bool(world.get("officeOff", False)),
+        "server_clock": get_server_office_clock_state(),
         "world": {
             "officeOff": bool(world.get("officeOff", False)),
             "busyAgentIds": list(world.get("busyAgentIds") or []),
@@ -6741,6 +6747,7 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 "ok": True,
                 "world": world,
                 "model_health": load_model_health_cache(),
+                "server_clock": get_server_office_clock_state(),
             }
             if include_chat or int(world.get("chatVersion") or 1) > client_chat_ver:
                 resp["histories"] = load_chat_histories()
@@ -6812,7 +6819,8 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             return
 
         if self.path.startswith("/api/autopilot/status"):
-            self._send_json(200, {"ok": True, "autopilot": load_autopilot_config()})
+            ap_cfg = load_autopilot_config()
+            self._send_json(200, {"ok": True, "autopilot": ap_cfg, "server_clock": get_server_office_clock_state(ap_cfg)})
             return
 
         if self.path.startswith("/api/hub-status"):
@@ -7345,7 +7353,7 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
 
         if self.path.startswith("/api/autopilot/config"):
             cfg = update_autopilot_config(body)
-            self._send_json(200, {"ok": True, "autopilot": cfg})
+            self._send_json(200, {"ok": True, "autopilot": cfg, "server_clock": get_server_office_clock_state(cfg)})
             return
 
         if self.path.startswith("/api/autopilot/run-now"):
@@ -7400,6 +7408,22 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             layout["office_off"] = office_off
             layout["office_mode_updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S WITA")
             save_hq_layout(layout)
+            # Record CEO manual override so automatic schedule respects CEO's manual choice until next schedule phase
+            try:
+                clk_now = get_server_office_clock_state()
+                if clk_now.get("scheduleEnabled"):
+                    sched_wants_off = clk_now.get("phase") in ("BREAK", "CLOSED")
+                    with AUTOPILOT_LOCK:
+                        ap_c = load_autopilot_config()
+                        if office_off != sched_wants_off:
+                            ap_c["scheduleManualOverridePhase"] = clk_now.get("phase") or ""
+                            ap_c["scheduleManualOverrideDate"] = clk_now.get("dateIso") or ""
+                        else:
+                            ap_c["scheduleManualOverridePhase"] = ""
+                            ap_c["scheduleManualOverrideDate"] = ""
+                        _save_autopilot_config_unlocked(ap_c)
+            except Exception:
+                pass
             patch = {"officeOff": office_off}
             if office_off:
                 patch["inTownHallMeeting"] = False
@@ -7407,7 +7431,7 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 patch["summonedWithCeoId"] = None
                 patch["openChatTarget"] = None
             world = update_world_state(patch)
-            self._send_json(200, {"ok": True, "office_off": office_off, "world": world})
+            self._send_json(200, {"ok": True, "office_off": office_off, "world": world, "server_clock": get_server_office_clock_state()})
             return
 
         if self.path.startswith("/api/probe-models"):
@@ -8549,6 +8573,18 @@ def _default_autopilot_config():
         "gmAgentName": "👑 Raka",
         "gmAgentRole": "General Manager / COO",
         "focusAreas": "Pantau kesehatan operasional & bisnis, selesaikan tugas PENDING internal, dan siapkan draf kerja rutin harian. Dept Themes boleh mendorong tema baru ke List Draft server; aksi produksi live di luar Draft wajib ACC CEO.",
+        # Real Office Clock & Schedule (Working Hours / Lunch Break / After-Hours Rest)
+        "officeTimezone": "SERVER_LOCAL",
+        "officeScheduleEnabled": True,
+        "officeOpenTime": "08:00",
+        "officeCloseTime": "18:00",
+        "officeBreakEnabled": True,
+        "officeBreakStart": "12:30",
+        "officeBreakEnd": "13:00",
+        "officeWorkDays": [1, 2, 3, 4, 5, 6],
+        "scheduleManualOverridePhase": "",
+        "scheduleManualOverrideDate": "",
+        "lastAppliedSchedulePhase": "",
         "lastRunAt": 0,
         "nextRunAt": 0,
         "runsToday": 0,
@@ -8649,6 +8685,34 @@ def update_autopilot_config(patch):
         if "focusAreas" in patch:
             cfg["focusAreas"] = str(patch.get("focusAreas") or "").strip()[:800]
 
+        schedule_touched = False
+        if "officeTimezone" in patch:
+            tz_val = str(patch.get("officeTimezone") or "SERVER_LOCAL").strip()[:64]
+            cfg["officeTimezone"] = tz_val or "SERVER_LOCAL"
+            schedule_touched = True
+        if "officeScheduleEnabled" in patch:
+            cfg["officeScheduleEnabled"] = bool(patch.get("officeScheduleEnabled"))
+            schedule_touched = True
+        for tkey in ("officeOpenTime", "officeCloseTime", "officeBreakStart", "officeBreakEnd"):
+            if tkey in patch:
+                raw_t = str(patch.get(tkey) or "").strip()
+                if re.match(r"^\d{2}:\d{2}$", raw_t):
+                    hh, mm = int(raw_t[:2]), int(raw_t[3:5])
+                    if 0 <= hh <= 23 and 0 <= mm <= 59:
+                        cfg[tkey] = f"{hh:02d}:{mm:02d}"
+                        schedule_touched = True
+        if "officeBreakEnabled" in patch:
+            cfg["officeBreakEnabled"] = bool(patch.get("officeBreakEnabled"))
+            schedule_touched = True
+        if "officeWorkDays" in patch and isinstance(patch.get("officeWorkDays"), list):
+            wd_clean = sorted({int(x) for x in patch.get("officeWorkDays") if str(x).isdigit() and 1 <= int(x) <= 7})
+            cfg["officeWorkDays"] = wd_clean or [1, 2, 3, 4, 5]
+            schedule_touched = True
+        if schedule_touched:
+            cfg["scheduleManualOverridePhase"] = ""
+            cfg["scheduleManualOverrideDate"] = ""
+            cfg["lastAppliedSchedulePhase"] = ""
+
         interval_sec = int(cfg.get("intervalMinutes") or 30) * 60
         if cfg["enabled"] and (not was_enabled or not cfg.get("nextRunAt")):
             cfg["nextRunAt"] = time.time() + interval_sec
@@ -8656,7 +8720,230 @@ def update_autopilot_config(patch):
             cfg["nextRunAt"] = 0
 
         _save_autopilot_config_unlocked(cfg)
-        return dict(cfg)
+        res_cfg = dict(cfg)
+    if schedule_touched:
+        try:
+            sync_office_schedule_state(force=True)
+        except Exception:
+            pass
+    return res_cfg
+
+
+_OFFICE_TZ_FALLBACK_OFFSETS = {
+    "Asia/Jakarta": (7, "WIB"),
+    "Asia/Makassar": (8, "WITA"),
+    "Asia/Jayapura": (9, "WIT"),
+    "Asia/Singapore": (8, "SGT"),
+    "Asia/Tokyo": (9, "JST"),
+    "UTC": (0, "UTC"),
+}
+_ID_DAYS_SHORT = ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"]
+_ID_MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"]
+
+
+def _resolve_office_now_dt(tz_setting="SERVER_LOCAL"):
+    tz_key = str(tz_setting or "SERVER_LOCAL").strip()
+    if tz_key in ("", "SERVER_LOCAL", "AUTO"):
+        now_dt = datetime.now().astimezone()
+        offset = now_dt.utcoffset() or timedelta(0)
+        off_min = int(offset.total_seconds() // 60)
+        off_h = off_min / 60.0
+        raw_name = now_dt.tzname() or ""
+        if off_min == 7 * 60 and raw_name in ("WIB", "+07", "ICT", "Asia/Jakarta"):
+            tz_label = "WIB"
+        elif off_min == 8 * 60 and raw_name in ("WITA", "+08", "Asia/Makassar"):
+            tz_label = "WITA"
+        elif off_min == 9 * 60 and raw_name in ("WIT", "+09", "Asia/Jayapura"):
+            tz_label = "WIT"
+        else:
+            tz_label = raw_name if (raw_name and not raw_name.startswith(("+", "-"))) else f"UTC{'+' if off_h >= 0 else ''}{int(off_h) if off_h == int(off_h) else round(off_h, 1)}"
+        tz_id = "SERVER_LOCAL"
+        return now_dt, tz_label, off_min, tz_id
+
+    tz_obj = None
+    if ZoneInfo is not None:
+        try:
+            tz_obj = ZoneInfo(tz_key)
+        except Exception:
+            tz_obj = None
+    if tz_obj is not None:
+        now_dt = datetime.now(tz_obj)
+        offset = now_dt.utcoffset() or timedelta(0)
+        off_min = int(offset.total_seconds() // 60)
+        fb = _OFFICE_TZ_FALLBACK_OFFSETS.get(tz_key)
+        raw_name = now_dt.tzname() or ""
+        tz_label = fb[1] if fb else (raw_name if raw_name and not raw_name.startswith(("+", "-")) else tz_key.split("/")[-1])
+        return now_dt, tz_label, off_min, tz_key
+
+    fb_h, fb_lbl = _OFFICE_TZ_FALLBACK_OFFSETS.get(tz_key, (8, "WITA"))
+    tz_obj = timezone(timedelta(hours=fb_h))
+    now_dt = datetime.now(tz_obj)
+    return now_dt, fb_lbl, fb_h * 60, tz_key
+
+
+def _hhmm_to_min(hhmm, default_min):
+    try:
+        parts = str(hhmm or "").strip().split(":")
+        return max(0, min(1439, int(parts[0]) * 60 + int(parts[1])))
+    except Exception:
+        return default_min
+
+
+def get_server_office_clock_state(cfg=None):
+    if cfg is None:
+        cfg = load_autopilot_config()
+    now_dt, tz_label, off_min, tz_id = _resolve_office_now_dt(cfg.get("officeTimezone", "SERVER_LOCAL"))
+    off_sign = "+" if off_min >= 0 else "-"
+    off_abs = abs(off_min)
+    off_str = f"UTC{off_sign}{off_abs // 60}" + (f":{off_abs % 60:02d}" if (off_abs % 60) else "")
+
+    day_num = now_dt.isoweekday()  # 1=Mon .. 7=Sun
+    cur_min = now_dt.hour * 60 + now_dt.minute
+    sched_enabled = bool(cfg.get("officeScheduleEnabled", True))
+    open_t = str(cfg.get("officeOpenTime") or "08:00")
+    close_t = str(cfg.get("officeCloseTime") or "18:00")
+    brk_enabled = bool(cfg.get("officeBreakEnabled", True))
+    brk_start = str(cfg.get("officeBreakStart") or "12:30")
+    brk_end = str(cfg.get("officeBreakEnd") or "13:00")
+    work_days = cfg.get("officeWorkDays") or [1, 2, 3, 4, 5, 6]
+    work_days = [int(x) for x in work_days if str(x).isdigit() and 1 <= int(x) <= 7] or [1, 2, 3, 4, 5]
+
+    open_m = _hhmm_to_min(open_t, 8 * 60)
+    close_m = _hhmm_to_min(close_t, 18 * 60)
+    brk_s_m = _hhmm_to_min(brk_start, 12 * 60 + 30)
+    brk_e_m = _hhmm_to_min(brk_end, 13 * 60)
+
+    if not sched_enabled:
+        phase = "ALWAYS_ON"
+        phase_label = "24/7 NON-STOP"
+        reason = "Mode 24/7 Aktif (Tanpa batas jam tutup)"
+        next_label = "Jalan terus 24 jam"
+    else:
+        is_workday = day_num in work_days
+        in_open_window = False
+        if open_m < close_m:
+            in_open_window = is_workday and (open_m <= cur_min < close_m)
+        elif open_m > close_m:
+            # Overnight shift support (e.g., 20:00 -> 05:00)
+            in_open_window = is_workday and (cur_min >= open_m or cur_min < close_m)
+        else:
+            in_open_window = is_workday
+
+        in_break = False
+        if in_open_window and brk_enabled and brk_s_m < brk_e_m:
+            in_break = (brk_s_m <= cur_min < brk_e_m)
+
+        if not is_workday:
+            phase = "CLOSED"
+            phase_label = "LIBUR · Hari Tutup"
+            reason = f"Hari libur kantor ({_ID_DAYS_SHORT[day_num - 1]}) — Staf beristirahat di Mess"
+            next_label = f"Buka hari kerja {open_t} {tz_label}"
+        elif in_break:
+            phase = "BREAK"
+            phase_label = "ISTIRAHAT"
+            reason = f"Jam istirahat kantor ({brk_start}–{brk_end} {tz_label}) — Karyawan istirahat di Mess"
+            next_label = f"Masuk kerja lagi {brk_end} {tz_label}"
+        elif in_open_window:
+            phase = "OPEN"
+            phase_label = "BUKA · Jam Kerja"
+            reason = f"Jam kerja kantor ({open_t}–{close_t} {tz_label})"
+            if brk_enabled and brk_s_m < brk_e_m and cur_min < brk_s_m:
+                next_label = f"Istirahat {brk_start} {tz_label}"
+            else:
+                next_label = f"Tutup {close_t} {tz_label}"
+        else:
+            phase = "CLOSED"
+            phase_label = "TUTUP · Luar Jam Kerja"
+            reason = f"Di luar jam kantor ({open_t}–{close_t} {tz_label}) — Karyawan beristirahat"
+            next_label = f"Buka {open_t} {tz_label}"
+
+    date_iso = now_dt.strftime("%Y-%m-%d")
+    override_active = bool(
+        cfg.get("scheduleManualOverridePhase") == phase
+        and cfg.get("scheduleManualOverrideDate") == date_iso
+    )
+    day_lbl = _ID_DAYS_SHORT[day_num - 1]
+    mon_lbl = _ID_MONTHS_SHORT[now_dt.month - 1]
+
+    return {
+        "epoch": time.time(),
+        "iso": now_dt.isoformat(timespec="seconds"),
+        "dateIso": date_iso,
+        "dateStr": f"{day_lbl}, {now_dt.day:02d} {mon_lbl} {now_dt.year}",
+        "timeStr": now_dt.strftime("%H:%M:%S"),
+        "hhmm": now_dt.strftime("%H:%M"),
+        "tzId": tz_id,
+        "tzLabel": tz_label,
+        "tzOffset": off_str,
+        "tzOffsetMinutes": off_min,
+        "scheduleEnabled": sched_enabled,
+        "phase": phase,
+        "phaseLabel": phase_label,
+        "reason": reason,
+        "nextTransitionLabel": next_label,
+        "openTime": open_t,
+        "closeTime": close_t,
+        "breakEnabled": brk_enabled,
+        "breakStart": brk_start,
+        "breakEnd": brk_end,
+        "workDays": work_days,
+        "manualOverrideActive": override_active,
+    }
+
+
+def sync_office_schedule_state(force=False):
+    """Automatically opens or rests the office according to configured office hours, respecting CEO manual overrides."""
+    cfg = load_autopilot_config()
+    clk = get_server_office_clock_state(cfg)
+    if not clk.get("scheduleEnabled"):
+        return clk
+
+    phase = clk["phase"]
+    date_iso = clk["dateIso"]
+    prev_phase = str(cfg.get("lastAppliedSchedulePhase") or "")
+
+    # If we moved into a new phase or a new date, clear any stale manual override from a prior phase
+    if cfg.get("scheduleManualOverridePhase") and (
+        cfg.get("scheduleManualOverridePhase") != phase or cfg.get("scheduleManualOverrideDate") != date_iso
+    ):
+        with AUTOPILOT_LOCK:
+            c2 = load_autopilot_config()
+            c2["scheduleManualOverridePhase"] = ""
+            c2["scheduleManualOverrideDate"] = ""
+            _save_autopilot_config_unlocked(c2)
+            cfg = c2
+        clk["manualOverrideActive"] = False
+
+    if clk.get("manualOverrideActive") and not force:
+        return clk
+
+    want_off = phase in ("BREAK", "CLOSED")
+    world = load_world_state()
+    cur_off = bool(world.get("officeOff", False))
+
+    if want_off != cur_off or (force and prev_phase != phase):
+        patch = {"officeOff": want_off}
+        if want_off:
+            # Don't kick CEO out if CEO is actively in a Town Hall meeting or summoned someone right now
+            if world.get("inTownHallMeeting") or world.get("summonedInCeoOfficeIds"):
+                return clk
+            patch["openChatTarget"] = None
+            toast = f"☕ {clk['reason']}" if phase == "BREAK" else f"🌙 {clk['reason']}"
+        else:
+            toast = f"☀️ Kantor Resmi Buka ({clk['hhmm']} {clk['tzLabel']}) — Seluruh 35 karyawan mulai bekerja!"
+        patch["lastToast"] = toast
+        update_world_state(patch)
+        with AUTOPILOT_LOCK:
+            c3 = load_autopilot_config()
+            c3["lastAppliedSchedulePhase"] = phase
+            _save_autopilot_config_unlocked(c3)
+    elif prev_phase != phase:
+        with AUTOPILOT_LOCK:
+            c3 = load_autopilot_config()
+            c3["lastAppliedSchedulePhase"] = phase
+            _save_autopilot_config_unlocked(c3)
+
+    return clk
 
 
 def _resolve_agent_model_creds(agent_id):
@@ -9965,6 +10252,8 @@ def _run_gm_autopilot_background_loop():
         rot_idx = 0
         while True:
             try:
+                # 0. Enforce real office working hours / lunch break / after-hours schedule automatically
+                sync_office_schedule_state(force=False)
                 cfg = load_autopilot_config()
                 if cfg.get("enabled"):
                     world = load_world_state()
@@ -10034,6 +10323,7 @@ def create_hq_server(host=None, port=None, start_heartbeat=True):
             if ap_boot.get("isRunning"):
                 ap_boot["isRunning"] = False
                 _save_autopilot_config_unlocked(ap_boot)
+        sync_office_schedule_state(force=False)
     except Exception:
         pass
     _init_cfg = load_saved_config()
