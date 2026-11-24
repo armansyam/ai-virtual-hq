@@ -12,7 +12,25 @@ if (!themeId || !/^[a-z0-9-]{2,60}$/.test(themeId) || !outDir) {
 }
 const SECONDS = Math.min(20, Math.max(8, Number(secondsArg) || 15));
 const BASE_URL = process.env.LUXVITE_DEMO_BASE || "https://luxvite.id/demo";
-const CHROME = process.env.CHROME_PATH || "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser";
+// Mac lokal memakai browser terpasang; homelab Linux memakai chromium sistem atau chrome-headless-shell hasil tools/setup.sh.
+function resolveChrome() {
+  const local = path.join(__dirname, "..", ".browsers");
+  const shells = fs.existsSync(local)
+    ? fs.readdirSync(local, { recursive: true }).map((f) => path.join(local, String(f))).filter((f) => /chrome-headless-shell$/.test(f))
+    : [];
+  const found = [
+    process.env.CHROME_PATH,
+    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/usr/bin/google-chrome",
+    ...shells,
+  ].filter(Boolean).find((c) => fs.existsSync(c));
+  if (!found) throw new Error("Browser untuk merekam tidak ditemukan; jalankan tools/setup.sh atau set CHROME_PATH.");
+  return found;
+}
+const CHROME = resolveChrome();
 
 const VIRTUAL_TIME = `(() => {
   const START = Date.now();

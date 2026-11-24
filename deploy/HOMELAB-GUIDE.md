@@ -4,7 +4,23 @@ Paket ini menyiapkan **AI Virtual HQ** agar berjalan mandiri 24 jam sehari di se
 
 ---
 
-## Opsi A — Jalankan via Docker Compose (Paling Cepat)
+## Alat Kerja Karyawan (WAJIB untuk Social & Themes)
+Karyawan AI tidak hanya mengobrol: Social merender carousel & merekam Reels, Themes menulis master tema di **Theme Atelier**
+(ruang kerja terkurung), mengaudit, merender, memotret, lalu mengirim draf lewat MCP ke Draft Themes luxvite.id.
+Semua alat itu dipasang otomatis oleh:
+```bash
+cd /opt/Karyawan-Luxvite
+LUXENARY_REPO=https://github.com/<akun>/luxenary-invite.git LUXENARY_DIR=/opt/luxenary-engine bash tools/setup.sh
+```
+- Script memasang Pillow, Node 22 (`~/.local/node`), pabrik Reels, browser headless (`tools/.browsers`), dan mesin render Luxenary
+  (clone + `npm ci`, dipakai hanya untuk render/audit lokal dengan DB uji, tanpa kredensial produksi).
+- Yang butuh sudo dicetak sebagai **[PERLU]**, misalnya `sudo apt-get install -y bubblewrap` (sandbox Atelier) dan pustaka Chrome.
+- Set `projectPath` di `config/company_profile.json` ke `LUXENARY_DIR` yang sama, lalu login `agy` sekali di host.
+- Cek dari browser: `GET /api/tools/readiness` (login admin) menampilkan alat yang siap/belum. Atelier menolak jalan bila sandbox tidak ada.
+
+> Docker image saat ini hanya berisi Python (tanpa agy, Node, browser, mesin render). Untuk karyawan penuh gunakan **Opsi B (systemd native)**.
+
+## Opsi A — Jalankan via Docker Compose (tampilan kantor saja, tanpa alat kerja)
 1. Salin folder proyek ke homelab (beserta `config/`, `memory/`, `reports/`, `skills/` agar seluruh histori & memori Obsidian ikut terbawa):
    ```bash
    rsync -avz --exclude='.git' /Users/macbookprom1/Documents/Karyawan-Luxvite/ ubuntu@<IP-HOMELAB>:/opt/Karyawan-Luxvite/
