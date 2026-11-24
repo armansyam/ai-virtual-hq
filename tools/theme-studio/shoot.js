@@ -53,6 +53,38 @@ async function openPage(browser, viewport) {
   return page;
 }
 
+// Sidik gaya per seksi: bentuk visual elemen di dalam tiap section[id] (tata letak, perataan, kartu, tipografi), tanpa warna
+// (warna milik palet) dan tanpa opacity/transform (berubah selama animasi masuk). Dipakai server untuk menolak seksi yang
+// gayanya masih sama dengan blueprint bawaan.
+async function sectionFingerprint(page) {
+  return page.evaluate(() => {
+    const bucket = (v, step) => Math.round(v / step) * step;
+    const out = {};
+    for (const sec of document.querySelectorAll("section[id]")) {
+      const sw = sec.getBoundingClientRect().width || 1;
+      const items = [];
+      for (const el of [sec, ...sec.querySelectorAll("*")].slice(0, 120)) {
+        const cs = getComputedStyle(el);
+        if (cs.display === "none" || el.tagName === "SCRIPT" || el.tagName === "svg" || el.closest("svg") && el.tagName !== "svg") continue;
+        const r = el.getBoundingClientRect();
+        items.push([
+          el.tagName, cs.display, cs.flexDirection, cs.textAlign, cs.position, cs.float,
+          (cs.gridTemplateColumns || "none").split(" ").length,
+          parseFloat(cs.borderTopWidth) > 0 ? cs.borderTopStyle : "-",
+          bucket(parseFloat(cs.borderTopLeftRadius) || 0, 4),
+          cs.boxShadow === "none" ? 0 : 1,
+          cs.backgroundImage === "none" ? 0 : 1,
+          bucket(parseFloat(cs.fontSize) || 0, 2), cs.fontStyle, cs.textTransform,
+          bucket(parseFloat(cs.letterSpacing) || 0, 1), cs.writingMode, cs.clipPath === "none" ? 0 : 1,
+          bucket(r.width / sw, 0.1).toFixed(1),
+        ].join("|"));
+      }
+      out[sec.id] = items;
+    }
+    return out;
+  });
+}
+
 async function clickOpen(page) {
   const opened = await page.evaluate(() => {
     const el = [...document.querySelectorAll("button, a, [role=button], [onclick]")]
@@ -97,6 +129,12 @@ async function scrollShots(page, prefix, count) {
     await m.screenshot({ path: mCover });
     result.mobile.push(mCover);
     result.opened.mobile = await clickOpen(m);
+    result.fingerprint = await sectionFingerprint(m);
+    if (process.env.FP_ONLY === "1") {
+      process.stdout.write(JSON.stringify({ ok: true, opened: result.opened, fingerprint: result.fingerprint }) + "\n");
+      await browser.close();
+      return;
+    }
     const ms = await scrollShots(m, `${PREFIX}mobile`, MOBILE_SHOTS);
     result.mobile.push(...ms.files);
     result.scrollHeightMobile = ms.total;

@@ -5079,7 +5079,11 @@ def build_dynamic_mcp_context_with_trace(user_prompt="", room="", agent_id=None)
             '[[THEME_DRAFT:{"slug":"huruf-kecil-tanda-hubung","name":"Nama Tema","eventType":"WEDDING|PERSONAL|EVENT",'
             '"style":"minimalist|modern|traditional","subEvent":"opsional","description":"satu kalimat untuk katalog",'
             '"concept":"brief desain lengkap: suasana & cerita, palet 8 warna hex, pasangan font, ide layout sampul HP & desktop dan tiap seksi, '
-            'ornamen CSS/SVG buatan sendiri, gerak, sumber riset yang dipakai, alasan beda dari katalog","references":["id-tema-aktif untuk dipelajari polanya, maks 3"]}]]\n'
+            'ornamen CSS/SVG buatan sendiri, gerak, sumber riset yang dipakai, alasan beda dari katalog","references":["id-tema-aktif untuk dipelajari polanya, maks 3"],'
+            '"sections":{"cover":"bentuk & tata letak","opening":"...","couple":"mempelai/profil tokoh","story":"...","countdown":"hitung mundur + tombol kalender",'
+            '"events":"...","gallery":"...","gift":"...","rsvp":"RSVP + ucapan","closing":"..."}}]]\n'
+            "Setiap nilai sections = bentuk visual seksi itu (min. 40 karakter), diturunkan dari 'Pola per seksi' di riset; tiap seksi harus "
+            "berbeda dari pola bawaan (label kecil + judul tengah + kartu berbingkai) dan dari katalog.\n"
             "Latar dan foto selalu dari slot media klien (fixed-bg-layer); jangan merancang motif yang menimpa foto. Font yang tersedia: "
             + ", ".join(_theme_font_families()) + ".\n" + theme_research_block()
         )
@@ -8812,6 +8816,10 @@ THEME_BLUEPRINTS = {
     "EVENT": ("event", "starter-blueprint-event.html"),
 }
 _THEME_RESEARCH_STATE = {"running": False}
+# Seksi yang wajib punya gaya visual sendiri di brief; id = section[id] hasil render blueprint/engine (diperiksa sidik gaya).
+THEME_BRIEF_SECTIONS = ("cover", "opening", "couple", "story", "countdown", "events", "gallery", "gift", "rsvp", "closing")
+THEME_SECTION_IDS = {"cover": "cover", "opening": "home", "couple": "couple", "story": "story", "countdown": "countdown",
+                     "events": "events", "gallery": "moments", "gift": "gift", "rsvp": "rsvp", "closing": "closing"}
 
 
 def _theme_project_path():
@@ -8952,6 +8960,9 @@ def run_theme_research():
         "## Sumber (judul + URL lengkap yang benar-benar kamu buka; jangan mengarang URL)\n"
         "## Temuan tren (6-10 poin, tiap poin menyebut sumbernya)\n"
         "## Pola yang membuat tema terasa premium (layout, ritme seksi, tipografi, ornamen, gerak)\n"
+        "## Pola per seksi dari tema/situs publik (untuk tiap seksi: sampul, pembuka, mempelai/profil, kisah, hitung mundur & kalender, "
+        "acara, galeri, hadiah/amplop digital, RSVP & ucapan, penutup — sebut 2-3 bentuk visual berbeda yang kamu temukan beserta sumbernya; "
+        "hindari pola umum label kecil + judul tengah + kartu berbingkai)\n"
         "## Celah katalog Luxvite (gaya/warna/layout yang belum ada di katalog aktif)\n"
         "## 4 Konsep tema baru (untuk tiap konsep: nama, mode WEDDING/PERSONAL/EVENT, gaya minimalist/modern/traditional, suasana, "
         "palet 8 warna hex, ide layout sampul & tiap seksi, ide ornamen CSS/SVG, gerak, dan alasan berbeda dari katalog)\n"
@@ -9057,7 +9068,10 @@ def _prepare_atelier_workdir(work, spec, event_type, research):
     with open(os.path.join(work, "BRIEF.md"), "w", encoding="utf-8") as f:
         f.write(
             f"# Brief tema: {spec.get('name')} (`{spec.get('slug')}`)\n- Mode: {event_type}\n- Gaya: {spec.get('style')}\n"
-            f"- Sub-acara: {spec.get('subEvent') or '-'}\n\n## Konsep dari tim\n{spec.get('concept') or spec.get('description') or '-'}\n"
+            f"- Sub-acara: {spec.get('subEvent') or '-'}\n\n## Konsep dari tim\n{spec.get('concept') or spec.get('description') or '-'}\n\n"
+            "## Gaya visual per seksi (WAJIB diwujudkan; tiap seksi harus punya bentuk sendiri, bukan pola bawaan blueprint)\n"
+            + "\n".join(f"- **{k}** (#{THEME_SECTION_IDS.get(k, k)}): {str((spec.get('sections') or {}).get(k) or '').strip()}" for k in THEME_BRIEF_SECTIONS)
+            + "\n"
         )
     with open(os.path.join(work, "KONTRAK.md"), "w", encoding="utf-8") as f:
         f.write(
@@ -9092,6 +9106,88 @@ def _blank_screen_issues(files, label):
             "(jangan menunggu animasi yang tidak dipicu skrip, hindari tinggi/margin seksi berlebih)."] if blank else []
 
 
+THEME_REF_DIR = os.path.join(DATA_DIR, "theme-atelier", "ref")
+SECTION_DEFAULT_SIM = 0.70   # kalibrasi 25 Nov: hadiah Kawung vs blueprint 0.88 (tampak bawaan), seksi yang dirombak 0.04–0.42
+SECTION_LOCKED_SIM = 0.70    # bila rata-rata tema katalog juga ≥ ini terhadap blueprint, seksi itu dikunci markup engine (mis. galeri 0.77)
+CATALOG_TWIN_SIM = 0.80      # kembar katalog: gowa vs takalar 1.00, tema berbeda 0.0–0.3
+
+
+def _fp_similarity(a, b):
+    from collections import Counter
+
+    ca, cb = Counter(a or []), Counter(b or [])
+    return sum((ca & cb).values()) / max(1, max(sum(ca.values()), sum(cb.values())))
+
+
+def _render_fingerprint(master_path, event_type, out_dir, full_shots=False):
+    """Render master dengan data demo lalu ambil sidik gaya per seksi (dan foto bila full_shots)."""
+    audit = _theme_engine(["master", master_path, event_type, out_dir], 180)
+    if not audit.get("rendered"):
+        raise RuntimeError(f"Render referensi gagal: {'; '.join(audit.get('issues') or [])[:300]}")
+    env = dict(_theme_engine_env(), **({} if full_shots else {"FP_ONLY": "1"}))
+    shot = subprocess.run([_node_bin(), os.path.join(THEME_STUDIO_DIR, "shoot.js"), os.path.join(out_dir, "preview.html"),
+                           os.path.join(out_dir, "shots"), "", "8", "0"], cwd=THEME_STUDIO_DIR, env=env, capture_output=True, text=True, timeout=300)
+    if shot.returncode != 0:
+        raise RuntimeError(f"Sidik referensi gagal: {(shot.stderr or shot.stdout).strip()[-300:]}")
+    return json.loads(shot.stdout.strip().splitlines()[-1])
+
+
+def _reference_fingerprints(event_type):
+    """Sidik blueprint mode (+ lembar foto HP-nya untuk Bima) dan tema aktif semode, di-cache per mtime berkas master."""
+    os.makedirs(THEME_REF_DIR, exist_ok=True)
+    bp_path = _blueprint_contract(event_type)[0]
+
+    def cached(key, master_path, full=False):
+        stamp = int(os.path.getmtime(master_path))
+        path = os.path.join(THEME_REF_DIR, f"{key}-{stamp}.json")
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        out_dir = os.path.join(THEME_REF_DIR, f"{key}-{stamp}")
+        info = _render_fingerprint(master_path, event_type, out_dir, full_shots=full)
+        data = {"fingerprint": info.get("fingerprint") or {}}
+        if full:
+            data["mobileSheet"] = _theme_sheets(os.path.join(out_dir, "shots"), event_type)["mobile"]
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        return data
+
+    bp = cached(f"blueprint-{event_type.lower()}", bp_path, full=True)
+    catalog = {}
+    folder = THEME_BLUEPRINTS[event_type][0]
+    for tid in [t.split(" ")[0] for t in _active_theme_list() if f"({event_type}," in t]:
+        for st in ("minimalist", "modern", "traditional"):
+            src = os.path.join(_theme_project_path(), "themes", folder, st, f"{tid}.html")
+            if os.path.isfile(src):
+                catalog[tid] = cached(f"theme-{tid}", src)["fingerprint"]
+                break
+    return bp, catalog
+
+
+def _section_style_issues(fp, event_type):
+    """Seksi yang gayanya masih bawaan blueprint (padahal tema katalog terbukti bisa merombaknya) dan kembar katalog."""
+    bp, catalog = _reference_fingerprints(event_type)
+    bp_fp = bp["fingerprint"]
+    checked = {v for k, v in THEME_SECTION_IDS.items() if k not in ("cover", "opening", "closing")}
+    issues = []
+    for sec, bp_items in bp_fp.items():
+        if sec not in checked or sec not in fp or len(bp_items) < 3:
+            continue
+        sim = _fp_similarity(fp[sec], bp_items)
+        peers = [_fp_similarity(c[sec], bp_items) for c in catalog.values() if sec in c]
+        locked = bool(peers) and sum(peers) / len(peers) >= SECTION_LOCKED_SIM
+        if sim >= SECTION_DEFAULT_SIM and not locked:
+            issues.append(f"Seksi #{sec} masih bergaya bawaan blueprint (kemiripan {sim:.0%}); rancang ulang bentuk visualnya sesuai brief seksi.")
+    shared = [s for s in fp if s in checked and s in bp_fp]
+    for tid, cfp in catalog.items():
+        common = [s for s in shared if s in cfp]
+        if common:
+            avg = sum(_fp_similarity(fp[s], cfp[s]) for s in common) / len(common)
+            if avg >= CATALOG_TWIN_SIM:
+                issues.append(f"Gaya seksi kembar dengan tema katalog '{tid}' (rata-rata {avg:.0%}); tema baru harus punya ciri sendiri.")
+    return issues, bp.get("mobileSheet") or ""
+
+
 def _atelier_check(work, event_type):
     """Audit kontrak + render data demo + foto. Mengembalikan dict berisi masalah teknis dan lembar foto."""
     master = os.path.join(work, "master.html")
@@ -9118,17 +9214,31 @@ def _atelier_check(work, event_type):
             tech.append(f"Tombol pembuka sampul (Buka Undangan) tidak ditemukan/tidak bisa diklik di HP ({label}).")
         for err in info.get("pageErrors") or []:
             tech.append(f"Galat JavaScript saat dibuka ({label}): {err}")
-    return {"ok": not tech, "issues": tech, "sheets": _theme_sheets(shots_dir, event_type)}
+        if not extra:
+            style_issues, bp_sheet = _section_style_issues(info.get("fingerprint") or {}, event_type)
+            tech += style_issues
+            if bp_sheet and os.path.isfile(bp_sheet):
+                shutil.copy(bp_sheet, os.path.join(shots_dir, "ref-blueprint.png"))
+    sheets = _theme_sheets(shots_dir, event_type)
+    if os.path.isfile(os.path.join(shots_dir, "ref-blueprint.png")):
+        sheets["blueprint"] = os.path.join(shots_dir, "ref-blueprint.png")
+    return {"ok": not tech, "issues": tech, "sheets": sheets}
 
 
 def critique_theme_draft(meta, sheets, research, round_no, prev_issues):
-    names = {"mobile": "sheet-mobile.png", "desktop": "sheet-desktop.png", "bg": "sheet-bg.png", "catalog": "sheet-catalog.png"}
+    names = {"mobile": "sheet-mobile.png", "desktop": "sheet-desktop.png", "bg": "sheet-bg.png", "catalog": "sheet-catalog.png",
+             "blueprint": "ref-blueprint.png"}
     files = ", ".join(names[k] for k in sheets)
     prompt = (
         "Kamu Bima, manajer Dept Theme Lab Luxvite dan kurator desain yang tegas. Buka dan LIHAT gambar berikut di folder kerja: "
         f"{files}. sheet-mobile = HP 390px (sampul lalu isi digulir); sheet-desktop = 1440px; sheet-bg = tampilan saat klien mengunggah "
-        "foto latar sendiri (slot media); sheet-catalog = tema aktif semode yang sudah dijual (pembanding).\n"
+        "foto latar sendiri (slot media); sheet-catalog = tema aktif semode yang sudah dijual (pembanding); ref-blueprint = tampilan "
+        "BAWAAN blueprint yang tidak boleh ditiru.\n"
         f"Tema: {meta['name']} ({meta['eventType']}, {meta['style']}). Konsep: {meta.get('concept', '')[:1500]}\n"
+        f"Brief gaya per seksi dari tim: {json.dumps(meta.get('sections') or {}, ensure_ascii=False)[:1800]}\n"
+        "Periksa SATU PER SATU seksi kisah, hitung mundur/kalender, acara, galeri, hadiah, RSVP/ucapan, dan penutup: apakah bentuk "
+        "visualnya sesuai brief seksinya dan berbeda dari ref-blueprint & katalog, atau masih pola bawaan (label kecil + judul tengah + "
+        "paragraf tengah + kartu berbingkai yang sama di mana-mana). Seksi yang masih tampak bawaan/template adalah CACAT PEMBLOKIR.\n"
         + (f"Masalah putaran sebelumnya: {'; '.join(prev_issues)[:800]}\n" if prev_issues else "")
         + (f"Ringkasan riset tren tim: {research[:1500]}\n" if research else "")
         + "Nilai 1-10 berdasarkan apa yang TERLIHAT: kreativitas & keberanian konsep (bukan template), keunikan dibanding katalog, "
@@ -9162,10 +9272,15 @@ def _atelier_writer_prompt(spec, event_type):
         "Kamu Vino, desainer-developer master tema di Dept Theme Lab Luxvite. Kamu bekerja di folder kerja ini saja.\n"
         "Baca dulu: KONTRAK.md (aturan wajib), BRIEF.md (konsep), RISET.md (tren dari web), blueprint.html (kerangka engine & skrip runtime "
         "terbaru), dan folder referensi/ (tema katalog untuk dipelajari polanya).\n"
-        f"Tugas: tulis tema BARU '{spec.get('name')}' (mode {event_type}, gaya {spec.get('style')}) sebagai berkas master.html. "
-        "Mulai dari salinan blueprint.html agar skrip, token, dan label lengkap, lalu rombak markup dan CSS sampai menjadi desain yang benar-benar "
-        "baru sesuai konsep: tata letak tiap seksi, tipografi, ornamen CSS/SVG buatan sendiri, ritme jarak, gerak masuk, tampilan desktop. "
-        "Jangan sekadar mengganti warna. Desain harus tetap indah saat klien mengganti foto latar.\n"
+        f"Tugas: tulis tema BARU '{spec.get('name')}' (mode {event_type}, gaya {spec.get('style')}) sebagai berkas master.html.\n"
+        "blueprint.html hanya KONTRAK teknis (skrip, token, label, id), BUKAN acuan gaya. Gaya bawaannya (label kecil + judul tengah + "
+        "paragraf tengah + kartu berbingkai di setiap seksi) dilarang dipertahankan. Wujudkan 'Gaya visual per seksi' di BRIEF.md satu per "
+        "satu: kisah, hitung mundur & tombol kalender, acara, galeri, hadiah, RSVP & ucapan, penutup masing-masing punya bentuk, tata letak, "
+        "dan tipografi sendiri. Markup seksi kisah/acara/galeri/hadiah/ucapan diisi engine dengan kelas tetap (lihat elemen yang dihasilkan "
+        "token *Html di blueprint dan referensi), jadi rombak bentuknya lewat CSS kelas tersebut: grid/flex, scroll-snap, posisi, ::before/::after, "
+        "counter, clip-path, writing-mode, ukuran huruf ekstrem, dan ornamen SVG. Sistem membandingkan gaya terkomputasi tiap seksi dengan "
+        "blueprint dan katalog; seksi yang masih sama otomatis ditolak.\n"
+        "Desain harus tetap indah saat klien mengganti foto latar.\n"
         "Jangan membuat berkas di luar folder ini dan jangan menjalankan perintah jaringan. Setelah master.html selesai, balas ringkas: "
         "konsep yang kamu wujudkan dan bagian yang paling kamu rombak."
     )
@@ -9218,9 +9333,15 @@ def create_theme_draft_from_spec(spec, room="THEMES"):
         return {"ok": False, "error": "eventType harus WEDDING, PERSONAL, atau EVENT."}
     if len(concept) < 200:
         return {"ok": False, "error": "concept wajib brief desain lengkap (min. 200 karakter): suasana, palet, layout sampul & tiap seksi, ornamen, gerak, alasan beda dari katalog."}
+    sections = spec.get("sections") if isinstance(spec.get("sections"), dict) else {}
+    thin = [k for k in THEME_BRIEF_SECTIONS if len(str(sections.get(k) or "").strip()) < 40]
+    if thin:
+        return {"ok": False, "error": ("sections wajib berisi gaya visual tiap seksi (min. 40 karakter, bentuk & tata letaknya, bukan warna saja) untuk: "
+                                       + ", ".join(thin) + ". Contoh story: 'film strip horizontal scroll-snap, tiap bab kartu foto miring bernomor besar'.")}
     if any(slug == t.split(" ")[0] for t in _active_theme_list()):
         return {"ok": False, "error": f"slug '{slug}' sudah dipakai tema aktif."}
-    meta = {"name": name, "eventType": event_type, "style": style, "concept": concept}
+    meta = {"name": name, "eventType": event_type, "style": style, "concept": concept,
+            "sections": {k: str(sections[k]).strip()[:400] for k in THEME_BRIEF_SECTIONS}}
     research, _age = latest_theme_research()
     stamp = time.strftime("%Y%m%d-%H%M%S")
     rel_dir = f"content-queue/{stamp}-tema-{slug}"
