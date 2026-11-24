@@ -4597,7 +4597,7 @@ def get_public_remote_mcp_config():
     }
 
 
-def _get_remote_mcp_credentials(room="", server_id="", tool_name=""):
+def _get_remote_mcp_credentials(room="", server_id="", tool_name="", allow_cross_slot=False):
     cfg = load_remote_mcp_config()
     servers = cfg["servers"]
     target = None
@@ -4637,8 +4637,11 @@ def _get_remote_mcp_credentials(room="", server_id="", tool_name=""):
     preferred_slot = room_to_slot.get(room_u, "DEFAULT")
     lt_map = target.get("lastTest") or {}
 
-    # Capability-aware routing: if a specific tool_name (e.g. luxvite_create_draft_theme from THEMES)
-    # is not advertised on preferred_slot, route automatically to the slot that owns that tool!
+    # Ruang departemen hanya memakai kunci MCP-nya sendiri, supaya scope per departemen benar-benar berlaku.
+    # Pindah ke slot lain yang punya tool itu hanya untuk panggilan tanpa ruang departemen (GM/sistem) atau aksi yang sudah di-ACC CEO.
+    if preferred_slot != "DEFAULT" and not allow_cross_slot:
+        return target["endpoint"], target["keys"].get(preferred_slot, ""), preferred_slot
+
     if tool_name:
         pref_tools = (lt_map.get(preferred_slot) or {}).get("tools") or []
         if target["keys"].get(preferred_slot) and tool_name in pref_tools:
@@ -4676,8 +4679,8 @@ def _parse_mcp_http_response(raw_text):
     return json.loads(txt)
 
 
-def call_remote_mcp(method, params=None, timeout=12, room="", api_key_override=None, url_override=None, server_id="", tool_name=""):
-    url, api_key, used_slot = _get_remote_mcp_credentials(room=room, server_id=server_id, tool_name=tool_name)
+def call_remote_mcp(method, params=None, timeout=12, room="", api_key_override=None, url_override=None, server_id="", tool_name="", allow_cross_slot=False):
+    url, api_key, used_slot = _get_remote_mcp_credentials(room=room, server_id=server_id, tool_name=tool_name, allow_cross_slot=allow_cross_slot)
     if url_override:
         url = str(url_override).strip()
     if api_key_override:
@@ -4730,7 +4733,7 @@ def call_remote_mcp(method, params=None, timeout=12, room="", api_key_override=N
         return {"_mcp_error": str(e), "_ms": ms, "_slot": used_slot}
 
 
-def call_remote_mcp_tool(tool_name, arguments=None, room="", api_key_override=None, url_override=None, server_id=""):
+def call_remote_mcp_tool(tool_name, arguments=None, room="", api_key_override=None, url_override=None, server_id="", allow_cross_slot=False):
     ts_cfg = load_token_saver_config()
     ttl_sec = int(ts_cfg.get("mcpCacheTtlSec") or 0) if ts_cfg.get("compressContext") else 0
     is_read_only = _is_read_only_mcp_tool(tool_name)
@@ -4757,6 +4760,7 @@ def call_remote_mcp_tool(tool_name, arguments=None, room="", api_key_override=No
         url_override=url_override,
         server_id=server_id,
         tool_name=tool_name,
+        allow_cross_slot=allow_cross_slot,
     )
     if res is None:
         return {"ok": False, "error": "Remote MCP API Key belum dikonfigurasi."}
@@ -8598,6 +8602,7 @@ def _execute_approved_agent_action(item):
             payload.get("args") if isinstance(payload.get("args"), dict) else {},
             room=str(payload.get("room") or ""),
             server_id=str(payload.get("serverId") or ""),
+            allow_cross_slot=True,
         )
     elif kind == "IMPORT_SKILL":
         res = import_skill_from_url(payload)
@@ -10144,7 +10149,9 @@ def _execute_single_department_project(item, idx=1, total=1):
     dept_info = DEPT_SQUADS.get(dept) or DEPT_SQUADS["ADMIN"]
     mgr_def = dept_info["manager"]
     aid = int(item.get("agentId") or mgr_def["id"])
-    aname = str(item.get("agentName") or mgr_def["name"]).strip()
+    # agentName tugas yang sudah pernah dieksekusi berisi kredit tim ("Tika (QA) + Eksekutor: ..."); ambil nama manajernya saja
+    # supaya putaran revisi/eksekusi ulang tidak menumpuk teks kredit.
+    aname = str(item.get("agentName") or mgr_def["name"]).split(" (QA)")[0].strip()
     arole = str(item.get("agentRole") or mgr_def["role"]).strip()
     title = str(item.get("title") or "Tugas Hasil Rapat").strip()
     instr = str(item.get("instruction") or item.get("detail") or title).strip()
