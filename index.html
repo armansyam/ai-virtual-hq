@@ -12815,7 +12815,8 @@
     function _ceoAttentionItems() {
       const apvs = (AUTOPILOT_STATE && Array.isArray(AUTOPILOT_STATE.pendingApprovals)) ? AUTOPILOT_STATE.pendingApprovals : [];
       const stuck = (Array.isArray(TASKBOARD_ITEMS) ? TASKBOARD_ITEMS : []).filter(t => t.status === "REVISI" || t.status === "GAGAL");
-      const posts = CONTENT_QUEUE.filter(p => p.status === "SIAP_POSTING");
+      const posts = CONTENT_QUEUE.filter(p => p.status === "SIAP_POSTING")
+        .sort((a, b) => String(a.postDate || "9999").localeCompare(String(b.postDate || "9999")));
       const files = CONTENT_QUEUE.filter(p => p.status === "SIAP_DIPAKAI");
       return { apvs, stuck, posts, files };
     }
@@ -12965,7 +12966,11 @@
 
       body.innerHTML = `
         <section>
-          ${sectionTitle("Siap posting dari tim Social", `${posts.length} paket`)}
+          ${sectionTitle("Siap posting dari tim Social (urut tanggal tayang)", `${posts.length} paket`)}
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <span class="text-[10.5px] text-slate-500">Tim menyiapkan 1 konten per hari untuk 7 hari ke depan; Anda yang mengunggah.</span>
+            <button id="btn-week-plan" onclick="ceoRequestWeekPlan()" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] cursor-pointer">Susun konten 7 hari</button>
+          </div>
           <div class="space-y-2">${postsHtml || `<div class="${card} text-[11px] text-slate-400">Belum ada paket posting. Tim Social menghasilkan slide carousel dan video Reels saat jam kerja.</div>`}</div>
         </section>
         <section>
@@ -12990,6 +12995,26 @@
             ${OFFICE_OFF_MODE && running.length ? `<div class="mt-2 text-[10.5px] text-slate-500">Kantor tutup: tugas lanjut saat jam kerja, atau tekan Aktifkan (Lembur).</div>` : ""}</div>
           <div class="${card}">${sectionTitle("Hasil terbaru (lulus QA)", done.length)}${doneHtml || `<div class="text-[11px] text-slate-400">Belum ada hasil yang lulus QA.</div>`}</div>
         </section>`;
+    }
+
+    async function ceoRequestWeekPlan() {
+      const btn = document.getElementById("btn-week-plan");
+      if (btn) { btn.disabled = true; btn.textContent = "Menyusun rencana…"; }
+      try {
+        const res = await fetch("/api/social/week-plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const data = await res.json();
+        if (!data.ok) {
+          updateToast(data.error || "Rencana 7 hari gagal disusun.");
+          alert(data.error || "Rencana 7 hari gagal disusun.");
+          return;
+        }
+        updateToast(`Rencana 7 hari dibuat: ${data.tasks.length} tugas konten mulai dikerjakan.`);
+        await openCeoSummaryModal();
+      } catch (err) {
+        updateToast(`Gagal menghubungi server: ${err.message}`);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = "Susun konten 7 hari"; }
+      }
     }
 
     async function ceoCopyCaption(postId) {

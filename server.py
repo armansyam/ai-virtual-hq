@@ -7901,6 +7901,14 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             })
             return
 
+        if clean_path == "/api/social/week-plan":
+            res = create_social_week_plan()
+            if res.get("ok"):
+                tb_now = load_taskboard()
+                _execute_meeting_tasks_background([t for t in tb_now if t.get("status") == "TODO" and str(t.get("id", "")).startswith("task_week_")][:4])
+            self._send_json(200 if res.get("ok") else 400, res)
+            return
+
         if clean_path == "/api/content-queue/update":
             item_id = str(body.get("id") or "").strip()
             new_status = str(body.get("status") or "").strip().upper()
@@ -9003,6 +9011,7 @@ def save_post_package(pkg, room="SOCIAL", agent_name=""):
         "script": str(pkg.get("script") or "")[:3000],
         "cta": str(pkg.get("cta") or "")[:200],
         "postTime": str(pkg.get("postTime") or "")[:60],
+        "postDate": (re.search(r"\d{4}-\d{2}-\d{2}", str(pkg.get("postTime") or "")) or [""])[0],
         "dir": rel_dir,
         "status": "SIAP_POSTING",
         "dept": str(room or "SOCIAL").upper(),
@@ -9089,6 +9098,7 @@ def render_reel_package(req, room="SOCIAL", agent_name=""):
         "script": f"Musik: {info.get('music')} (Pixabay, non-Content ID, lisensi di tools/reel-factory/music/LISENSI.txt). Sampul: pilih frame judul saat unggah.",
         "cta": "luxvite.id/demo",
         "postTime": str(req.get("postTime") or "")[:60],
+        "postDate": (re.search(r"\d{4}-\d{2}-\d{2}", str(req.get("postTime") or "")) or [""])[0],
         "dir": rel_dir,
         "status": "SIAP_POSTING",
         "dept": str(room or "SOCIAL").upper(),
@@ -10354,6 +10364,7 @@ def run_gm_autopilot_cycle(manual=False):
             f"{dept_heads_ref}\n"
             f"KEUANGAN RINGKAS: OPEX Bulanan Rp {total_opex:,} | Pemasukan Tercatat Rp {total_inc:,}\n\n"
             f"{build_business_targets_block()}\n\n"
+            f"PLAYBOOK STRATEGI GM (wajib dipakai untuk memilih prioritas):\n{strategy_playbook_text(1800)}\n\n"
             f"TASKBOARD PENDING ({len(pending_tasks)}):\n"
             + (json.dumps([{"id": t.get("id"), "title": t.get("title"), "dept": t.get("dept"), "agentId": t.get("agentId", t.get("assigneeId")), "agentName": t.get("agentName", t.get("assigneeName")), "priority": t.get("priority")} for t in pending_tasks], ensure_ascii=False) if pending_tasks else "Tidak ada tugas PENDING.")
             + f"\n\nTUGAS SELESAI TERBARU ({len(done_recent)}):\n"
@@ -11407,7 +11418,9 @@ def finish_meeting_and_execute_tasks(body):
         "Kamu adalah Notulis & GM Koordinator (Raka). Tugasmu mengekstrak hasil rapat menjadi daftar ACTION ITEMS (Task) "
         "yang konkret untuk langsung dikerjakan oleh masing-masing departemen.\n"
         "ATURAN:\n"
-        "1. Buat 1 sampai maksimal 4 action items yang paling konkret dan disepakati dalam rapat.\n"
+        "1. Buat 1 sampai maksimal 7 action items yang konkret dan disepakati dalam rapat. Bila rapat menyepakati rencana beberapa hari "
+        "(mis. konten 7 hari), WAJIB buat 1 task per hari dengan field dueDate (YYYY-MM-DD) dan sebut hari itu di title, jangan diringkas jadi satu task. "
+        f"Hari ini {time.strftime('%Y-%m-%d (%A)')}.\n"
         "2. Tetapkan dept (SOCIAL|THEMES|GROWTH|ADMIN|ENGINEERING|FINANCE) dan agentId/agentName yang tepat dari daftar peserta.\n"
         "3. riskLevel: 'INTERNAL_SAFE' untuk kerja internal (riset, audit, draf konten lokal, SOP, kode internal, rekap keuangan, serta buat & dorong tema baru ke List Draft server via luxvite_create_draft_theme); "
         "'NEEDS_CEO_APPROVAL' HANYA untuk ubah/aktifkan produksi live di luar Draft atau transaksi bayar.\n"
@@ -11415,7 +11428,7 @@ def finish_meeting_and_execute_tasks(body):
         "{\n"
         '  "meetingSummary": "Ringkasan padat 1-2 kalimat keputusan rapat",\n'
         '  "actionItems": [\n'
-        '    {"title": "Judul tugas singkat", "dept": "SOCIAL", "agentId": 17, "agentName": "⭐ Senna", "agentRole": "Manajer Social", "instruction": "Brief detail tugas yang harus dikerjakan", "priority": "HIGH", "riskLevel": "INTERNAL_SAFE"}\n'
+        '    {"title": "Judul tugas singkat", "dept": "SOCIAL", "agentId": 17, "agentName": "⭐ Senna", "agentRole": "Manajer Social", "instruction": "Brief detail tugas yang harus dikerjakan", "priority": "HIGH", "riskLevel": "INTERNAL_SAFE", "dueDate": "YYYY-MM-DD atau kosong"}\n'
         "  ]\n"
         "}"
     )
@@ -11463,7 +11476,7 @@ def finish_meeting_and_execute_tasks(body):
     queued_for_bg = []
     pending_approvals_added = []
 
-    for idx_a, raw_item in enumerate(parsed.get("actionItems", [])[:4]):
+    for idx_a, raw_item in enumerate(parsed.get("actionItems", [])[:7]):
         if not isinstance(raw_item, dict):
             continue
         dept = str(raw_item.get("dept") or dept_room or "ADMIN").strip().upper()
@@ -11478,6 +11491,10 @@ def finish_meeting_and_execute_tasks(body):
         arole = str(raw_item.get("agentRole") or def_role).strip()
         title = str(raw_item.get("title") or f"Tindak Lanjut {dept}").strip()[:110]
         instr = str(raw_item.get("instruction") or title).strip()
+        due = str(raw_item.get("dueDate") or "").strip()
+        due = due if re.fullmatch(r"\d{4}-\d{2}-\d{2}", due) else ""
+        if due:
+            instr = f"{instr}\n\nTANGGAL TAYANG/TENGGAT: {due}. Hasil wajib menyebut tanggal ini (mis. postTime untuk konten)."
         prio = str(raw_item.get("priority") or "HIGH").strip().upper()
         if prio not in ("HIGH", "MEDIUM", "LOW"):
             prio = "HIGH"
@@ -11499,6 +11516,7 @@ def finish_meeting_and_execute_tasks(body):
             "instruction": instr,
             "artifactFile": "",
             "updatedAt": now_str,
+            "dueDate": due,
         }
         tb.insert(0, task_obj)
         created_tasks.append(task_obj)
@@ -11651,6 +11669,97 @@ def build_business_targets_block():
     return "\n".join(lines)
 
 
+def strategy_playbook_text(limit=2600):
+    """Isi playbook strategi bisnis (skills/luxvite-strategi-bisnis) untuk agenda rapat dan patroli GM."""
+    res = read_hq_skill("luxvite-strategi-bisnis")
+    return str(res.get("content") or "")[:limit] if res.get("ok") else ""
+
+
+REELS_ALREADY_POSTED = {"valente", "lagaligo", "bugis", "kalandra", "candani", "artisan"}
+REELS_ON_HOLD = {"chronicle", "ameera", "toraja", "makale"}
+_DAY_ID = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
+
+
+def create_social_week_plan(start_date=None):
+    """Rencana Konten 7 Hari: Senna merencanakan 1 konten per hari, lalu sistem membuat 7 tugas bertanggal yang masing-masing
+    wajib menghasilkan paket siap unggah (slide PNG atau video Reels + caption + jam tayang)."""
+    start = start_date or (datetime.now() + timedelta(days=1)).date()
+    days = [start + timedelta(days=i) for i in range(7)]
+    queue_dates = {str(x.get("postDate") or "") for x in load_content_queue() if x.get("status") == "SIAP_POSTING"}
+    cat = call_remote_mcp_tool("luxvite_list_themes_catalog", {"eventType": "all"}, room="SOCIAL")
+    themes = [t for t in ((cat.get("result") or {}).get("themes") or []) if t.get("isActive")]
+    reel_ok = [t for t in themes if t["id"] not in REELS_ALREADY_POSTED and not any(h in t["id"] for h in REELS_ON_HOLD)]
+    theme_list = ", ".join(f"{t['id']} ({t['eventType']})" for t in reel_ok[:40]) or "(katalog tidak terbaca)"
+    mgr = DEPT_SQUADS["SOCIAL"]["manager"]
+    mid, ep, key = _resolve_agent_model_creds(int(mgr["id"]))
+    sys_p = (
+        f"Kamu {mgr['name']}, manajer Social @luxvite.id. Susun RENCANA KONTEN 7 HARI, 1 konten per hari, campuran 4 carousel + 3 reels. "
+        "Tiap hari mengejar satu metrik target dan punya sudut yang berbeda. Reels wajib memakai id tema dari daftar yang boleh. "
+        "BALAS HANYA JSON VALID: "
+        '{"summary":"1 kalimat strategi minggu ini","days":[{"date":"YYYY-MM-DD","format":"carousel|reel","theme":"id tema (khusus reel)",'
+        '"angle":"sudut/judul konten","metric":"pendaftar|order|mitra","postTime":"19:00"}]}'
+    )
+    prompt = (
+        f"Tanggal tayang: {', '.join(f'{_DAY_ID[d.weekday()]} {d.isoformat()}' for d in days)}.\n"
+        f"{build_business_targets_block()}\n\nTema aktif yang boleh untuk Reels: {theme_list}.\n"
+        f"Tanggal yang sudah punya paket siap posting (lewati bila ada): {', '.join(sorted(d for d in queue_dates if d)) or '-'}.\n"
+        f"{output_feedback_block('SOCIAL')}"
+    )
+    raw, _ = run_agent_llm_unified(mid, ep, key, sys_p, [], prompt, live_mcp_ctx="", agent_id=int(mgr["id"]), room="SOCIAL", agent_name=f"{mgr['name']} (Rencana 7 Hari)")
+    plan = _extract_json_block(raw)
+    if not isinstance(plan, dict) or not isinstance(plan.get("days"), list) or not plan["days"]:
+        return {"ok": False, "error": "Rencana 7 hari dari manajer Social tidak terbaca sebagai JSON."}
+    valid_dates = {d.isoformat(): d for d in days}
+    reel_ids = {t["id"] for t in reel_ok}
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
+    tasks, cal_lines = [], ["| Tanggal | Format | Sudut | Metrik | Jam |", "|---|---|---|---|---|"]
+    for i, day in enumerate(plan["days"][:7]):
+        d_iso = str(day.get("date") or "").strip()
+        if d_iso not in valid_dates or d_iso in queue_dates:
+            continue
+        fmt = "reel" if str(day.get("format")).lower() == "reel" and str(day.get("theme") or "") in reel_ids else "carousel"
+        angle = str(day.get("angle") or "Konten harian").strip()[:90]
+        metric = str(day.get("metric") or "pendaftar").strip()[:20]
+        post_time = f"{_DAY_ID[valid_dates[d_iso].weekday()]} {d_iso} {str(day.get('postTime') or '19:00')[:5]} WITA"
+        if fmt == "reel":
+            how = (f"Format REELS. Wajib satu tag REEL_REQUEST dengan theme \"{day['theme']}\", title nama tema, subtitle satu kalimat rasa (tanpa harga), "
+                   f"caption final tanpa harga mengikuti skill Luxvite Reels, hashtags 3 buah, postTime \"{post_time}\".")
+        else:
+            how = (f"Format CAROUSEL 4-7 slide. Wajib satu tag POST_PACKAGE lengkap (slide + caption final + 3-6 hashtag + CTA ke luxvite.id), "
+                   f"postTime \"{post_time}\", fakta dari data live.")
+        tasks.append({
+            "id": f"task_week_{d_iso}_{int(time.time() * 1000)}_{i}",
+            "title": f"Konten {_DAY_ID[valid_dates[d_iso].weekday()]} {d_iso}: {angle}"[:110],
+            "dept": "SOCIAL", "agentId": int(mgr["id"]), "agentName": mgr["name"], "agentRole": mgr["role"],
+            "taskType": "meeting_action_item", "priority": "HIGH", "status": "TODO",
+            "detail": f"Rencana Konten 7 Hari ({now_str}) — mengejar metrik {metric}.",
+            "instruction": f"KONTEN TAYANG {post_time} — sudut: {angle}. Metrik: {metric}.\n{how}\nHasil = file siap unggah di antrean Siap Posting, bukan rencana.",
+            "artifactFile": "", "updatedAt": now_str, "dueDate": d_iso,
+        })
+        cal_lines.append(f"| {_DAY_ID[valid_dates[d_iso].weekday()]} {d_iso} | {fmt} | {angle} | {metric} | {post_time.split()[-2]} |")
+    if not tasks:
+        return {"ok": False, "error": "Tidak ada hari baru untuk direncanakan (semua tanggal sudah punya paket atau rencana tidak valid)."}
+    with TASKBOARD_LOCK:
+        tb = load_taskboard()
+        save_taskboard(tasks + tb)
+    save_output_file({
+        "title": f"Kalender Konten 7 Hari mulai {days[0].isoformat()}",
+        "format": "md",
+        "purpose": "Peta unggah 7 hari ke depan; tiap baris punya paket siap unggah di Siap Posting setelah tugasnya selesai.",
+        "content": f"# Kalender Konten @luxvite.id\n\n{str(plan.get('summary') or '').strip()}\n\n" + "\n".join(cal_lines) + "\n",
+    }, room="SOCIAL", agent_name=mgr["name"])
+    bump_world_chat_version(toast_msg=f"🗓️ {mgr['name']} menyusun Rencana Konten 7 Hari: {len(tasks)} tugas konten dibuat dan mulai dikerjakan.")
+    return {"ok": True, "tasks": [t["title"] for t in tasks], "summary": plan.get("summary")}
+
+
+def social_week_plan_due():
+    """Rencana baru dibuat bila antrean siap posting tidak lagi mencakup 3 hari ke depan dan tidak ada tugas konten Social yang masih berjalan."""
+    soon = {(datetime.now() + timedelta(days=i)).date().isoformat() for i in range(1, 4)}
+    covered = {str(x.get("postDate") or "") for x in load_content_queue() if x.get("status") == "SIAP_POSTING"}
+    pending = any(str(t.get("dept") or "").upper() == "SOCIAL" and t.get("status") in ("TODO", "IN_PROGRESS") and t.get("dueDate") for t in load_taskboard())
+    return not pending and not soon.issubset(covered)
+
+
 AUTO_MEETING_STATE_FILE = os.path.join(CONFIG_DIR, "auto_meeting_state.json")
 _AUTO_MEETING_LOCK = threading.Lock()
 
@@ -11690,6 +11799,8 @@ def run_auto_coordination_meeting():
         os.replace(AUTO_MEETING_STATE_FILE + ".tmp", AUTO_MEETING_STATE_FILE)
 
         targets_block = build_business_targets_block()
+        playbook = strategy_playbook_text()
+        week_res = None
         tb = load_taskboard()
         mgr_ids = [int(DEPT_SQUADS[d]["manager"]["id"]) for d in DEPT_SQUADS]
         set_agents_busy(mgr_ids, True)
@@ -11704,7 +11815,8 @@ def run_auto_coordination_meeting():
             sys_p = (
                 f"Kamu adalah {mgr['name']} ({mgr['role']}) dalam rapat koordinasi harian. Usulkan TEPAT 1 tugas untuk timmu yang paling "
                 "mungkin menggerakkan angka target bisnis, konkret, bisa dikerjakan tim AI tanpa akses akun luar, dan tidak mengulang tugas yang sudah selesai. "
-                "Jawab 2-3 kalimat: judul tugas, alasan (metrik yang dikejar), dan hasil yang akan diserahkan."
+                "Jawab 2-3 kalimat: judul tugas, alasan (metrik yang dikejar), dan OUTPUT JADI yang akan diserahkan (file/konten/draf, bukan rencana).\n\n"
+                f"Pakai aturan prioritas GM berikut:\n{playbook[:1400]}"
             )
             prompt = (
                 f"{targets_block}\n\nTUGAS SELESAI TIMMU:\n" + ("\n".join(f"- {x}" for x in done) or "- Belum ada")
@@ -11714,11 +11826,19 @@ def run_auto_coordination_meeting():
             return dept, mgr, str(text or "").strip()
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
-            proposals = [f.result() for f in [pool.submit(_proposal, d) for d in DEPT_SQUADS]]
+            week_res = create_social_week_plan() if social_week_plan_due() else None
+            if week_res and not week_res.get("ok"):
+                print(f"[auto-meeting] rencana konten 7 hari gagal: {week_res.get('error')}", flush=True)
+            proposal_depts = [d for d in DEPT_SQUADS if not (d == "SOCIAL" and week_res and week_res.get("ok"))]
+            proposals = [f.result() for f in [pool.submit(_proposal, d) for d in proposal_depts]]
 
         history = [{
             "sender": "👑 Raka (GM)",
-            "text": f"Agenda rapat koordinasi otomatis {time.strftime('%H:%M')} WITA. Pilih tugas yang paling menggerakkan target.\n{targets_block}",
+            "text": (
+                f"Agenda rapat koordinasi otomatis {time.strftime('%H:%M')} WITA. Pilih tugas yang paling menggerakkan target, "
+                f"masing-masing dengan output jadi.\n{targets_block}\n\nPLAYBOOK STRATEGI GM:\n{playbook}"
+                + (f"\n\nSocial sudah menjadwalkan Rencana Konten 7 Hari: {week_res.get('summary')}" if week_res and week_res.get("ok") else "")
+            ),
         }] + [{"sender": f"{mgr['name']} ({dept})", "text": text[:900]} for dept, mgr, text in proposals if text]
         participants = [{"id": int(m["id"]), "name": m["name"], "role": m["role"], "room": d} for d, m, _ in proposals]
         res = finish_meeting_and_execute_tasks({
