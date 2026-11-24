@@ -141,15 +141,18 @@
         </div>
       </div>
 
-      <!-- Clean Navigation Menu (Zero AI Slop Badges) -->
+      <!-- Clean Navigation Menu (Uniform Refined Badges) -->
       <nav class="space-y-0.5 text-[11.5px] pt-1 border-t border-white/5">
         <a href="#" onclick="selectRoom('ALL')" id="nav-dashboard" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/10 text-white font-medium">
           <span>Kampus HQ</span>
-          <span id="sidebar-floor-badge" class="text-[10px] text-slate-400 font-mono">4 Gedung</span>
+          <span id="sidebar-floor-badge" class="px-1.5 py-0.5 rounded-md bg-white/[0.06] border border-white/10 text-[9.5px] text-slate-300 font-mono leading-none">4 Gedung</span>
         </a>
         <a href="#" onclick="openAnalyticsModal()" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-slate-300 hover:bg-white/5 hover:text-white transition">
           <span>Monitor &amp; Data</span>
-          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+          <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-500/12 border border-emerald-500/25 text-[9.5px] text-emerald-300 font-mono leading-none">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            <span>Live</span>
+          </span>
         </a>
         <a href="#" onclick="summonAndOpenTownHallModal()" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-slate-300 hover:bg-white/5 hover:text-white transition">
           <span>Ruang Rapat</span>
@@ -159,32 +162,32 @@
         </a>
         <a href="#" onclick="openInterDeptLogModal()" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-slate-300 hover:bg-white/5 hover:text-white transition">
           <span>Log Diskusi</span>
-          <span id="sidebar-log-count" class="text-[10px] text-slate-400 font-mono">0</span>
+          <span id="sidebar-log-count" class="px-1.5 py-0.5 rounded-md bg-white/[0.05] border border-white/10 text-[9.5px] text-slate-400 font-mono leading-none">0</span>
         </a>
         <a href="#" onclick="openAllOutputsModal()" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-slate-300 hover:bg-white/5 hover:text-white transition">
           <span>Hasil Kerja</span>
         </a>
         <a href="#" onclick="switchView('table')" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-slate-300 hover:bg-white/5 hover:text-white transition">
           <span>Kelola Tim</span>
-          <span id="sidebar-team-count" class="text-[10px] text-slate-400 font-mono">35/35</span>
+          <span id="sidebar-team-count" class="px-1.5 py-0.5 rounded-md bg-white/[0.05] border border-white/10 text-[9.5px] text-slate-300 font-mono leading-none">35/35</span>
         </a>
         <a href="#" onclick="openExpandHqModal()" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-slate-300 hover:bg-white/5 hover:text-white transition">
           <span>Tambah Gedung</span>
         </a>
         <a href="#" onclick="openArchitectQuickBar()" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-sky-300 hover:bg-white/5 hover:text-sky-200 transition">
           <span>HQ Architect</span>
-          <span class="text-[9.5px] text-slate-500 font-mono">⌘K</span>
+          <span class="px-1.5 py-0.5 rounded-md bg-sky-500/12 border border-sky-400/25 text-[9.5px] text-sky-300 font-mono leading-none">⌘K</span>
         </a>
         <a href="#" onclick="openSettingsModal('API'); return false;" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-amber-200/90 hover:bg-white/5 hover:text-amber-200 transition">
           <span>Setup 1 Pintu &amp; API</span>
         </a>
         <a href="#" onclick="openSettingsModal('USAGE'); return false;" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-orange-300/95 hover:bg-white/5 hover:text-orange-200 transition">
-          <span class="flex items-center gap-1.5"><span>📊</span><span>Usage</span></span>
-          <span id="sidebar-usage-pill" class="text-[9.5px] text-sky-300/90 font-mono">0 req</span>
+          <span>Usage &amp; Token</span>
+          <span id="sidebar-usage-pill" class="px-1.5 py-0.5 rounded-md bg-sky-500/12 border border-sky-400/25 text-[9.5px] text-sky-300 font-mono leading-none">0 req</span>
         </a>
         <a href="#" onclick="openSettingsModal('TOKENSAVER'); return false;" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-emerald-300/95 hover:bg-white/5 hover:text-emerald-200 transition">
-          <span class="flex items-center gap-1.5"><span>⚡</span><span>Token Saver</span></span>
-          <span id="sidebar-tokensaver-pill" class="text-[9.5px] text-emerald-400 font-mono">ON</span>
+          <span>Token Saver</span>
+          <span id="sidebar-tokensaver-pill" class="px-1.5 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[9.5px] text-emerald-300 font-mono leading-none">ON</span>
         </a>
       </nav>
     </div>
@@ -213,9 +216,10 @@
         <span id="sidebar-autopilot-badge" class="px-1.5 py-0.5 rounded bg-slate-700/70 text-slate-300 text-[9.5px] font-bold">OFF</span>
       </button>
       <div class="flex items-center justify-between pt-1 border-t border-white/5 text-[10.5px] text-slate-500">
-        <span id="sidebar-ceo-label" class="text-slate-300">Founder · CEO</span>
-        <div class="flex items-center gap-2">
-          <span id="sidebar-website-label" class="text-slate-400 font-mono truncate max-w-[90px]">-</span>
+        <span id="sidebar-ceo-label" class="text-slate-300 truncate">Founder · CEO</span>
+        <div class="flex items-center gap-2 shrink-0">
+          <span id="sidebar-website-label" class="text-slate-400 font-mono truncate max-w-[72px]">-</span>
+          <button onclick="toggleLiveReadonlyMode(true)" id="btn-sidebar-liveview" class="text-sky-400 hover:text-sky-300 font-medium cursor-pointer" title="Preview tampilan Public Live View">Live</button>
           <button onclick="logoutAdminSession()" class="text-rose-400 hover:text-rose-300 font-medium cursor-pointer" title="Keluar ke mode Public Live View">Logout</button>
         </div>
       </div>
@@ -227,41 +231,21 @@
 
     <!-- Minimalist Responsive Top Glass Header Bar (Zero Overlap on Narrow Screens) -->
     <div class="absolute top-2.5 left-2.5 right-2.5 z-30 flex flex-wrap items-center justify-between gap-1.5 pointer-events-none">
-      <!-- Left: Admin Controls (Visible only when Authenticated) -->
-      <div id="admin-top-left-bar" class="hidden flex items-center gap-1 px-2 py-1 rounded-xl bg-[#13131a]/88 backdrop-blur-md border border-white/10 shadow-lg text-xs pointer-events-auto max-w-full overflow-x-auto no-scrollbar whitespace-nowrap">
-        <button id="btn-top-toggle-sidebar" onclick="toggleSidebar()" class="px-1.5 py-0.5 rounded-md text-slate-300 hover:text-white hover:bg-white/10 text-[11px] font-medium cursor-pointer flex items-center gap-1 shrink-0" title="Tampilkan / Sembunyikan Panel Kiri">
+      <!-- Left: Compact Sidebar Toggle & Brand Pill (All menus live cleanly in Left Sidebar) -->
+      <div id="admin-top-left-bar" class="hidden flex items-center gap-2 h-8 px-2.5 rounded-xl bg-[#13131a]/88 backdrop-blur-md border border-white/10 shadow-lg text-xs pointer-events-auto whitespace-nowrap">
+        <button id="btn-top-toggle-sidebar" onclick="toggleSidebar()" class="px-1 py-0.5 rounded-md text-slate-300 hover:text-white hover:bg-white/10 text-[11px] font-medium cursor-pointer flex items-center gap-1 shrink-0" title="Tampilkan / Sembunyikan Panel Kiri">
           <span>☰</span><span id="btn-top-sidebar-label" class="hidden">Panel</span>
         </button>
-        <span class="text-white/10 hidden md:inline">|</span>
+        <span class="h-3.5 w-[1px] bg-white/10 hidden sm:inline"></span>
         <img src="./brand/logo.webp" alt="HQ" class="w-4 h-4 object-contain hidden sm:inline shrink-0" onerror="this.style.display='none'" />
-        <span id="hq-brand-name" class="font-semibold text-white text-[11px] tracking-wide hidden lg:inline truncate max-w-[130px]">AI VIRTUAL HQ</span>
-        <span class="text-white/10">|</span>
-        <button onclick="openAnalyticsModal()" class="px-1.5 py-0.5 rounded-md hover:bg-white/10 text-slate-300 hover:text-white text-[11px] flex items-center gap-1 cursor-pointer shrink-0" title="Buka Monitor & Data Real-Time">
-          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-          <span id="hud-live-chip">Monitor</span>
-        </button>
-        <button onclick="switchView('table')" id="btn-view-toggle" class="px-1.5 py-0.5 rounded-md hover:bg-white/10 text-slate-300 hover:text-white text-[11px] cursor-pointer shrink-0">
-          <span id="view-toggle-label">Tabel</span>
-        </button>
-        <button onclick="openSettingsModal('SETUP');" id="btn-top-setup" class="px-1.5 py-0.5 rounded-md hover:bg-white/10 text-amber-200/90 hover:text-amber-200 text-[11px] cursor-pointer shrink-0">
-          Setup
-        </button>
-        <button onclick="openSettingsModal('USAGE');" id="btn-top-usage" class="px-1.5 py-0.5 rounded-md hover:bg-white/10 text-orange-300/90 hover:text-orange-200 text-[11px] cursor-pointer shrink-0" title="Usage &amp; Analytics — Monitor token &amp; cached tokens">
-          Usage
-        </button>
-        <button onclick="toggleLiveReadonlyMode(true)" id="btn-top-liveview" class="px-1.5 py-0.5 rounded-md hover:bg-white/10 text-sky-300 hover:text-sky-200 text-[11px] cursor-pointer shrink-0" title="Preview tampilan Public Live View">
-          Live
-        </button>
-        <button onclick="logoutAdminSession()" id="btn-top-logout" class="px-1.5 py-0.5 rounded-md hover:bg-rose-500/15 text-slate-400 hover:text-rose-300 text-[11px] cursor-pointer shrink-0" title="Logout Admin">
-          Logout
-        </button>
+        <span id="hq-brand-name" class="font-semibold text-white text-[11px] tracking-wide hidden sm:inline truncate max-w-[150px]">AI VIRTUAL HQ</span>
       </div>
 
       <!-- Public Live View Left Bar (Default view at / before Login) -->
-      <div id="live-readonly-bar" class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-[#13131a]/88 backdrop-blur-md border border-white/10 shadow-lg text-[11px] pointer-events-auto max-w-full shrink-0">
+      <div id="live-readonly-bar" class="flex items-center gap-1.5 h-8 px-2.5 rounded-xl bg-[#13131a]/88 backdrop-blur-md border border-white/10 shadow-lg text-[11px] pointer-events-auto max-w-full shrink-0">
         <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
         <span id="live-readonly-brand" class="font-semibold text-white truncate max-w-[130px] sm:max-w-[200px]">AI VIRTUAL HQ</span>
-        <span class="text-[10px] text-emerald-300 font-mono uppercase hidden sm:inline">Live</span>
+        <span class="px-1.5 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[9.5px] text-emerald-300 font-mono uppercase leading-none hidden sm:inline">Live</span>
         <button id="btn-public-open-login" onclick="openAuthModal()" class="ml-0.5 px-2 py-0.5 rounded-md bg-white/10 hover:bg-white/20 text-white font-medium text-[10.5px] cursor-pointer shrink-0">
           Login
         </button>
@@ -270,18 +254,18 @@
         </button>
       </div>
 
-      <!-- Right: Live Server Office Clock + Single Compact Location Selector -->
+      <!-- Right: Live Server Office Clock + Single Compact Location Selector (Uniform h-8 Height) -->
       <div class="flex items-center gap-1.5 pointer-events-auto ml-auto shrink-0">
-        <button id="hq-office-clock-pill" onclick="openOfficeSchedulePanel()" class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-[#13131a]/88 hover:bg-[#1a1a26] backdrop-blur-md border border-white/10 shadow-lg text-[11px] cursor-pointer transition whitespace-nowrap" title="Jam Zona Waktu Server & Jadwal Kerja Kantor (Klik untuk atur)">
+        <button id="hq-office-clock-pill" onclick="openOfficeSchedulePanel()" class="flex items-center gap-1.5 h-8 px-2.5 rounded-xl bg-[#13131a]/88 hover:bg-[#1a1a26] backdrop-blur-md border border-white/10 shadow-lg text-[11px] cursor-pointer transition whitespace-nowrap" title="Jam Zona Waktu Server & Jadwal Kerja Kantor (Klik untuk atur)">
           <span id="hq-clock-dot" class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></span>
-          <span id="hq-clock-time" class="font-mono font-bold text-white tracking-tight">--:--:--</span>
+          <span id="hq-clock-time" class="font-mono font-bold text-white tracking-tight tabular-nums">--:--:--</span>
           <span id="hq-clock-tz" class="text-[10px] font-mono text-slate-400">WITA</span>
-          <span id="hq-clock-phase-badge" class="px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 text-[9.5px] font-bold hidden sm:inline">BUKA</span>
+          <span id="hq-clock-phase-badge" class="px-1.5 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[9.5px] font-bold leading-none hidden sm:inline">BUKA</span>
         </button>
-        <div class="flex items-center gap-1 px-1.5 py-1 rounded-xl bg-[#13131a]/88 backdrop-blur-md border border-white/10 shadow-lg text-[11px]">
-          <span class="text-slate-400 text-[10px] pl-1 hidden md:inline">Lokasi:</span>
-          <select id="room-select-dropdown" onchange="selectRoom(this.value)" class="bg-[#1c1c26] text-slate-100 border border-white/10 rounded-lg px-2 py-1 text-[11px] font-medium focus:outline-none focus:border-amber-400/50 cursor-pointer max-w-[145px] sm:max-w-[200px] truncate"></select>
-          <button id="btn-top-add-building" onclick="openExpandHqModal()" class="hidden px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white text-[11px] cursor-pointer shrink-0" title="Tambah Gedung Baru">+ <span class="hidden sm:inline">Gedung</span></button>
+        <div class="flex items-center gap-1.5 h-8 px-2 rounded-xl bg-[#13131a]/88 backdrop-blur-md border border-white/10 shadow-lg text-[11px]">
+          <span class="text-slate-400 text-[10px] hidden md:inline">Lokasi:</span>
+          <select id="room-select-dropdown" onchange="selectRoom(this.value)" class="bg-[#1c1c26] text-slate-100 border border-white/10 rounded-md px-2 py-0.5 text-[11px] font-medium focus:outline-none focus:border-amber-400/50 cursor-pointer max-w-[145px] sm:max-w-[190px] truncate"></select>
+          <button id="btn-top-add-building" onclick="openExpandHqModal()" class="hidden px-1.5 py-0.5 rounded-md bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white text-[10.5px] cursor-pointer shrink-0" title="Tambah Gedung Baru">+ <span class="hidden sm:inline">Gedung</span></button>
           <div id="floor-switcher-bar" class="hidden"></div>
           <div id="room-tabs-bar" class="hidden"></div>
         </div>
@@ -8332,8 +8316,8 @@
       if (sbTs) {
         sbTs.textContent = activeCount > 0 ? `${activeCount}/${keys.length} ON` : "OFF";
         sbTs.className = activeCount > 0
-          ? "text-[9.5px] text-emerald-400 font-mono"
-          : "text-[9.5px] text-slate-500 font-mono";
+          ? "px-1.5 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[9.5px] text-emerald-300 font-mono leading-none"
+          : "px-1.5 py-0.5 rounded-md bg-white/[0.05] border border-white/10 text-[9.5px] text-slate-400 font-mono leading-none";
       }
 
       const sbUsage = document.getElementById("sidebar-usage-pill");
@@ -11535,24 +11519,24 @@
         const isManualLembur = Boolean(!OFFICE_OFF_MODE && (phase === "BREAK" || phase === "CLOSED"));
 
         let dotCls = "w-2 h-2 rounded-full bg-emerald-400 shrink-0";
-        let badgeCls = "px-1.5 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 text-[9.5px] font-bold hidden sm:inline";
+        let badgeCls = "px-1.5 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[9.5px] font-bold leading-none hidden sm:inline";
         let badgeTxt = phase === "ALWAYS_ON" ? "24/7" : "BUKA";
 
         if (isManualOff) {
           dotCls = "w-2 h-2 rounded-full bg-rose-400 shrink-0";
-          badgeCls = "px-1.5 py-0.5 rounded-md bg-rose-500/20 text-rose-300 text-[9.5px] font-bold hidden sm:inline";
+          badgeCls = "px-1.5 py-0.5 rounded-md bg-rose-500/15 border border-rose-500/30 text-rose-300 text-[9.5px] font-bold leading-none hidden sm:inline";
           badgeTxt = "OFF";
         } else if (isManualLembur) {
           dotCls = "w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0";
-          badgeCls = "px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-200 text-[9.5px] font-bold hidden sm:inline";
+          badgeCls = "px-1.5 py-0.5 rounded-md bg-amber-500/15 border border-amber-400/30 text-amber-200 text-[9.5px] font-bold leading-none hidden sm:inline";
           badgeTxt = "LEMBUR";
         } else if (phase === "BREAK") {
           dotCls = "w-2 h-2 rounded-full bg-amber-400 shrink-0";
-          badgeCls = "px-1.5 py-0.5 rounded-md bg-amber-500/20 text-amber-200 text-[9.5px] font-bold hidden sm:inline";
+          badgeCls = "px-1.5 py-0.5 rounded-md bg-amber-500/15 border border-amber-400/30 text-amber-200 text-[9.5px] font-bold leading-none hidden sm:inline";
           badgeTxt = "ISTIRAHAT";
         } else if (phase === "CLOSED") {
           dotCls = "w-2 h-2 rounded-full bg-indigo-400 shrink-0";
-          badgeCls = "px-1.5 py-0.5 rounded-md bg-indigo-500/20 text-indigo-200 text-[9.5px] font-bold hidden sm:inline";
+          badgeCls = "px-1.5 py-0.5 rounded-md bg-indigo-500/15 border border-indigo-400/30 text-indigo-200 text-[9.5px] font-bold leading-none hidden sm:inline";
           badgeTxt = "TUTUP";
         }
 
