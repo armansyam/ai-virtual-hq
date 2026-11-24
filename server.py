@@ -7857,6 +7857,7 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 f"User yang berbicara denganmu adalah {ceo_label} dari {comp_name}.\n"
                 "ATURAN WAJIB & MEMORI OBSIDIAN:\n"
                 "- Patuhi catatan `OBSIDIAN MEMORY` (`[[00-INDEX]]` & `[[DEPT-...]]`) di bawah sebagai Single Source of Truth agar bebas halusinasi.\n"
+                "- HAK AKSES PENUH TOOL MANDIRI: Sebagai anggota tim AI resmi, kamu memiliki hak akses penuh untuk menggunakan seluruh tool yang tersedia di Katalog Tool (Remote MCP, Local STDIO MCP, Folder Lokal terotorisasi, dan Skills SKILL.md) via tag [[TOOL_CALL:...]] / [[LOAD_SKILL:...]] secara mandiri untuk menuntaskan tugasmu.\n"
                 "- Jawab pertanyaan atau instruksi CEO secara 100% langsung, cerdas, spesifik, berbasis data real-time MCP di bawah (jika tersedia), dan sesuai peranmu.\n"
                 "- FASE DISKUSI & KONFIRMASI AKTIF: Jika CEO sedang berdiskusi, melempar ide, atau mengkritik/merevisi, berikan analisis & solusi konkret, lalu WAJIB tutup jawabanmu dengan pertanyaan konfirmasi persetujuan yang jelas (contoh: \"Apakah Bos setuju dengan rencana ini untuk langsung saya kunci ke Memory Obsidian & eksekusi sekarang?\").\n"
                 "- FASE EKSEKUSI OTOMATIS SAAT DISETUJUI: Jika pesan terbaru CEO menyatakan SETUJU / ACC / PERINTAH EKSEKUSI (misal: \"setuju\", \"oke kerjakan\", \"eksekusi\", \"lanjut\", \"gas\", \"simpan\", \"acc\"), langsung kerjakan hasilnya secara tuntas dan WAJIB sertakan tepat 1 blok tag berikut di baris paling akhir jawabanmu:\n"
@@ -9001,7 +9002,10 @@ def _pick_squad_members(dept, task_text, manager_id=None, max_staff=2):
 
 
 def _execute_single_department_project(item, idx=1, total=1):
-    """2-Stage Real Team Execution: (1) Specialist Staff run parallel sub-tasks -> (2) Manager Quality Gate & Final Report."""
+    """3-Phase Real Company Execution:
+    Phase 1: Manager breaks project into distinct non-overlapping sub-tasks for specific specialist staff.
+    Phase 2: Staff execute autonomously IN PARALLEL with FULL tool access (Remote MCP, Local MCP, Folders, Skills) & save individual deliverables.
+    Phase 3: Manager performs Quality Gate verification & executive synthesis (not redoing staff work) -> marks Taskboard DONE."""
     import concurrent.futures
 
     tid = item["id"]
@@ -9018,107 +9022,210 @@ def _execute_single_department_project(item, idx=1, total=1):
     arole = str(item.get("agentRole") or mgr_def["role"]).strip()
     title = str(item.get("title") or "Tugas Hasil Rapat").strip()
     instr = str(item.get("instruction") or item.get("detail") or title).strip()
-
-    squad_staff = _pick_squad_members(dept, f"{title} {instr}", manager_id=aid, max_staff=2)
-    squad_ids = [aid] + [int(s["id"]) for s in squad_staff]
-    squad_names = ", ".join(s["name"] for s in squad_staff)
+    all_dept_staff = [s for s in (dept_info.get("staff") or []) if int(s["id"]) != aid]
 
     comp_prof = load_company_profile()
     comp_name = comp_prof.get("companyName") or "AI Virtual HQ"
+    squad_ids = [aid]
 
-    # Mobilize ENTIRE department squad simultaneously (Manager + Specialist Staff visible WORKING in 3D!)
-    set_agents_busy(squad_ids, True)
-    update_world_state({"liveStepStatus": f"👥 [{dept}] {aname} mengerahkan tim ({squad_names}) mengerjakan: {title[:45]}..."})
+    # PHASE 1: Manager plans & delegates concrete sub-tasks to specialist staff (Manager plans, Staff executes!)
+    set_agents_busy([aid], True)
+    update_world_state({"liveStepStatus": f"📋 [{dept}] {aname} membagi sub-tugas spesifik untuk staf tim {dept}..."})
 
-    if squad_staff:
-        kickoff_ev = generate_data_driven_coordination_event(custom_context={
-            "fromId": aid,
-            "fromName": aname,
-            "fromRole": arole,
-            "toId": squad_staff[0]["id"],
-            "toName": squad_staff[0]["name"],
-            "toRole": squad_staff[0]["role"],
-            "walkMsg": f"📋 {aname} mendelegasikan sub-tugas '{title[:42]}' ke tim {dept} ({squad_names})...",
-            "fromBubble": f"📋 \"{squad_names}, langsung kerjakan bagian masing-masing untuk '{title[:36]}'!\"",
-            "toBubble": f"⚡ \"Siap {aname}! Kami langsung eksekusi paralel sekarang!\"",
-            "artifactFile": "",
-        })
-        bump_world_chat_version(
-            toast_msg=f"👥 [{dept}] {aname} + {squad_names} mulai mengerjakan: {title[:52]}",
-            coord_event=kickoff_ev,
-        )
-
+    assignments = []
+    mid, ep, key = _resolve_agent_model_creds(aid)
     try:
-        # Shared live MCP context fetched once per department (token-efficient & TTL cached!)
-        live_ctx, exec_tools = build_dynamic_mcp_context_with_trace(f"{title} {instr}", room=dept, agent_id=aid)
+        if all_dept_staff:
+            staff_catalog = "\n".join(
+                f"- id={s['id']} | {s['name']} — {s['role']}" for s in all_dept_staff
+            )
+            plan_sys = (
+                f"Kamu adalah {aname} ({arole}) di {comp_name}. "
+                "Tugasmu sebagai MANAJER adalah membagi proyek ini menjadi 2 sampai maksimal 3 sub-tugas SPESIFIK "
+                "dan TIDAK TUMPANG TINDIH untuk staf spesialis di departemenmu. "
+                "Setiap staf memiliki hak akses penuh ke seluruh tool (Remote MCP, Local MCP, Folder Lokal, Skills) untuk mengeksekusi tugasnya sendiri.\n"
+                "BALAS HANYA DENGAN JSON VALID:\n"
+                '{"assignments":[{"staffId":0,"staffName":"Nadia","subTitle":"Judul sub-tugas spesifik","subBrief":"Instruksi kerja konkret & output yang diharapkan dari staf ini"}]}'
+            )
+            plan_prompt = (
+                f"PROYEK DEPARTEMEN {dept}: {title}\n"
+                f"INSTRUKSI RAPAT:\n{instr}\n\n"
+                f"DAFTAR STAF DEPARTEMEN {dept}:\n{staff_catalog}\n\n"
+                "Pilih 2-3 staf paling tepat dan berikan sub-brief yang berbeda & saling melengkapi dalam JSON."
+            )
+            try:
+                plan_raw, _ = run_agent_llm_unified(
+                    mid, ep, key, plan_sys, [], plan_prompt,
+                    live_mcp_ctx="", agent_id=aid, room=dept, agent_name=f"{aname} (Delegasi)"
+                )
+                plan_obj = _extract_json_block(plan_raw)
+                staff_by_id = {int(s["id"]): s for s in all_dept_staff}
+                if isinstance(plan_obj, dict) and isinstance(plan_obj.get("assignments"), list):
+                    seen_sid = set()
+                    for raw_a in plan_obj["assignments"][:3]:
+                        if not isinstance(raw_a, dict):
+                            continue
+                        try:
+                            sid = int(raw_a.get("staffId"))
+                        except Exception:
+                            continue
+                        if sid not in staff_by_id or sid in seen_sid:
+                            continue
+                        seen_sid.add(sid)
+                        st_meta = staff_by_id[sid]
+                        assignments.append({
+                            "id": sid,
+                            "name": st_meta["name"],
+                            "role": st_meta["role"],
+                            "subTitle": str(raw_a.get("subTitle") or title)[:100],
+                            "subBrief": str(raw_a.get("subBrief") or instr).strip(),
+                        })
+            except Exception:
+                assignments = []
 
-        # STAGE 1: Parallel Specialist Staff Execution!
+        if not assignments and all_dept_staff:
+            picked = _pick_squad_members(dept, f"{title} {instr}", manager_id=aid, max_staff=min(3, len(all_dept_staff)))
+            for st_meta in picked:
+                assignments.append({
+                    "id": int(st_meta["id"]),
+                    "name": st_meta["name"],
+                    "role": st_meta["role"],
+                    "subTitle": f"{title[:60]} — Bagian {st_meta['name']}",
+                    "subBrief": f"Eksekusi bagian spesifik sesuai spesialisasimu ({st_meta['role']}) untuk proyek: {instr}",
+                })
+
+        squad_ids = [aid] + [int(a["id"]) for a in assignments]
+        squad_names = ", ".join(a["name"] for a in assignments)
+
+        # Activate ALL assigned staff simultaneously in 3D HQ!
+        set_agents_busy(squad_ids, True)
+        update_world_state({"liveStepStatus": f"⚡ [{dept}] Tim eksekusi mandiri aktif: {squad_names} ({title[:40]})..."})
+
+        if assignments:
+            kickoff_ev = generate_data_driven_coordination_event(custom_context={
+                "fromId": aid,
+                "fromName": aname,
+                "fromRole": arole,
+                "toId": assignments[0]["id"],
+                "toName": assignments[0]["name"],
+                "toRole": assignments[0]["role"],
+                "walkMsg": f"📋 {aname} membagikan {len(assignments)} sub-tugas ke staf {dept} ({squad_names}) untuk dieksekusi mandiri...",
+                "fromBubble": f"📋 \"{squad_names}, sub-tugas sudah dibagi! Pakai tool MCP/folder/skill masing-masing ya!\"",
+                "toBubble": f"⚡ \"Siap {aname}! Kami langsung eksekusi mandiri paralel sekarang!\"",
+                "artifactFile": "",
+            })
+            bump_world_chat_version(
+                toast_msg=f"👥 [{dept}] {aname} mendelegasikan ke {len(assignments)} staf ({squad_names}) — eksekusi paralel dimulai!",
+                coord_event=kickoff_ev,
+            )
+
+        # PHASE 2: Autonomous Parallel Staff Execution WITH FULL TOOL ACCESS!
         staff_outputs = []
 
-        def _run_specialist(st_obj, slot_idx):
-            sid = int(st_obj["id"])
-            sname = st_obj["name"]
-            srole = st_obj["role"]
+        def _run_autonomous_staff(asg):
+            sid = int(asg["id"])
+            sname = asg["name"]
+            srole = asg["role"]
+            sub_title = asg["subTitle"]
+            sub_brief = asg["subBrief"]
             try:
                 s_mid, s_ep, s_key = _resolve_agent_model_creds(sid)
+                st_live_ctx, st_exec_tools = build_dynamic_mcp_context_with_trace(f"{sub_title} {sub_brief}", room=dept, agent_id=sid)
                 s_sys = (
                     f"Kamu adalah {sname}, menjabat sebagai {srole} (Departemen {dept}) di {comp_name}.\n"
                     f"{build_company_context_block(comp_prof)}\n\n"
-                    "TUGAS SPESIALIS SQUAD (SUB-DELIVERABLE PADAT & NYATA):\n"
-                    "- Fokus kerjakan bagian spesifik sesuai keahlianmu untuk membantu Manajer departemenmu.\n"
-                    "- Tulis temuan/draf konkret dan langsung pakai (maksimal ~350 kata, padat, bebas halusinasi, berbasis data live di bawah)."
+                    "EKSEKUSI MANDIRI STAF SPESIALIS (HAK AKSES PENUH TOOL):\n"
+                    "1. Kamu adalah eksekutor utama sub-tugas ini — kerjakan secara tuntas, konkret, dan siap pakai.\n"
+                    "2. KAMU PUNYA HAK AKSES PENUH ke seluruh tool di Katalog Tool (Remote MCP, Local STDIO MCP, Folder Lokal terotorisasi, dan Skills SKILL.md) via [[TOOL_CALL:...]] / [[LOAD_SKILL:...]]. Gunakan tool jika butuh data/file nyata agar 100% bebas halusinasi!\n"
+                    "3. Patuhi koridor keamanan: dilarang mengubah server produksi live atau publish publik tanpa ACC CEO.\n"
+                    "4. Tulis hasil kerjamu secara rapi dan padat dalam Markdown (siap di-review Quality Gate oleh Manajer)."
                 )
                 s_prompt = (
-                    f"PROYEK DEPARTEMEN {dept}: {title}\n"
-                    f"ARAHAN MANAJER ({aname}):\n{instr}\n\n"
-                    f"Kerjakan kontribusi spesialismu sebagai {srole} sekarang."
+                    f"SUB-TUGAS DARI MANAJER ({aname} · Dept {dept}): {sub_title}\n"
+                    f"PROYEK INDUK: {title}\n"
+                    f"BRIEF SPESIFIK UNTUKMU ({sname} — {srole}):\n{sub_brief}\n\n"
+                    "Eksekusi tugasmu secara mandiri sekarang (gunakan tool bila diperlukan) dan serahkan hasil lengkapnya."
                 )
-                s_out, s_eng = run_agent_llm_unified(
+                s_out, s_eng = run_agent_with_tool_loop(
                     s_mid, s_ep, s_key, s_sys, [], s_prompt,
-                    live_mcp_ctx=live_ctx, agent_id=sid, room=dept, agent_name=sname
+                    live_mcp_ctx=st_live_ctx, executed_tools=st_exec_tools,
+                    room=dept, max_steps=2, agent_id=sid, agent_name=sname
                 )
+                ts_s = time.strftime("%Y%m%d-%H%M%S")
+                now_s = time.strftime("%Y-%m-%d %H:%M:%S WITA")
+                sname_slug = re.sub(r"[^a-z0-9]+", "-", sname.lower()).strip("-") or f"staf{sid}"
+                sub_slug = re.sub(r"[^a-z0-9]+", "-", sub_title.lower()).strip("-")[:28] or "subtask"
+                os.makedirs(REPORTS_DIR, exist_ok=True)
+                st_rel_file = f"reports/{ts_s}-staf-{sname_slug}-{sub_slug}.md"
+                st_abs_file = os.path.join(BASE_DIR, st_rel_file)
+                tools_used_str = ", ".join(sorted(set(str(x.get("tool") or "") for x in st_exec_tools if isinstance(x, dict) and x.get("tool")))) or "Direct Analysis"
+                with open(st_abs_file, "w", encoding="utf-8") as sf:
+                    sf.write(
+                        f"# Hasil Kerja Staf — {sub_title}\n"
+                        f"- **Eksekutor:** {sname} ({srole})\n"
+                        f"- **Departemen:** `{dept}` · **Manajer QA:** {aname}\n"
+                        f"- **Tools Digunakan:** `{tools_used_str}`\n"
+                        f"- **Waktu Selesai:** {now_s} · **Engine:** `{s_eng}`\n\n---\n\n"
+                        + str(s_out or "").strip() + "\n"
+                    )
                 update_agent_deliverable(
                     sid,
-                    f"Menyerahkan kontribusi '{title[:55]}' ke {aname}",
-                    f"[KONTRIBUSI SPESIALIS — {sname} ({srole})]\n{str(s_out or '')[:700]}",
-                    "",
+                    f"Selesai mengeksekusi '{sub_title[:52]}' (Menunggu QA {aname})",
+                    f"[HASIL KERJA MANDIRI — {sname} ({srole})]\n• Tools: {tools_used_str}\n• File: {st_rel_file}\n\n{str(s_out or '')[:650]}",
+                    st_rel_file,
                 )
-                return {"name": sname, "role": srole, "id": sid, "engine": s_eng, "output": str(s_out or "").strip()}
+                return {
+                    "id": sid, "name": sname, "role": srole, "subTitle": sub_title,
+                    "file": st_rel_file, "tools": tools_used_str, "engine": s_eng,
+                    "output": str(s_out or "").strip(), "ok": True,
+                }
             except Exception as se:
-                return {"name": sname, "role": srole, "id": sid, "engine": "fallback", "output": f"(Catatan kendala {sname}: {str(se)[:120]})"}
+                return {
+                    "id": sid, "name": sname, "role": srole, "subTitle": sub_title,
+                    "file": "", "tools": "", "engine": "error",
+                    "output": f"(Kendala eksekusi {sname}: {str(se)[:140]})", "ok": False,
+                }
+            finally:
+                # Release each staff member immediately once their own sub-task is done!
+                set_agents_busy([sid], False)
 
-        if squad_staff:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=len(squad_staff)) as st_pool:
-                futs = [st_pool.submit(_run_specialist, st, i) for i, st in enumerate(squad_staff)]
+        if assignments:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(assignments)) as st_pool:
+                futs = [st_pool.submit(_run_autonomous_staff, asg) for asg in assignments]
                 for f in concurrent.futures.as_completed(futs):
                     staff_outputs.append(f.result())
 
-        # STAGE 2: Department Manager Quality Gate & Final Consolidation!
-        update_world_state({"liveStepStatus": f"🔍 [{dept}] {aname} melakukan Quality Gate & finalisasi hasil {squad_names}..."})
-        mid, ep, key = _resolve_agent_model_creds(aid)
+        # PHASE 3: Manager Quality Gate & Final Sign-Off (Reviews & integrates staff files — doesn't redo from scratch!)
+        set_agents_busy([aid], True)
+        update_world_state({"liveStepStatus": f"🔍 [{dept}] {aname} melakukan Quality Gate atas hasil kerja {squad_names}..."})
+
         squad_block = "\n\n".join(
-            f"### Kontribusi {so['name']} ({so['role']}):\n{so['output'][:1600]}"
+            f"### Deliverable {so['name']} ({so['role']}) — {so['subTitle']}\n"
+            f"- File: `{so['file']}` | Tools: `{so['tools']}`\n"
+            f"{so['output'][:2200]}"
             for so in staff_outputs if so.get("output")
         )
+        mgr_live_ctx, mgr_tools = build_dynamic_mcp_context_with_trace(title, room=dept, agent_id=aid)
         mgr_sys = (
             f"Kamu adalah {aname}, menjabat sebagai {arole} (Departemen {dept}) di {comp_name}.\n"
             f"{build_company_context_block(comp_prof)}\n\n"
-            "TUGAS QUALITY GATE & FINALISASI MANAJER DEPARTEMEN:\n"
-            "1. Review, verifikasi, dan gabungkan kontribusi nyata dari staf squad-mu di bawah ini menjadi 1 dokumen hasil akhir yang tuntas, rapi, dan siap dipakai CEO.\n"
-            "2. Jika butuh data live tambahan dari MCP/folder, panggil [[TOOL_CALL:...]] secukupnya.\n"
-            "3. Sertakan bagian singkat 'Status Quality Gate & Kontribusi Tim' di dokumen akhir. Jangan bertanya balik."
+            "PERAN QUALITY GATE & PENGAWASAN MANAJER (BUKAN MENGERJAKAN ULANG):\n"
+            "1. Staf spesialismu sudah mengeksekusi tugasnya secara mandiri dengan tool. Tugasmu sekarang adalah:\n"
+            "   (a) Memverifikasi apakah semua deliverable staf sudah akurat, lengkap, dan bebas halusinasi;\n"
+            "   (b) Mencatat koreksi/penyelarasan bila ada celah antar-staf;\n"
+            "   (c) Menyusun Ringkasan Eksekutif & Daftar File Hasil Kerja Tim yang siap dilaporkan ke GM Raka & CEO.\n"
+            "2. Sertakan bagian jelas: **Status Quality Gate (PASS/REVISI)**, **Daftar Deliverable Staf (nama + file)**, dan **Ringkasan Eksekutif Siap Pakai**."
         )
         mgr_prompt = (
-            f"JUDUL TUGAS: {title}\n"
-            f"DEPARTEMEN: {dept}\n"
-            f"INSTRUKSI RAPAT:\n{instr}\n\n"
-            + (f"HASIL KERJA TIM STAF SQUAD ({squad_names}):\n{squad_block}\n\n" if squad_block else "")
-            + "Lakukan Quality Gate dan susun laporan final lengkapnya dalam Markdown sekarang."
+            f"PROYEK DEPARTEMEN {dept}: {title}\n"
+            f"TARGET RAPAT:\n{instr}\n\n"
+            + (f"HASIL EKSEKUSI MANDIRI STAF ({squad_names}):\n{squad_block}\n\n" if squad_block else "")
+            + "Lakukan Quality Gate dan susun laporan final konsolidasi departemen sekarang."
         )
         deliv_md, used_engine = run_agent_with_tool_loop(
             mid, ep, key, mgr_sys, [], mgr_prompt,
-            live_mcp_ctx=live_ctx, executed_tools=exec_tools,
-            room=dept, max_steps=2, agent_id=aid, agent_name=aname
+            live_mcp_ctx=mgr_live_ctx, executed_tools=mgr_tools,
+            room=dept, max_steps=2, agent_id=aid, agent_name=f"{aname} (QA)"
         )
 
         now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
@@ -9127,22 +9234,27 @@ def _execute_single_department_project(item, idx=1, total=1):
         os.makedirs(REPORTS_DIR, exist_ok=True)
         rel_file = f"reports/{ts_file}-rapat-{slug}.md"
         abs_file = os.path.join(BASE_DIR, rel_file)
-        team_credit = f"{aname} + Tim ({squad_names})" if squad_names else aname
+        team_credit = f"{aname} (QA) + Eksekutor: {squad_names}" if squad_names else aname
+        staff_links_md = "\n".join(
+            f"- **{so['name']}** ({so['role']}): `{so['file']}` *(Tools: {so['tools']})*"
+            for so in staff_outputs if so.get("file")
+        )
         header = (
-            f"# Hasil Eksekusi Tim {dept} — {title}\n"
-            f"- **Penanggung Jawab & Tim:** {team_credit}\n"
+            f"# Laporan Quality Gate & Konsolidasi Tim {dept} — {title}\n"
+            f"- **Manajer QA & Tim Eksekutor:** {team_credit}\n"
             f"- **Departemen:** `{dept}`\n"
             f"- **Waktu Selesai:** {now_str}\n"
-            f"- **Engine AI (Quality Gate):** `{used_engine}`\n\n---\n\n"
+            f"- **Engine QA:** `{used_engine}`\n"
+            + (f"\n### 📁 Berkas Kerja Mandiri Staf:\n{staff_links_md}\n" if staff_links_md else "")
+            + "\n---\n\n"
         )
         with open(abs_file, "w", encoding="utf-8") as rf:
             rf.write(header + str(deliv_md or "").strip() + "\n")
 
-        # Update Obsidian Memory Vault WITHOUT duplicating taskboard row!
         record_decision_to_obsidian_vault(
             room=dept,
             title=title,
-            decision_summary=f"Selesai dikerjakan kolaboratif oleh {team_credit} ({rel_file})",
+            decision_summary=f"Selesai dieksekusi mandiri oleh staf ({squad_names}) & lulus Quality Gate {aname} ({rel_file})",
             agent_name=team_credit,
             agent_role=arole,
             deliverable_md=str(deliv_md or ""),
@@ -9154,17 +9266,10 @@ def _execute_single_department_project(item, idx=1, total=1):
         )
         update_agent_deliverable(
             aid,
-            f"Selesai (Quality Gate + {squad_names}): {title}",
-            f"[HASIL KERJA TIM {dept} — {team_credit}]\n{str(deliv_md or '')[:650]}",
+            f"Quality Gate PASS ({squad_names}): {title}",
+            f"[QUALITY GATE MANAJER — {team_credit}]\n{str(deliv_md or '')[:650]}",
             rel_file,
         )
-        for st_obj in squad_staff:
-            update_agent_deliverable(
-                int(st_obj["id"]),
-                f"Selesai berkontribusi bersama {aname}: {title}",
-                f"[KONTRIBUSI TIM {dept}] Selesai & digabungkan oleh {aname} ke {rel_file}",
-                rel_file,
-            )
 
         with TASKBOARD_LOCK:
             tb = load_taskboard()
@@ -9173,7 +9278,7 @@ def _execute_single_department_project(item, idx=1, total=1):
                 if t.get("id") == tid:
                     t["status"] = "DONE"
                     t["agentName"] = team_credit
-                    t["detail"] = f"Selesai dikerjakan oleh {team_credit} ({used_engine}) pada {now_str}. File: {rel_file}"
+                    t["detail"] = f"Dieksekusi mandiri oleh {squad_names} & lulus QA {aname} pada {now_str}. File: {rel_file}"
                     t["artifactFile"] = rel_file
                     t["updatedAt"] = now_str
                     found = True
@@ -9182,7 +9287,7 @@ def _execute_single_department_project(item, idx=1, total=1):
                 tb.insert(0, {
                     "id": tid, "title": title, "dept": dept, "agentId": aid, "agentName": team_credit,
                     "taskType": "meeting_action_item", "priority": "HIGH", "status": "DONE",
-                    "detail": f"Selesai dikerjakan oleh {team_credit} pada {now_str}. File: {rel_file}",
+                    "detail": f"Dieksekusi mandiri oleh {squad_names} & lulus QA {aname} pada {now_str}. File: {rel_file}",
                     "artifactFile": rel_file, "updatedAt": now_str,
                 })
             save_taskboard(tb)
@@ -9193,14 +9298,14 @@ def _execute_single_department_project(item, idx=1, total=1):
             "fromRole": arole,
             "toId": 10 if aid != 10 else 8,
             "toName": "👑 Raka" if aid != 10 else "⭐ Putri",
-            "toRole": "Laporan Selesai Tim Departemen",
-            "walkMsg": f"✅ Tim {dept} ({team_credit}) menuntaskan '{title[:44]}' → {rel_file}",
-            "fromBubble": f"✅ \"Tim {dept} ({squad_names}) sudah tuntas & lolos Quality Gate: {rel_file}!\"",
-            "toBubble": f"👏 \"Keren {aname} & tim! Papan Tugas & Memory Obsidian sudah DONE!\"",
+            "toRole": "Laporan Quality Gate Selesai",
+            "walkMsg": f"✅ {aname} mengesahkan hasil kerja mandiri {squad_names} untuk '{title[:40]}' → {rel_file}",
+            "fromBubble": f"✅ \"Quality Gate PASS! Staf ({squad_names}) sudah tuntas & hasilnya terkonsolidasi di {rel_file}!\"",
+            "toBubble": f"👏 \"Mantap {aname} & tim! Seluruh hasil staf + QA sudah masuk Papan Tugas & Obsidian!\"",
             "artifactFile": rel_file,
         })
         bump_world_chat_version(
-            toast_msg=f"✅ Tim {dept} ({team_credit}) selesai: {title[:50]}",
+            toast_msg=f"✅ [{dept}] QA PASS! {squad_names} & {aname} menuntaskan: {title[:48]}",
             coord_event=coord,
         )
     except Exception as err:
