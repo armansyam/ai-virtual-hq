@@ -1144,7 +1144,7 @@ TOKEN_SAVER_CONFIG_FILE = os.path.join(CONFIG_DIR, "token_saver.json")
 TOKEN_SAVER_STATS_FILE = os.path.join(CONFIG_DIR, "token_saver_stats.json")
 USAGE_EVENTS_FILE = os.path.join(CONFIG_DIR, "usage_events.json")
 CLI_SESSIONS_FILE = os.path.join(CONFIG_DIR, "cli_sessions.json")
-TOKEN_SAVER_LOCK = threading.Lock()
+TOKEN_SAVER_LOCK = threading.RLock()
 _AGY_CLI_SESSIONS = {}     # key -> {"id": conv_id, "model": cli_model, "ts": float, "turns": int}
 _CLAUDE_CLI_SESSIONS = {}  # key -> {"id": sess_id, "model": alias, "ts": float, "turns": int}
 _REMOTE_MCP_TTL_CACHE = {}  # cache_key -> {"ts": float, "res": dict}
@@ -5623,7 +5623,7 @@ def load_taskboard():
     return seeded
 
 
-TASKBOARD_LOCK = threading.Lock()
+TASKBOARD_LOCK = threading.RLock()
 
 
 def save_taskboard(tasks):
@@ -8459,7 +8459,7 @@ def _run_background_model_and_vps_heartbeat():
 # AUTONOMOUS GENERAL MANAGER (KEPALA KANTOR MANDIRI / AUTOPILOT LOOP)
 # ==============================================================================
 AUTOPILOT_CONFIG_FILE = os.path.join(CONFIG_DIR, "autopilot_config.json")
-AUTOPILOT_LOCK = threading.Lock()
+AUTOPILOT_LOCK = threading.RLock()
 
 
 def _default_autopilot_config():
