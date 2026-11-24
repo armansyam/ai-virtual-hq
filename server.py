@@ -8511,14 +8511,17 @@ AUTOPILOT_LOCK = threading.RLock()
 def _default_autopilot_config():
     return {
         "enabled": False,
+        "autonomousDepts": True,
+        "maxConcurrentDepts": 2,
+        "deptCooldownMinutes": 15,
         "intervalMinutes": 30,
-        "maxDailyRuns": 8,
+        "maxDailyRuns": 20,
         "maxTasksPerCycle": 1,
         "autoExecutePending": True,
         "gmAgentId": 10,
         "gmAgentName": "👑 Raka",
         "gmAgentRole": "General Manager / COO",
-        "focusAreas": "Pantau kesehatan operasional & bisnis, selesaikan tugas PENDING internal, dan siapkan draf kerja rutin harian. Jangan mengeksekusi aksi eksternal/berisiko tanpa ACC CEO.",
+        "focusAreas": "Pantau kesehatan operasional & bisnis, selesaikan tugas PENDING internal, dan siapkan draf kerja rutin harian. Dept Themes boleh mendorong tema baru ke List Draft server; aksi produksi live di luar Draft wajib ACC CEO.",
         "lastRunAt": 0,
         "nextRunAt": 0,
         "runsToday": 0,
@@ -8595,6 +8598,18 @@ def update_autopilot_config(patch):
                 pass
         if "autoExecutePending" in patch:
             cfg["autoExecutePending"] = bool(patch.get("autoExecutePending"))
+        if "autonomousDepts" in patch:
+            cfg["autonomousDepts"] = bool(patch.get("autonomousDepts"))
+        if "maxConcurrentDepts" in patch:
+            try:
+                cfg["maxConcurrentDepts"] = max(1, min(3, int(patch.get("maxConcurrentDepts"))))
+            except Exception:
+                pass
+        if "deptCooldownMinutes" in patch:
+            try:
+                cfg["deptCooldownMinutes"] = max(5, min(180, int(patch.get("deptCooldownMinutes"))))
+            except Exception:
+                pass
         if "gmAgentId" in patch:
             try:
                 cfg["gmAgentId"] = int(patch.get("gmAgentId"))
@@ -9694,16 +9709,129 @@ def finish_meeting_and_execute_tasks(body):
     }
 
 
+_AUTO_DEPT_STATE_LOCK = threading.Lock()
+_AUTO_DEPT_LAST_RUN = {}    # dept -> unix timestamp
+_AUTO_DEPT_RUNNING = set()  # currently planning/executing dept keys
+_AUTO_DEPT_ROTATION = ["SOCIAL", "THEMES", "GROWTH", "ENGINEERING", "FINANCE", "ADMIN"]
+
+
+def run_autonomous_department_self_plan(dept_key):
+    """True Autonomous Department Loop: Department Head reads own Obsidian roadmap, creates 1 non-duplicate next task on Taskboard, and runs 3-Phase Staff Squad execution."""
+    dept = str(dept_key or "").strip().upper()
+    if dept not in DEPT_SQUADS:
+        return
+    with _AUTO_DEPT_STATE_LOCK:
+        if dept in _AUTO_DEPT_RUNNING:
+            return
+        _AUTO_DEPT_RUNNING.add(dept)
+
+    mgr = DEPT_SQUADS[dept]["manager"]
+    aid = int(mgr["id"])
+    aname = mgr["name"]
+    arole = mgr["role"]
+    try:
+        if check_daily_token_budget().get("exceeded"):
+            return
+        world_now = load_world_state()
+        if world_now.get("officeOff"):
+            return
+
+        comp_prof = load_company_profile()
+        comp_name = comp_prof.get("companyName") or "AI Virtual HQ"
+        obs_ctx, _ = build_obsidian_memory_context(room=dept, is_townhall=False)
+        tb = load_taskboard()
+        recent_done = [
+            t.get("title") for t in tb
+            if str(t.get("dept") or "").upper() == dept and str(t.get("status") or "").upper() == "DONE"
+        ][:7]
+        active_dept_tasks = [
+            t for t in tb
+            if str(t.get("dept") or "").upper() == dept and str(t.get("status") or "").upper() in ("TODO", "IN_PROGRESS")
+        ]
+        if active_dept_tasks:
+            # Don't invent a duplicate task if this department already has an unfinished one
+            return
+
+        set_agents_busy([aid], True)
+        update_world_state({"liveStepStatus": f"🧠 [{dept}] {aname} menyusun rencana & task mandiri berikutnya..."})
+        mid, ep, key = _resolve_agent_model_creds(aid)
+
+        sys_prompt = (
+            f"Kamu adalah {aname} ({arole}) di {comp_name} (Mode Otonom Mandiri Departemen {dept}).\n"
+            f"{build_company_context_block(comp_prof)}\n\n"
+            "PERAN OTONOM MANDIRI:\n"
+            "1. Tanpa menunggu perintah CEO, baca roadmap & catatan Memory Obsidian departemenmu di bawah.\n"
+            "2. Rancang TEPAT 1 tugas operasional lanjutan yang BARU, konkret, berdampak langsung ke bisnis/produk, dan TIDAK mengulang tugas yang sudah DONE.\n"
+            "3. Untuk Dept THEMES: boleh merancang & mendorong tema baru ke List Draft server via `luxvite_create_draft_theme`.\n"
+            "4. Untuk tugas berisiko produksi live di luar Draft atau pengeluaran dana, jangan dipilih (pilih kerja internal aman).\n"
+            "BALAS HANYA DENGAN JSON VALID:\n"
+            '{"status":"CREATE_TASK"|"IDLE","title":"Judul task baru yang spesifik & belum pernah dikerjakan","instruction":"Instruksi kerja konkret untuk tim staf departemenmu","priority":"HIGH"|"MEDIUM"}'
+        )
+        user_prompt = (
+            f"DEPARTEMEN: {dept}\n"
+            f"TUGAS YANG SUDAH SELESAI (JANGAN DIULANG):\n"
+            + ("\n".join(f"- {x}" for x in recent_done) if recent_done else "- Belum ada.")
+            + f"\n\nMEMORI & ROADMAP DEPARTEMEN:\n{obs_ctx[:2600]}\n\n"
+            "Tentukan 1 task lanjutan paling berdampak untuk langsung dieksekusi oleh staf departemenmu sekarang."
+        )
+        raw_plan, _ = run_agent_llm_unified(
+            mid, ep, key, sys_prompt, [], user_prompt,
+            live_mcp_ctx="", agent_id=aid, room=dept, agent_name=f"{aname} (Auto-Plan)"
+        )
+        plan = _extract_json_block(raw_plan)
+        if not isinstance(plan, dict) or str(plan.get("status") or "").upper() == "IDLE" or not str(plan.get("title") or "").strip():
+            return
+
+        new_title = str(plan.get("title")).strip()[:110]
+        new_instr = str(plan.get("instruction") or new_title).strip()
+        prio = str(plan.get("priority") or "HIGH").strip().upper()
+        if prio not in ("HIGH", "MEDIUM", "LOW"):
+            prio = "HIGH"
+        now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
+        tid = f"task_auto_{dept.lower()}_{int(time.time() * 1000)}"
+        task_obj = {
+            "id": tid,
+            "title": new_title,
+            "dept": dept,
+            "agentId": aid,
+            "agentName": aname,
+            "agentRole": arole,
+            "taskType": "meeting_action_item",
+            "priority": prio,
+            "status": "IN_PROGRESS",
+            "detail": f"[Otonom Dept {dept}] {aname} merencanakan & memulai eksekusi bersama tim staf pada {now_str}.",
+            "instruction": new_instr,
+            "artifactFile": "",
+            "updatedAt": now_str,
+        }
+        with TASKBOARD_LOCK:
+            tb_now = load_taskboard()
+            tb_now.insert(0, task_obj)
+            save_taskboard(tb_now[:45])
+
+        bump_world_chat_version(toast_msg=f"🧠 [{dept}] {aname} otomatis membuat task baru & menggerakkan staf: {new_title[:60]}")
+        # Immediately run the full 3-Phase Manager -> Autonomous Tool-Enabled Staff -> Manager QA workflow!
+        _execute_single_department_project(task_obj, 1, 1)
+    except Exception:
+        pass
+    finally:
+        set_agents_busy([aid], False)
+        with _AUTO_DEPT_STATE_LOCK:
+            _AUTO_DEPT_LAST_RUN[dept] = time.time()
+            _AUTO_DEPT_RUNNING.discard(dept)
+
+
 def _run_gm_autopilot_background_loop():
     def _loop():
-        time.sleep(10)
+        time.sleep(6)
+        rot_idx = 0
         while True:
             try:
                 cfg = load_autopilot_config()
-                if cfg.get("enabled") and not cfg.get("isRunning"):
+                if cfg.get("enabled"):
                     world = load_world_state()
-                    if not world.get("officeOff"):
-                        # 1. Auto-resume any idle TODO / IN_PROGRESS tasks immediately without waiting for the 15-min patrol timer!
+                    if not world.get("officeOff") and not check_daily_token_budget().get("exceeded"):
+                        # 1. Auto-resume any idle TODO / IN_PROGRESS tasks immediately (CEO tasks get top priority!)
                         if cfg.get("autoExecutePending", True):
                             tb_chk = load_taskboard()
                             has_runnable = False
@@ -9715,13 +9843,41 @@ def _run_gm_autopilot_background_loop():
                                         break
                             if has_runnable:
                                 resume_in_progress_tasks()
-                        # 2. Scheduled GM Autopilot cycle (proactively creates & delegates new initiatives)
-                        now_ts = time.time()
-                        next_ts = float(cfg.get("nextRunAt") or 0)
-                        if next_ts == 0:
-                            update_autopilot_config({"enabled": True})
-                        elif now_ts >= next_ts and int(cfg.get("runsToday") or 0) < int(cfg.get("maxDailyRuns") or 8):
-                            run_gm_autopilot_cycle(manual=False)
+
+                        # 2. Autonomous Self-Planning Departments: each dept automatically creates & runs its own next task!
+                        if cfg.get("autonomousDepts", True) and not world.get("inTownHallMeeting"):
+                            max_conc = max(1, min(3, int(cfg.get("maxConcurrentDepts") or 2)))
+                            cooldown_sec = max(5, int(cfg.get("deptCooldownMinutes") or 15)) * 60
+                            now_ts = time.time()
+                            with _AUTO_DEPT_STATE_LOCK:
+                                active_cnt = len(_AUTO_DEPT_RUNNING)
+                            if active_cnt < max_conc:
+                                picked_dept = None
+                                for offset in range(len(_AUTO_DEPT_ROTATION)):
+                                    cand = _AUTO_DEPT_ROTATION[(rot_idx + offset) % len(_AUTO_DEPT_ROTATION)]
+                                    with _AUTO_DEPT_STATE_LOCK:
+                                        is_busy = cand in _AUTO_DEPT_RUNNING
+                                        last_ts = float(_AUTO_DEPT_LAST_RUN.get(cand) or 0)
+                                    d_lock = _DEPT_EXEC_LOCKS.get(cand)
+                                    if not is_busy and (not d_lock or not d_lock.locked()) and (now_ts - last_ts) >= cooldown_sec:
+                                        picked_dept = cand
+                                        rot_idx = (rot_idx + offset + 1) % len(_AUTO_DEPT_ROTATION)
+                                        break
+                                if picked_dept:
+                                    threading.Thread(
+                                        target=run_autonomous_department_self_plan,
+                                        args=(picked_dept,),
+                                        daemon=True,
+                                    ).start()
+
+                        # 3. Scheduled GM Raka Executive Patrol (cross-department coordination & CEO proposals)
+                        if not cfg.get("isRunning"):
+                            now_ts = time.time()
+                            next_ts = float(cfg.get("nextRunAt") or 0)
+                            if next_ts == 0:
+                                update_autopilot_config({"enabled": True})
+                            elif now_ts >= next_ts and int(cfg.get("runsToday") or 0) < int(cfg.get("maxDailyRuns") or 20):
+                                threading.Thread(target=run_gm_autopilot_cycle, kwargs={"manual": False}, daemon=True).start()
             except Exception:
                 pass
             time.sleep(15)

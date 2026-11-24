@@ -2467,6 +2467,40 @@
           </div>
         </div>
 
+        <!-- Autonomous Self-Planning Departments Card -->
+        <div class="p-3.5 rounded-xl bg-emerald-500/[0.06] border border-emerald-500/25 space-y-2.5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+              <input id="ap-auto-depts" type="checkbox" checked onchange="saveAutopilotSettings()" class="w-4 h-4 accent-emerald-500 cursor-pointer" />
+              <span class="font-bold text-xs text-emerald-200">🧠 Otonomi Mandiri 6 Departemen (Auto-Plan &amp; Buat Task Sendiri)</span>
+            </label>
+            <span class="text-[10px] text-emerald-300/80 font-mono">CEO cukup memantau</span>
+          </div>
+          <p class="text-[10.5px] text-slate-300">
+            Begitu aplikasi berjalan (Autopilot ON), tiap Kepala Departemen otomatis membaca roadmap Memory Obsidian, membuat task baru tanpa menunggu perintah CEO, mengerahkan 3 staf spesialisnya secara paralel, lalu melakukan Quality Gate.
+          </p>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+            <div>
+              <label class="block text-[10.5px] text-slate-400 mb-1">Dept Aktif Paralel Bersamaan</label>
+              <select id="ap-max-conc-depts" onchange="saveAutopilotSettings()" class="w-full px-2.5 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-xs cursor-pointer">
+                <option value="1">1 Departemen (Hemat Token · ~4 orang kerja)</option>
+                <option value="2" selected>2 Departemen (Ideal · ~6–8 orang kerja)</option>
+                <option value="3">3 Departemen (Agresif · ~9–12 orang kerja)</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[10.5px] text-slate-400 mb-1">Jeda Antar-Proyek per Departemen</label>
+              <select id="ap-dept-cooldown" onchange="saveAutopilotSettings()" class="w-full px-2.5 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white text-xs cursor-pointer">
+                <option value="5">5 menit (Sangat Aktif)</option>
+                <option value="10">10 menit (Aktif)</option>
+                <option value="15" selected>15 menit (Rekomendasi)</option>
+                <option value="30">30 menit (Hemat)</option>
+                <option value="60">60 menit (Santai)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
         <!-- Settings Grid -->
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
@@ -11307,6 +11341,12 @@
       if (gmSel && cfg.gmAgentId !== undefined) gmSel.value = String(cfg.gmAgentId);
       if (intEl && cfg.intervalMinutes) intEl.value = String(cfg.intervalMinutes);
       if (maxEl && cfg.maxDailyRuns) maxEl.value = String(cfg.maxDailyRuns);
+      const autoDeptsEl = document.getElementById("ap-auto-depts");
+      const maxConcEl = document.getElementById("ap-max-conc-depts");
+      const coolEl = document.getElementById("ap-dept-cooldown");
+      if (autoDeptsEl) autoDeptsEl.checked = cfg.autonomousDepts !== false;
+      if (maxConcEl && cfg.maxConcurrentDepts) maxConcEl.value = String(cfg.maxConcurrentDepts);
+      if (coolEl && cfg.deptCooldownMinutes) coolEl.value = String(cfg.deptCooldownMinutes);
       if (focusEl && document.activeElement !== focusEl) focusEl.value = cfg.focusAreas || "";
       if (runBtn) {
         runBtn.disabled = Boolean(cfg.isRunning);
@@ -11384,13 +11424,19 @@
       const focusEl = document.getElementById("ap-focus-areas");
       const gmId = gmSel ? Number(gmSel.value) : 10;
       const gmObj = agents.find(a => a.id === gmId);
+      const autoDeptsEl = document.getElementById("ap-auto-depts");
+      const maxConcEl = document.getElementById("ap-max-conc-depts");
+      const coolEl = document.getElementById("ap-dept-cooldown");
       const payload = {
         enabled: enEl ? Boolean(enEl.checked) : false,
+        autonomousDepts: autoDeptsEl ? Boolean(autoDeptsEl.checked) : true,
+        maxConcurrentDepts: maxConcEl ? Number(maxConcEl.value) : 2,
+        deptCooldownMinutes: coolEl ? Number(coolEl.value) : 15,
         gmAgentId: gmId,
         gmAgentName: gmObj ? gmObj.name : "👑 Raka",
         gmAgentRole: gmObj ? gmObj.role : "General Manager / COO",
         intervalMinutes: intEl ? Number(intEl.value) : 30,
-        maxDailyRuns: maxEl ? Number(maxEl.value) : 8,
+        maxDailyRuns: maxEl ? Number(maxEl.value) : 20,
         focusAreas: focusEl ? focusEl.value.trim() : "",
       };
       try {
