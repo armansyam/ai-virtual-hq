@@ -3183,7 +3183,7 @@
       },
       {
         id: 6, room: "GROWTH", name: "Tara", shortPill: "Tara · Staf Funnel",
-        role: "Staf Optimasi Konversi, Trial 14 Hari & PromoHold", deskLabel: "Ruang 3 (Growth & B2B) · Meja G2",
+        role: "Staf Optimasi Konversi, Draf Gratis & PromoHold", deskLabel: "Ruang 3 (Growth & B2B) · Meja G2",
         model: "Gemini 4 Argon (High)", dotColor: "#34d399", shirtColor: 0x38bdf8, hairColor: 0x1c1917,
         pos: { x: 9.8, z: -7.4, rotY: 0 }, hasDesk: true,
         progressMsg: "Staf Departemen 3 (melapor ke Mgr Aldo). Mengoptimalkan konversi pengunjung dari @luxvite.id ke /demo, Draf Gratis 14 Hari, hingga pelunasan paket.",
@@ -3221,7 +3221,7 @@
         model: "Gemini 4 Argon (High)", dotColor: "#facc15", shirtColor: 0x10b981, hairColor: 0x1c1917,
         pos: { x: 6.8, z: 3.2, rotY: 0 }, hasDesk: true,
         progressMsg: "Manajer Departemen 4 (Client Ops & Support @putri_cs). Memimpin 3 Staf (Dinda, Fajar, Hermes) serta mengoperasikan Remote Klien (via proxy.ts) & MCP Luxvite.",
-        resultOutput: `[MANAJER DEPARTEMEN 4: ⭐ PUTRI (@putri_cs)]\n• Bawahan di Ruang 4: Dinda (Staf CS Fast-Response & Trial 14 Hari), Fajar (Staf Custom Domain & QR Hari-H), Hermes (@hermes-admin · VPS Sentinel).`
+        resultOutput: `[MANAJER DEPARTEMEN 4: ⭐ PUTRI (@putri_cs)]\n• Bawahan di Ruang 4: Dinda (Staf CS Fast-Response & Draf Gratis), Fajar (Staf Custom Domain & QR Hari-H), Hermes (@hermes-admin · VPS Sentinel).`
       },
       {
         id: 9, room: "ENGINEERING", name: "Hermes", shortPill: "Hermes · Staf VPS & MCP",
@@ -12816,14 +12816,15 @@
       const apvs = (AUTOPILOT_STATE && Array.isArray(AUTOPILOT_STATE.pendingApprovals)) ? AUTOPILOT_STATE.pendingApprovals : [];
       const stuck = (Array.isArray(TASKBOARD_ITEMS) ? TASKBOARD_ITEMS : []).filter(t => t.status === "REVISI" || t.status === "GAGAL");
       const posts = CONTENT_QUEUE.filter(p => p.status === "SIAP_POSTING");
-      return { apvs, stuck, posts };
+      const files = CONTENT_QUEUE.filter(p => p.status === "SIAP_DIPAKAI");
+      return { apvs, stuck, posts, files };
     }
 
     function renderCeoAttentionBadge() {
       const el = document.getElementById("sidebar-attention-badge");
       if (!el) return;
-      const { apvs, stuck, posts } = _ceoAttentionItems();
-      const n = apvs.length + stuck.length + posts.length;
+      const { apvs, stuck, posts, files } = _ceoAttentionItems();
+      const n = apvs.length + stuck.length + posts.length + files.length;
       el.textContent = String(n);
       el.classList.toggle("hidden", n === 0);
     }
@@ -12855,7 +12856,7 @@
     function renderCeoSummary() {
       const body = document.getElementById("ceo-summary-body");
       if (!body) return;
-      const { apvs, stuck, posts } = _ceoAttentionItems();
+      const { apvs, stuck, posts, files } = _ceoAttentionItems();
       const tasks = Array.isArray(TASKBOARD_ITEMS) ? TASKBOARD_ITEMS : [];
       const running = tasks.filter(t => t.status === "TODO" || t.status === "IN_PROGRESS");
       const done = tasks.filter(t => t.status === "DONE").slice(0, 5);
@@ -12935,17 +12936,41 @@
               <button onclick="ceoDecidePost('${escapeHtmlSafe(p.id)}','REJECTED')" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 text-[10.5px] cursor-pointer">Tolak + catatan</button>
             </div>
           </div>
-          <div class="flex gap-1.5 overflow-x-auto pb-1">
+          ${p.video
+            ? `<div class="flex items-end gap-2"><video controls playsinline preload="metadata" poster="${fileUrl((p.slides || [])[0] || "")}" src="${fileUrl(p.video)}" class="h-72 w-auto rounded-md border border-white/10 bg-black"></video>
+                 <a href="${fileUrl(p.video)}" download class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-slate-200 text-[10.5px]">Unduh video</a></div>`
+            : `<div class="flex gap-1.5 overflow-x-auto pb-1">
             ${(p.slides || []).map(s => `<a href="${fileUrl(s)}" target="_blank" rel="noopener" download class="shrink-0"><img src="${fileUrl(s)}" alt="Slide" loading="lazy" class="h-28 w-auto rounded-md border border-white/10" /></a>`).join("")}
-          </div>
+          </div>`}
           <div class="text-[10.5px] text-slate-400 whitespace-pre-line line-clamp-3">${escapeHtmlSafe(p.caption || "")}</div>
           ${p.script ? `<details class="text-[10.5px] text-slate-400"><summary class="cursor-pointer text-slate-300">Naskah reel</summary><div class="whitespace-pre-line mt-1">${escapeHtmlSafe(p.script)}</div></details>` : ""}
+        </div>`).join("");
+
+      const filesHtml = files.map(p => `
+        <div class="${card} space-y-1.5">
+          <div class="flex flex-wrap items-start justify-between gap-2">
+            <div class="min-w-0">
+              <div class="text-[10px] text-sky-300 font-semibold">${escapeHtmlSafe(p.dept)} · ${escapeHtmlSafe(p.agentName || "")} · file .${escapeHtmlSafe(p.format)}</div>
+              <div class="font-semibold text-white text-[11.5px]">${escapeHtmlSafe(p.title)}</div>
+              <div class="text-[10.5px] text-slate-400">${escapeHtmlSafe(p.caption || "")}</div>
+            </div>
+            <div class="flex flex-wrap gap-1.5 shrink-0">
+              <a href="${fileUrl(p.file)}" download class="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold text-[10.5px]">Unduh</a>
+              <button onclick="ceoDecidePost('${escapeHtmlSafe(p.id)}','DIPAKAI')" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10.5px] cursor-pointer">Dipakai</button>
+              <button onclick="ceoDecidePost('${escapeHtmlSafe(p.id)}','REJECTED')" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 text-[10.5px] cursor-pointer">Tolak + catatan</button>
+            </div>
+          </div>
+          <pre class="text-[10px] text-slate-400 whitespace-pre-wrap max-h-28 overflow-hidden bg-black/30 rounded-md p-2">${escapeHtmlSafe(p.preview || "")}</pre>
         </div>`).join("");
 
       body.innerHTML = `
         <section>
           ${sectionTitle("Siap posting dari tim Social", `${posts.length} paket`)}
-          <div class="space-y-2">${postsHtml || `<div class="${card} text-[11px] text-slate-400">Belum ada paket posting. Tim Social menghasilkan paket (gambar slide + caption) saat jam kerja.</div>`}</div>
+          <div class="space-y-2">${postsHtml || `<div class="${card} text-[11px] text-slate-400">Belum ada paket posting. Tim Social menghasilkan slide carousel dan video Reels saat jam kerja.</div>`}</div>
+        </section>
+        <section>
+          ${sectionTitle("Hasil siap dipakai dari tim lain", `${files.length} file`)}
+          <div class="space-y-2">${filesHtml || `<div class="${card} text-[11px] text-slate-400">Belum ada file hasil. Growth, CS, Engineering, dan Finance menyimpan hasil (artikel, template, laporan, CSV) saat jam kerja.</div>`}</div>
         </section>
         <section>
           ${sectionTitle("Menunggu keputusan Anda", `${apvs.length + stuck.length} item`)}
@@ -12998,7 +13023,7 @@
         CONTENT_QUEUE = data.items || [];
         renderCeoSummary();
         renderCeoAttentionBadge();
-        updateToast(status === "POSTED" ? "Ditandai sudah diposting." : "Ditolak; catatan dipakai tim Social untuk paket berikutnya.");
+        updateToast(status === "POSTED" ? "Ditandai sudah diposting." : status === "DIPAKAI" ? "Ditandai sudah dipakai." : "Ditolak; catatan dipakai tim untuk hasil berikutnya.");
       } catch (err) {
         updateToast(`Gagal menghubungi server: ${err.message}`);
       }

@@ -1,0 +1,9 @@
+{
+  "name": "luxvite-reel-factory",
+  "private": true,
+  "description": "Merekam demo tema luxvite.id dan menyusun video Reels 1080x1920 untuk tim Social.",
+  "dependencies": {
+    "ffmpeg-static": "5.2.0",
+    "puppeteer-core": "25.18.1"
+  }
+}

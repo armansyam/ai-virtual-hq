@@ -34,6 +34,9 @@ skills/*
 reports/
 daily-content/
 content-queue/
+# Pabrik Reels: dependensi npm dan lagu Pixabay (lisensinya melarang disebarkan sebagai file mandiri)
+tools/reel-factory/node_modules/
+tools/reel-factory/music/*.mp3
 uploads/
 build/
 dist/

@@ -5006,23 +5006,35 @@ def build_dynamic_mcp_context_with_trace(user_prompt="", room="", agent_id=None)
             "[[TOOL_CALL:{\"source\":\"remote_mcp\"|\"local_mcp\"|\"local_folder\", ...}]]"
         )
 
-    room_key = str(room or "").strip().upper()
-    if room_key in ("SOCIAL", "DEPT1_SOCIAL"):
+    room_key = {"DEPT1_SOCIAL": "SOCIAL", "DEPT2_THEMES": "THEMES", "DEPT3_GROWTH": "GROWTH", "DEPT4_OPS": "ADMIN", "DEPT5_ENG": "ENGINEERING", "DEPT6_FIN": "FINANCE"}.get(
+        str(room or "").strip().upper(), str(room or "").strip().upper()
+    )
+    if room_key == "SOCIAL":
         assets = sorted(os.listdir(os.path.join(UPLOADS_DIR, "assets"))) if os.path.isdir(os.path.join(UPLOADS_DIR, "assets")) else []
         lines.append(
-            "HASIL KERJA SOCIAL WAJIB BERUPA PAKET POSTING (bukan rencana). Sistem merender slide jadi gambar PNG 1080x1350 dan "
-            "memasukkannya ke antrean Siap Posting CEO. Format (JSON valid, satu tag per posting):\n"
-            '[[POST_PACKAGE:{"title":"Judul internal","platform":"instagram|tiktok|threads","format":"carousel|single|reel",'
+            "HASIL KERJA SOCIAL WAJIB BERUPA KONTEN JADI (bukan rencana). Dua alat produksi:\n"
+            "1) Carousel/single: sistem merender slide jadi gambar PNG 1080x1350 ke antrean Siap Posting CEO. Format (JSON valid, satu tag per posting):\n"
+            '[[POST_PACKAGE:{"title":"Judul internal","platform":"instagram|tiktok|threads","format":"carousel|single",'
             '"tone":"dark|light","slides":[{"headline":"maks 90 karakter","body":"maks 420 karakter","image":"nama file aset opsional"}],'
-            '"caption":"caption final siap tempel","hashtags":["luxvite","undangandigital"],"cta":"ajakan + link","postTime":"Sel 19:00 WITA",'
-            '"script":"wajib untuk reel: naskah + shotlist per detik"}]]\n'
-            "Aset gambar UI asli yang boleh dipakai di field image: " + (", ".join(assets) or "(belum ada)") + ". "
+            '"caption":"caption final siap tempel","hashtags":["luxvite","undangandigital"],"cta":"ajakan + link","postTime":"Sel 19:00 WITA"}]]\n'
+            "2) Reels video: sistem merekam demo tema asli di luxvite.id dan menyusun video 1080x1920 (laptop + ponsel + musik berlisensi), ±2 menit:\n"
+            '[[REEL_REQUEST:{"theme":"id-tema-aktif","title":"Nama Tema","subtitle":"satu kalimat rasa tema, tanpa harga","caption":"caption final tanpa harga",'
+            '"hashtags":["luxvite","undangandigital","temaundangan"],"postTime":"Kam 19:00 WITA"}]]\n'
+            "Aset gambar UI asli untuk field image: " + (", ".join(assets) or "(belum ada)") + ". "
             "Semua angka dan fitur wajib sesuai data live luxvite.id."
         )
-        fb = social_feedback_block()
-        if fb:
-            lines.append(fb)
-    if room_key in ("THEMES", "DEPT2_THEMES"):
+    if room_key in ("GROWTH", "ADMIN", "ENGINEERING", "FINANCE", "THEMES"):
+        lines.append(
+            "HASIL KERJA WAJIB BERUPA FILE SIAP PAKAI (bukan rencana/ringkasan). Simpan hasil lengkap dengan (JSON valid):\n"
+            '[[OUTPUT_FILE:{"title":"Judul hasil","format":"md|csv|html|txt","purpose":"untuk apa CEO/tim memakai file ini",'
+            '"content":"isi lengkap file (artikel utuh, tabel CSV, template pesan siap kirim, laporan dengan angka live)"}]]\n'
+            "Dilarang mengarang data: nama/kontak calon mitra, angka penjualan, atau testimoni yang tidak ada di data live. "
+            "Bila data belum ada, tulis kolom/bagian itu sebagai 'perlu diisi CEO'."
+        )
+    fb = output_feedback_block(room_key)
+    if fb:
+        lines.append(fb)
+    if room_key == "THEMES":
         lines.append(
             "MEMBUAT TEMA BARU = kirim SPESIFIKASI, bukan HTML. Sistem merakit dari blueprint resmi lalu langsung mengirimnya ke "
             "Draft Themes luxvite.id (nonaktif, aman). Format (JSON valid):\n"
@@ -7426,12 +7438,36 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             if not rel.startswith("content-queue/") or os.path.commonpath([root_real, target]) != root_real or not os.path.isfile(target):
                 self._send_json(404, {"ok": False, "error": "Berkas konten tidak ditemukan."})
                 return
-            ctype = "image/png" if target.endswith(".png") else "text/plain; charset=utf-8"
+            ext = os.path.splitext(target)[1].lower()
+            ctype = {".png": "image/png", ".jpg": "image/jpeg", ".mp4": "video/mp4"}.get(ext, "text/plain; charset=utf-8")
+            size = os.path.getsize(target)
+            start, end, status = 0, size - 1, 200
+            # Safari/iPhone memutar video hanya bila server melayani Range request.
+            m_range = re.match(r"bytes=(\d*)-(\d*)$", self.headers.get("Range", "").strip())
+            if ext == ".mp4" and m_range and (m_range.group(1) or m_range.group(2)):
+                if m_range.group(1):
+                    start = int(m_range.group(1))
+                    end = min(int(m_range.group(2)), size - 1) if m_range.group(2) else size - 1
+                else:
+                    start = max(0, size - int(m_range.group(2)))
+                if start > end:
+                    self.send_response(416)
+                    self.send_header("Content-Range", f"bytes */{size}")
+                    self.end_headers()
+                    return
+                status = 206
             with open(target, "rb") as f:
-                data = f.read()
-            self.send_response(200)
+                f.seek(start)
+                data = f.read(end - start + 1)
+            self.send_response(status)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
+            self.send_header("Accept-Ranges", "bytes")
+            if status == 206:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+            if ext not in (".png", ".jpg", ".mp4"):
+                # Hasil teks/HTML dari agen diunduh, tidak dirender di origin kantor.
+                self.send_header("Content-Disposition", f'attachment; filename="{os.path.basename(target)}"')
             self.send_header("Cache-Control", "private, max-age=3600")
             self._send_security_headers()
             self.end_headers()
@@ -7868,8 +7904,8 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
         if clean_path == "/api/content-queue/update":
             item_id = str(body.get("id") or "").strip()
             new_status = str(body.get("status") or "").strip().upper()
-            if new_status not in ("SIAP_POSTING", "POSTED", "REJECTED"):
-                self._send_json(400, {"ok": False, "error": "Status harus SIAP_POSTING, POSTED, atau REJECTED."})
+            if new_status not in ("SIAP_POSTING", "SIAP_DIPAKAI", "POSTED", "DIPAKAI", "REJECTED"):
+                self._send_json(400, {"ok": False, "error": "Status tidak dikenal."})
                 return
             with CONTENT_QUEUE_LOCK:
                 q = load_content_queue()
@@ -8984,13 +9020,157 @@ def save_post_package(pkg, room="SOCIAL", agent_name=""):
     return {"ok": True, "id": item["id"], "slides": slide_files, "dir": rel_dir}
 
 
-def social_feedback_block(limit=6):
-    q = [x for x in load_content_queue() if x.get("status") in ("POSTED", "REJECTED")][:limit]
+REEL_FACTORY_DIR = os.path.join(BASE_DIR, "tools", "reel-factory")
+REEL_RENDER_LOCK = threading.Lock()
+
+
+def _node_bin():
+    extra = [os.path.expanduser("~/.local/node/bin"), "/opt/homebrew/bin", "/usr/local/bin"]
+    return shutil.which("node", path=os.pathsep.join(extra + [os.environ.get("PATH", "")]))
+
+
+def render_reel_package(req, room="SOCIAL", agent_name=""):
+    """Merekam demo tema di luxvite.id dan menyusun video Reels 1080x1920 (tools/reel-factory), lalu memasukkannya ke Siap Posting.
+    Render dijalankan satu per satu (±2 menit) karena berat untuk CPU."""
+    theme = str(req.get("theme") or "").strip().lower()
+    title = str(req.get("title") or "").strip()
+    subtitle = str(req.get("subtitle") or "").strip()
+    caption = str(req.get("caption") or "").strip()
+    hashtags = [str(h).strip().lstrip("#") for h in (req.get("hashtags") or []) if str(h).strip()][:10]
+    errors = []
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,59}", theme):
+        errors.append("theme wajib id tema dari katalog aktif (contoh: kalandra)")
+    if not title or len(title) > 40:
+        errors.append("title wajib (nama tema, maks 40 karakter)")
+    if len(subtitle) > 120:
+        errors.append("subtitle maks 120 karakter")
+    if not caption or len(caption) > 2200:
+        errors.append("caption final wajib (maks 2200 karakter)")
+    if re.search(r"\bRp\s?\d", caption + " " + subtitle):
+        errors.append("caption & subtitle Reels tidak boleh mencantumkan harga (aturan CEO)")
+    node = _node_bin()
+    if not node or not os.path.isfile(os.path.join(REEL_FACTORY_DIR, "node_modules", "ffmpeg-static", "ffmpeg")):
+        errors.append("Pabrik Reels belum terpasang di server ini (jalankan npm install di tools/reel-factory)")
+    if errors:
+        return {"ok": False, "error": "; ".join(errors)}
+
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    rel_dir = f"content-queue/{stamp}-reel-{theme}"
+    abs_dir = os.path.join(DATA_DIR, rel_dir)
+    work_dir = os.path.join(abs_dir, "_frames")
+    os.makedirs(work_dir, exist_ok=True)
+    env = dict(os.environ, PATH=os.pathsep.join([os.path.dirname(node), os.environ.get("PATH", "")]))
+    with REEL_RENDER_LOCK:
+        update_world_state({"liveStepStatus": f"🎬 {agent_name or 'Tim Social'} merender Reels tema {theme}..."})
+        rec = subprocess.run([node, "record.js", theme, work_dir, "15"], cwd=REEL_FACTORY_DIR, env=env, capture_output=True, text=True, timeout=420)
+        if rec.returncode != 0:
+            shutil.rmtree(abs_dir, ignore_errors=True)
+            return {"ok": False, "error": f"Rekam demo gagal: {(rec.stderr or rec.stdout).strip()[-300:]}"}
+        mp4 = os.path.join(abs_dir, "reel.mp4")
+        comp = subprocess.run(
+            [sys.executable, "compose.py", work_dir, mp4, "--title", title, "--subtitle", subtitle],
+            cwd=REEL_FACTORY_DIR, env=env, capture_output=True, text=True, timeout=300,
+        )
+        shutil.rmtree(work_dir, ignore_errors=True)
+        if comp.returncode != 0 or not os.path.isfile(mp4):
+            return {"ok": False, "error": f"Susun video gagal: {(comp.stdout or comp.stderr).strip()[-300:]}"}
+        info = json.loads(comp.stdout.strip().splitlines()[-1])
+    full_caption = caption + ("\n\n" + " ".join(f"#{h}" for h in hashtags) if hashtags else "")
+    with open(os.path.join(abs_dir, "caption.txt"), "w", encoding="utf-8") as f:
+        f.write(full_caption + "\n")
+    item = {
+        "id": f"reel_{stamp}_{theme[:20]}",
+        "title": f"Reels {title}",
+        "platform": "instagram",
+        "format": "reel",
+        "video": f"{rel_dir}/reel.mp4",
+        "slides": [f"{rel_dir}/reel-cover.jpg"],
+        "caption": full_caption,
+        "script": f"Musik: {info.get('music')} (Pixabay, non-Content ID, lisensi di tools/reel-factory/music/LISENSI.txt). Sampul: pilih frame judul saat unggah.",
+        "cta": "luxvite.id/demo",
+        "postTime": str(req.get("postTime") or "")[:60],
+        "dir": rel_dir,
+        "status": "SIAP_POSTING",
+        "dept": str(room or "SOCIAL").upper(),
+        "agentName": agent_name,
+        "createdAt": time.strftime("%Y-%m-%d %H:%M:%S WITA"),
+        "ceoNote": "",
+        "theme": theme,
+        "bytes": info.get("bytes"),
+    }
+    with CONTENT_QUEUE_LOCK:
+        q = load_content_queue()
+        q.insert(0, item)
+        save_content_queue(q)
+    bump_world_chat_version(toast_msg=f"🎬 Reels {title} selesai dirender — cek Siap Posting di Ringkasan CEO")
+    return {"ok": True, "id": item["id"], "video": item["video"], "dir": rel_dir, "bytes": info.get("bytes")}
+
+
+OUTPUT_FILE_FORMATS = {"md": "text/markdown", "csv": "text/csv", "html": "text/html", "txt": "text/plain"}
+
+
+def save_output_file(spec, room="", agent_name=""):
+    """Hasil kerja departemen non-visual sebagai file yang langsung bisa dipakai (laporan, CSV, artikel, template pesan)."""
+    title = str(spec.get("title") or "").strip()
+    fmt = str(spec.get("format") or "md").strip().lower()
+    content = str(spec.get("content") or "")
+    purpose = str(spec.get("purpose") or "").strip()
+    errors = []
+    if not title or len(title) > 100:
+        errors.append("title wajib (maks 100 karakter)")
+    if fmt not in OUTPUT_FILE_FORMATS:
+        errors.append("format harus md, csv, html, atau txt")
+    if len(content) > 300_000:
+        errors.append("content maksimal 300 KB")
+    elif fmt != "csv" and len(content.strip()) < 200:
+        errors.append("content wajib berisi hasil lengkap (minimal 200 karakter), bukan ringkasan atau rencana")
+    if not purpose:
+        errors.append("purpose wajib: untuk apa file ini dipakai CEO/tim (1 kalimat)")
+    if fmt == "csv" and not errors:
+        rows = list(csv.reader(io.StringIO(content)))
+        if len(rows) < 2 or len({len(r) for r in rows if r}) != 1:
+            errors.append("CSV wajib punya header + minimal 1 baris data dengan jumlah kolom sama")
+    if errors:
+        return {"ok": False, "error": "; ".join(errors)}
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:48] or "hasil"
+    rel_dir = f"content-queue/{stamp}-{slug}"
+    os.makedirs(os.path.join(DATA_DIR, rel_dir), exist_ok=True)
+    rel_file = f"{rel_dir}/{slug}.{fmt}"
+    with open(os.path.join(DATA_DIR, rel_file), "w", encoding="utf-8") as f:
+        f.write(content)
+    item = {
+        "id": f"file_{stamp}_{slug[:20]}",
+        "title": title,
+        "platform": "file",
+        "format": fmt,
+        "file": rel_file,
+        "slides": [],
+        "caption": purpose,
+        "preview": content[:600],
+        "dir": rel_dir,
+        "status": "SIAP_DIPAKAI",
+        "dept": str(room or "ADMIN").upper(),
+        "agentName": agent_name,
+        "createdAt": time.strftime("%Y-%m-%d %H:%M:%S WITA"),
+        "ceoNote": "",
+    }
+    with CONTENT_QUEUE_LOCK:
+        q = load_content_queue()
+        q.insert(0, item)
+        save_content_queue(q)
+    bump_world_chat_version(toast_msg=f"📎 Hasil siap dipakai dari {item['dept']}: {title[:60]}")
+    return {"ok": True, "id": item["id"], "file": rel_file}
+
+
+def output_feedback_block(dept, limit=6):
+    labels = {"POSTED": "DIPOSTING", "DIPAKAI": "DIPAKAI", "REJECTED": "DITOLAK"}
+    q = [x for x in load_content_queue() if x.get("status") in labels and str(x.get("dept") or "").upper() == dept][:limit]
     if not q:
         return ""
-    lines = ["UMPAN BALIK CEO ATAS PAKET POSTING SEBELUMNYA (pakai untuk memperbaiki konten berikutnya):"]
+    lines = ["UMPAN BALIK CEO ATAS HASIL KERJA TIMMU SEBELUMNYA (pakai untuk memperbaiki hasil berikutnya):"]
     for x in q:
-        lines.append(f"- [{'DIPOSTING' if x['status'] == 'POSTED' else 'DITOLAK'}] {x['title']}" + (f" — catatan CEO: {x['ceoNote']}" if x.get("ceoNote") else ""))
+        lines.append(f"- [{labels[x['status']]}] {x['title']}" + (f" — catatan CEO: {x['ceoNote']}" if x.get("ceoNote") else ""))
     return "\n".join(lines)
 
 
@@ -9028,7 +9208,31 @@ def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, p
             # hasilnya ditempel ke jawaban sebagai bukti untuk QA, dan kegagalan validasi dikembalikan ke agen bila masih ada langkah.
             post_pkgs = re.findall(r"\[\[POST_PACKAGE:\s*(\{[\s\S]*?\})\s*\]\]", str(reply or ""))
             theme_specs = re.findall(r"\[\[THEME_DRAFT:\s*(\{[\s\S]*?\})\s*\]\]", str(reply or ""))
+            reel_reqs = re.findall(r"\[\[REEL_REQUEST:\s*(\{[\s\S]*?\})\s*\]\]", str(reply or ""))
+            output_files = re.findall(r"\[\[OUTPUT_FILE:\s*(\{[\s\S]*?\})\s*\]\]", str(reply or ""))
             production_done, production_failed = [], []
+            for raw_reel in reel_reqs[:1]:
+                try:
+                    reel_res = render_reel_package(json.loads(raw_reel, strict=False), room=room, agent_name=who_label)
+                except (ValueError, TypeError) as reel_err:
+                    reel_res = {"ok": False, "error": f"JSON REEL_REQUEST tidak valid: {reel_err}"}
+                except subprocess.TimeoutExpired:
+                    reel_res = {"ok": False, "error": "Render Reels melewati batas waktu."}
+                if reel_res.get("ok"):
+                    production_done.append(f"✅ Reels dirender jadi video: `{reel_res['video']}` ({round((reel_res.get('bytes') or 0) / 1048576, 1)} MB) — antrean Siap Posting CEO.")
+                    executed_tools.append({"tool": "Reels Video", "source": "CONTENT", "summary": reel_res["dir"]})
+                else:
+                    production_failed.append(f"- REEL_REQUEST DITOLAK: {reel_res.get('error')}. Perbaiki lalu kirim ulang tag REEL_REQUEST.")
+            for raw_out in output_files[:3]:
+                try:
+                    out_res = save_output_file(json.loads(raw_out, strict=False), room=room, agent_name=who_label)
+                except (ValueError, TypeError) as out_err:
+                    out_res = {"ok": False, "error": f"JSON OUTPUT_FILE tidak valid: {out_err}"}
+                if out_res.get("ok"):
+                    production_done.append(f"✅ File hasil kerja tersimpan: `{out_res['file']}` — antrean Siap dipakai CEO.")
+                    executed_tools.append({"tool": "File Hasil", "source": "CONTENT", "summary": out_res["file"]})
+                else:
+                    production_failed.append(f"- OUTPUT_FILE DITOLAK: {out_res.get('error')}. Perbaiki lalu kirim ulang tag OUTPUT_FILE.")
             for raw_pkg in post_pkgs[:4]:
                 try:
                     pkg_res = save_post_package(json.loads(raw_pkg, strict=False), room=room, agent_name=who_label)
@@ -9051,8 +9255,8 @@ def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, p
                     executed_tools.append({"tool": f"Draft Tema: {slug}", "source": "REMOTE_MCP", "summary": "DRAFT_REVIEW"})
                 else:
                     production_failed.append(f"- THEME_DRAFT DITOLAK: {th_res.get('error')}. Perbaiki lalu kirim ulang tag THEME_DRAFT.")
-            if post_pkgs or theme_specs:
-                reply = re.sub(r"\[\[(?:POST_PACKAGE|THEME_DRAFT):\s*\{[\s\S]*?\}\s*\]\]", "", str(reply or "")).strip()
+            if post_pkgs or theme_specs or reel_reqs or output_files:
+                reply = re.sub(r"\[\[(?:POST_PACKAGE|THEME_DRAFT|REEL_REQUEST|OUTPUT_FILE):\s*\{[\s\S]*?\}\s*\]\]", "", str(reply or "")).strip()
                 reply += "\n\n" + "\n".join(production_done + [x.lstrip("- ") for x in production_failed])
             retry_production = bool(production_failed) and step_idx < max_steps
 
@@ -10456,7 +10660,7 @@ DEPT_SQUADS = {
     "GROWTH": {
         "manager": {"id": 15, "name": "Aldo", "role": "Manajer Departemen 3 (Growth, B2B & SEO)"},
         "staff": [
-            {"id": 6, "name": "Tara", "role": "Staf Optimasi Konversi, Trial 14 Hari & Funnel", "kw": ["konversi", "funnel", "objection", "pembeli", "draf", "trial", "naskah"]},
+            {"id": 6, "name": "Tara", "role": "Staf Optimasi Konversi, Draf Gratis & Funnel", "kw": ["konversi", "funnel", "objection", "pembeli", "draf", "trial", "naskah"]},
             {"id": 19, "name": "Rendy", "role": "Staf Akuisisi Mitra WO, MUA & Studio Foto", "kw": ["wo", "mitra", "b2b", "vendor", "outreach", "partner"]},
             {"id": 28, "name": "Hana", "role": "Staf Data Analytics & Retention", "kw": ["riset", "kompetitor", "segmen", "data", "matrix", "analitik"]},
             {"id": 16, "name": "Laras", "role": "Staf Spesialis SEO Pencarian & Artikel", "kw": ["seo", "artikel", "google", "pencarian", "blog"]},
@@ -10807,12 +11011,16 @@ def _execute_single_department_project(item, idx=1, total=1):
             "terpenuhi dengan bukti tool nyata; bila ada deliverable yang gagal, tertahan, belum dieksekusi, atau berlabel "
             "'HASIL TIDAK TUNTAS', wajib [[GATE:REVISI]]."
             + (
-                "\n   KHUSUS SOCIAL: PASS hanya bila ada minimal 1 baris '✅ Paket posting tersimpan & dirender' dari staf. Rencana, kalender, atau skrip tanpa paket posting = REVISI."
+                "\n   KHUSUS SOCIAL: PASS hanya bila staf menghasilkan konten jadi: baris '✅ Paket posting tersimpan & dirender' atau '✅ Reels dirender jadi video'. Rencana, kalender, atau skrip saja = REVISI."
                 if dept == "SOCIAL" else ""
             )
             + (
-                "\n   KHUSUS THEMES: tugas membuat tema hanya PASS bila ada baris '✅ Draf tema ... terkirim ke Draft Themes'."
+                "\n   KHUSUS THEMES: tugas membuat tema hanya PASS bila ada baris '✅ Draf tema ... terkirim ke Draft Themes'; tugas lain bila ada '✅ File hasil kerja tersimpan'."
                 if dept == "THEMES" else ""
+            )
+            + (
+                "\n   KHUSUS DEPT INI: PASS hanya bila staf menyimpan hasil siap pakai (baris '✅ File hasil kerja tersimpan'). Rencana atau ringkasan tanpa file = REVISI."
+                if dept in ("GROWTH", "ADMIN", "ENGINEERING", "FINANCE") else ""
             )
             + handoff_rule
         )
@@ -11577,8 +11785,9 @@ def run_autonomous_department_self_plan(dept_key):
             "1. Tanpa menunggu perintah CEO, baca roadmap & catatan Memory Obsidian departemenmu di bawah.\n"
             "2. Rancang TEPAT 1 tugas operasional lanjutan yang BARU, konkret, dan TIDAK mengulang tugas yang sudah DONE. "
             "Pilih tugas yang paling mungkin menggerakkan angka TARGET BISNIS di bawah, dan tulis di instruksi metrik mana yang dikejar dan bagaimana hasilnya dipakai.\n"
-            "3. Definisi selesai: Dept SOCIAL = paket posting siap unggah (tag POST_PACKAGE: slide + caption final + hashtag + jam tayang), bukan rencana atau kalender. "
-            "Dept THEMES = draf tema terkirim ke Draft Themes lewat tag THEME_DRAFT (spesifikasi palet/font/tekstur, bukan HTML).\n"
+            "3. Definisi selesai = ada OUTPUT jadi, bukan rencana: SOCIAL = paket slide (POST_PACKAGE) atau video Reels (REEL_REQUEST); "
+            "THEMES = draf tema terkirim (THEME_DRAFT); GROWTH, ADMIN, ENGINEERING, FINANCE = file siap pakai (OUTPUT_FILE) seperti artikel utuh, "
+            "template pesan siap kirim, laporan dengan angka live, atau CSV. Ikuti skill departemenmu untuk pembagian output per staf.\n"
             "4. Untuk tugas berisiko produksi live di luar Draft atau pengeluaran dana, jangan dipilih (pilih kerja internal aman).\n"
             "BALAS HANYA DENGAN JSON VALID:\n"
             '{"status":"CREATE_TASK"|"IDLE","title":"Judul task baru yang spesifik & belum pernah dikerjakan","instruction":"Instruksi kerja konkret untuk tim staf departemenmu","priority":"HIGH"|"MEDIUM"}'
