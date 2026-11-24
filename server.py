@@ -5072,14 +5072,18 @@ def build_dynamic_mcp_context_with_trace(user_prompt="", room="", agent_id=None)
         lines.append(fb)
     if room_key == "THEMES":
         lines.append(
-            "MEMBUAT TEMA BARU = kirim SPESIFIKASI, bukan HTML. Sistem merakit dari blueprint resmi lalu langsung mengirimnya ke "
-            "Draft Themes luxvite.id (nonaktif, aman). Format (JSON valid):\n"
+            "MEMBUAT TEMA BARU = kirim RANCANGAN Theme Builder, bukan HTML. Sistem (Theme Studio) merakitnya dengan mesin Theme Builder "
+            "resmi, memotret pratinjau HP 390px & desktop 1440px, lalu Bima menilai gambarnya (skor 1-10, lulus >= 7) dan merevisi "
+            "maksimal 2 putaran. Hanya yang lulus yang dikirim ke Draft Themes luxvite.id (nonaktif). Format (JSON valid):\n"
             '[[THEME_DRAFT:{"slug":"huruf-kecil-tanda-hubung","name":"Nama Tema","eventType":"WEDDING|PERSONAL|EVENT",'
-            '"style":"minimalist|modern|traditional","subEvent":"opsional","description":"konsep singkat",'
-            '"palette":{"primary":"#hex","secondary":"#hex","accent":"#hex","bg-light":"#hex","bg-dark":"#hex","text-main":"#hex","on-dark":"#hex","on-primary":"#hex"},'
-            '"fonts":{"heading":"...","body":"...","script":"..."},"texture":"nama-file.webp","extraCss":"CSS dekorasi opsional, maks 8000 karakter, hanya pakai var(--...)"}]]\n'
-            f"Font yang tersedia: {', '.join(theme_font_catalog())}. Tekstur: {', '.join(theme_texture_catalog())}. "
-            "Jaga kontras teks (text-main di atas bg-light, on-dark di atas bg-dark)."
+            '"style":"minimalist|modern|traditional","subEvent":"opsional","description":"konsep + arah riset yang dipakai",'
+            '"design":{"canvasMode":"light|dark","palette":{"primary":"#hex","secondary":"#hex","accent":"#hex","bgLight":"#hex","bgDark":"#hex",'
+            '"textDark":"#hex","textLight":"#hex","onPrimary":"#hex"},"fonts":{"heading":"id","body":"id","script":"id"},"texture":"/assets/...webp",'
+            '"radius":"...","variants":{"cover":"...","couple":"...","gallery":"...", "...":"..."},"animation":"...","desktopLayout":"...",'
+            '"sectionOrder":["opening","..."],"scrimStyle":"...","customCss":"opsional"}}]]\n'
+            "KOSAKATA DESAIN (hanya nilai ini yang sah):\n" + theme_studio_vocabulary_text() + "\n"
+            "Kreativitas ada di kombinasi varian layout, bukan hanya warna: pilih kombinasi variants yang belum dipakai katalog aktif, "
+            "dan turunkan dari riset tren di bawah.\n" + theme_research_block()
         )
 
     # Obsidian Markdown Memory Vault (00-INDEX.md + DEPT-<ROOM>.md — Token-Saving Single Source of Truth)
@@ -8788,121 +8792,357 @@ def _execute_approved_agent_action(item):
     return res
 
 
-# ===== Dept THEMES: draf tema dari spesifikasi kecil (model tidak sanggup menulis ulang blueprint 70-80 KB dalam satu jawaban) =====
-THEME_BLUEPRINT_FILES = {
-    "WEDDING": ("wedding", "starter-blueprint.html"),
-    "PERSONAL": ("personal", "starter-blueprint-personal.html"),
-    "EVENT": ("event", "starter-blueprint-event.html"),
-}
-THEME_PALETTE_VARS = ("primary", "secondary", "accent", "bg-light", "bg-dark", "text-main", "on-dark", "on-primary")
-THEME_FONT_FALLBACK = {"heading": "Georgia, serif", "body": "system-ui, -apple-system, sans-serif", "script": "cursive"}
+# ===== Dept THEMES: Theme Studio — rancangan BuilderSpec dirakit mesin Theme Builder Luxenary, difoto, dikritik Bima, direvisi =====
+# Model tidak sanggup menulis master 80 KB; ia memilih kosakata desain Theme Builder (22 kelompok varian layout, animasi,
+# tata letak desktop, urutan seksi, palet, font, tekstur, CSS kustom) dan mesin resmi yang merakit master + pratinjau demo.
+THEME_STUDIO_DIR = os.path.join(BASE_DIR, "tools", "theme-studio")
+THEME_STUDIO_LOCK = threading.Lock()
+THEME_STUDIO_MAX_REVISIONS = 2
+THEME_STUDIO_MIN_SCORE = 7
+THEME_VISION_MODELS = ("gemini-3.8-flash-high", "gemini-4-neon-medium")
+THEME_RESEARCH_DIR = os.path.join(REPORTS_DIR, "theme-research")
+THEME_RESEARCH_MAX_AGE_SEC = 3 * 86400
+_THEME_STUDIO_CATALOG = {}
+_THEME_RESEARCH_STATE = {"running": False}
 
 
 def _theme_project_path():
     return (load_company_profile().get("projectPath") or "").strip()
 
 
-def theme_font_catalog():
+def _theme_studio_env():
+    # Mesin tema dijalankan tanpa kredensial produksi: DB uji lokal, penyimpanan lokal, tanpa Cloudflare/S3.
+    node = _node_bin() or ""
+    return dict(
+        os.environ,
+        PATH=os.pathsep.join([os.path.dirname(node), os.environ.get("PATH", "")]),
+        DATABASE_URL="postgresql://postgres@localhost:5432/luxenary_test?schema=public",
+        STORAGE_PROVIDER="local", S3_BUCKET="", S3_ENDPOINT="", S3_ACCESS_KEY_ID="", S3_SECRET_ACCESS_KEY="",
+        CF_ZONE_ID="", CF_API_TOKEN="",
+    )
+
+
+def _theme_studio_tsx(args, timeout):
+    proj = _theme_project_path()
+    tsx = os.path.join(proj, "node_modules", ".bin", "tsx")
+    if not os.path.isfile(tsx):
+        raise RuntimeError(f"tsx tidak ditemukan di {tsx}; jalankan npm install di repo Luxenary.")
+    proc = subprocess.run([tsx, os.path.join(THEME_STUDIO_DIR, "render.ts"), *args], cwd=proj, env=_theme_studio_env(),
+                          capture_output=True, text=True, timeout=timeout)
+    lines = (proc.stdout or "").strip().splitlines()
+    if proc.returncode != 0 or not lines:
+        raise RuntimeError(f"Mesin Theme Builder gagal (exit {proc.returncode}): {(proc.stderr or proc.stdout).strip()[-400:]}")
+    return json.loads(lines[-1])
+
+
+def theme_studio_catalog():
+    if not _THEME_STUDIO_CATALOG:
+        _THEME_STUDIO_CATALOG.update(_theme_studio_tsx(["catalog"], 60))
+    return _THEME_STUDIO_CATALOG
+
+
+def theme_studio_vocabulary_text():
+    c = theme_studio_catalog()
+    variants = "; ".join(g["key"] + ": " + "|".join(o.split(" (")[0] for o in g["options"]) for g in c["variants"])
+    return (
+        f"variants (pilih per kunci) → {variants}.\n"
+        f"fonts (id) → {', '.join(c['fonts'])}.\n"
+        f"texture → {', '.join(c['textures'])}.\n"
+        f"animation → {', '.join(a.split(' (')[0] for a in c['animations'])}; animationSpeed → slow|normal|fast.\n"
+        f"radius → {'|'.join(c['radius'])}. scrimStyle → {'|'.join(s.split(' (')[0] for s in c['scrimStyles'])}; scrimOpacity 10-90; vignette 0-85; textureOpacity 10-100.\n"
+        f"desktopLayout → {'|'.join(d.split(' (')[0] for d in c['desktopLayouts'])}. sectionOrder → urutan dari: {', '.join(c['sections'])}. "
+        "countdownPlacement → section|events|cover. canvasMode → light|dark.\n"
+        "palette (8 hex wajib) → primary, secondary, accent, bgLight, bgDark, textDark (teks di latar terang), textLight (teks di latar gelap/foto), onPrimary.\n"
+        f"Preset palet acuan (boleh dimodifikasi): {', '.join(p['id'] for p in c['palettePresets'])}. "
+        "customCss → maks 8000 karakter, hanya var(--...), tanpa URL luar."
+    )
+
+
+def _deep_merge(base, patch):
+    out = dict(base)
+    for k, v in (patch or {}).items():
+        out[k] = _deep_merge(out[k], v) if isinstance(v, dict) and isinstance(out.get(k), dict) else v
+    return out
+
+
+def _agy_look(prompt, add_dir="", timeout=240, models=THEME_VISION_MODELS, room="THEMES", agent_name=""):
+    """Panggilan agy tanpa larangan tool: model boleh membuka gambar di add_dir dan mencari di web. Mengembalikan teks jawaban."""
+    last_err = "tidak ada model yang dicoba"
+    for model in models:
+        cmd = [AGY_BIN, f"--model={model}", "--disable-slash-commands", "--output-format=json", f"--print-timeout={timeout - 10}s"]
+        if add_dir:
+            cmd.append(f"--add-dir={add_dir}")
+        cmd.append(f"-p={prompt}")
+        with _AGY_CLI_SEMAPHORE:
+            proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout,
+                                  cwd=add_dir or tempfile.gettempdir(), env=dict(os.environ, BROWSER="/usr/bin/true"))
+        out = (proc.stdout or "").strip()
+        last_err = f"{model} exit {proc.returncode}: " + (((proc.stderr or "").strip() or out)[-240:] or "tanpa output")
+        j_start = out.rfind("\n{")
+        try:
+            parsed = json.loads(out[j_start + 1:] if j_start >= 0 else out)
+        except ValueError:
+            continue
+        if proc.returncode == 0 and isinstance(parsed, dict) and str(parsed.get("response") or "").strip():
+            usage = parsed.get("usage") if isinstance(parsed.get("usage"), dict) else {}
+            record_token_usage(model, f"Antigravity CLI ({model})", input_tokens=usage.get("input_tokens") or 0,
+                               cached_tokens=usage.get("cache_read_tokens") or 0, output_tokens=usage.get("output_tokens") or 0,
+                               thinking_tokens=usage.get("thinking_tokens") or 0, room=room, agent_name=agent_name)
+            return str(parsed["response"]).strip()
+    raise RuntimeError(f"Antigravity CLI gagal merespons ({last_err}).")
+
+
+def _active_theme_list():
+    build_live_system_facts_block()
+    return list(_SYSTEM_FACTS_CACHE.get("themes") or [])
+
+
+def latest_theme_research():
+    """(teks riset terbaru, umur detik) atau ("", None)."""
+    if not os.path.isdir(THEME_RESEARCH_DIR):
+        return "", None
+    files = sorted(f for f in os.listdir(THEME_RESEARCH_DIR) if f.endswith(".md"))
+    if not files:
+        return "", None
+    path = os.path.join(THEME_RESEARCH_DIR, files[-1])
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read(), time.time() - os.path.getmtime(path)
+
+
+def run_theme_research():
+    """Elena meriset tren desain undangan lewat pencarian web nyata, dibandingkan dengan katalog aktif, lalu menerjemahkannya
+    ke kosakata Theme Builder. Hasil: reports/theme-research/<stamp>.md + file Siap dipakai CEO."""
+    catalog = ", ".join(_active_theme_list()) or "(katalog gagal dibaca)"
+    prompt = (
+        "Kamu Elena, peneliti tren desain di Dept Theme Lab Luxvite (platform undangan digital Indonesia: pernikahan, acara personal, acara umum).\n"
+        "WAJIB gunakan alat pencarian web. Cari 6-10 sumber terbaru (2025-2026) tentang tren desain undangan digital/pernikahan/acara, "
+        "tipografi, palet warna, dan pola layout web editorial; utamakan sumber Indonesia dan desain global yang relevan.\n"
+        f"Katalog tema AKTIF Luxvite saat ini (jangan diulang): {catalog}.\n"
+        "Kosakata desain yang bisa dipakai tim (hanya ini yang bisa dirakit mesin):\n"
+        f"{theme_studio_vocabulary_text()}\n\n"
+        "Tulis laporan Markdown berbahasa Indonesia dengan bagian:\n"
+        "## Sumber (daftar judul + URL lengkap yang benar-benar kamu buka; jangan mengarang URL)\n"
+        "## Temuan tren (5-8 poin, tiap poin menyebut sumbernya)\n"
+        "## Celah katalog Luxvite (gaya/warna/layout yang belum ada di katalog aktif)\n"
+        "## 4 Arah Desain siap rakit (untuk tiap arah: nama, mode WEDDING/PERSONAL/EVENT, gaya minimalist/modern/traditional, "
+        "suasana, 8 warna hex palet, font id, variants yang dipilih, animation, desktopLayout, alasan berbeda dari katalog)\n"
+        "Jangan menulis apa pun selain laporan itu."
+    )
+    text = _agy_look(prompt, timeout=420, models=("gemini-4-argon-high", "gemini-3.8-flash-high"), agent_name="Elena")
+    if "http" not in text:
+        raise RuntimeError("Riset tidak menyertakan sumber web; ditolak.")
+    os.makedirs(THEME_RESEARCH_DIR, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M")
+    body = f"# Riset Tren Desain Tema — {time.strftime('%d %b %Y %H:%M')} WITA (Elena, pencarian web)\n\n{text}\n"
+    with open(os.path.join(THEME_RESEARCH_DIR, f"{stamp}.md"), "w", encoding="utf-8") as f:
+        f.write(body)
+    save_output_file({"title": f"Riset Tren Desain Tema {time.strftime('%d %b %Y')}", "format": "md", "content": body,
+                      "purpose": "Referensi arah desain tema baru Dept Theme Lab, bersumber pencarian web dan dibandingkan dengan katalog aktif."},
+                     room="THEMES", agent_name="Elena")
+    return body
+
+
+def _refresh_theme_research_bg():
     try:
-        with open(os.path.join(_theme_project_path(), "public", "fonts", "fonts.css"), "r", encoding="utf-8") as f:
-            return sorted(set(re.findall(r"font-family:\s*'([^']+)'", f.read())))
-    except FileNotFoundError:
-        return []
+        run_theme_research()
+        bump_world_chat_version(toast_msg="🔎 Elena menyelesaikan riset tren desain tema (sumber web) — cek Siap dipakai")
+    except Exception as e:
+        print(f"[theme-research] gagal: {e}", flush=True)
+    finally:
+        _THEME_RESEARCH_STATE["running"] = False
 
 
-def theme_texture_catalog():
-    tex_dir = os.path.join(_theme_project_path(), "public", "assets", "ornaments", "background")
-    return sorted(f for f in os.listdir(tex_dir) if f.endswith(".webp")) if os.path.isdir(tex_dir) else []
+def theme_research_block():
+    text, age = latest_theme_research()
+    if (age is None or age > THEME_RESEARCH_MAX_AGE_SEC) and not _THEME_RESEARCH_STATE["running"]:
+        _THEME_RESEARCH_STATE["running"] = True
+        threading.Thread(target=_refresh_theme_research_bg, daemon=True).start()
+    if not text:
+        return "RISET TREN: sedang dikerjakan Elena lewat pencarian web (belum tersedia). Untuk sekarang pilih arah yang jelas berbeda dari katalog aktif."
+    return f"RISET TREN TERBARU (umur {int(age // 3600)} jam, sumber web):\n{text[:5000]}"
 
 
-def build_theme_draft_html(spec):
-    """Merakit master tema dari blueprint resmi + spesifikasi agen. Mengembalikan (html, daftar_error)."""
-    errors = []
-    event_type = str(spec.get("eventType") or "WEDDING").strip().upper()
-    if event_type not in THEME_BLUEPRINT_FILES:
-        errors.append("eventType harus WEDDING, PERSONAL, atau EVENT.")
-        return "", errors
-    folder, fname = THEME_BLUEPRINT_FILES[event_type]
-    bp_path = os.path.join(_theme_project_path(), "themes", "_blueprints", folder, fname)
-    if not os.path.exists(bp_path):
-        return "", [f"Blueprint tidak ditemukan: {bp_path}"]
-    with open(bp_path, "r", encoding="utf-8") as f:
-        html = f.read()
+def _theme_sheets(shots_dir, event_type):
+    """Lembar kontak HP (9 layar) dan desktop (4 layar), plus lembar pembanding tema aktif semode dari thumbnail asli."""
+    from PIL import Image
 
-    palette = spec.get("palette") if isinstance(spec.get("palette"), dict) else {}
-    for var in THEME_PALETTE_VARS:
-        val = str(palette.get(var) or palette.get(var.replace("-", "_")) or "").strip()
-        if not val:
-            continue
-        if not re.fullmatch(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})", val):
-            errors.append(f"palette.{var} harus hex warna (#rgb/#rrggbb), diterima: {val[:20]}")
-            continue
-        html = re.sub(rf"(--{re.escape(var)}:\s*)[^;]+;", rf"\g<1>{val};", html, count=1)
+    def grid(files, tile, cols, out):
+        ims = [Image.open(f).convert("RGB").resize(tile) for f in files]
+        rows = (len(ims) + cols - 1) // cols
+        sheet = Image.new("RGB", (cols * (tile[0] + 10) + 10, rows * (tile[1] + 10) + 10), (240, 238, 234))
+        for i, im in enumerate(ims):
+            sheet.paste(im, (10 + (i % cols) * (tile[0] + 10), 10 + (i // cols) * (tile[1] + 10)))
+        sheet.save(out)
+        return out
+    files = sorted(os.listdir(shots_dir))
+    mobile = [os.path.join(shots_dir, f) for f in files if f.startswith("mobile-") and f.endswith(".png")]
+    desktop = [os.path.join(shots_dir, f) for f in files if f.startswith("desktop-") and f.endswith(".png")]
+    sheets = {
+        "mobile": grid(mobile, (300, 650), 5, os.path.join(shots_dir, "sheet-mobile.png")),
+        "desktop": grid(desktop, (960, 600), 2, os.path.join(shots_dir, "sheet-desktop.png")),
+    }
+    peers = [t.split(" ")[0] for t in _active_theme_list() if f"({event_type}," in t][:15]
+    thumbs = [p for p in (_theme_shot(t, "mobile") for t in peers) if p]
+    if thumbs:
+        sheets["catalog"] = grid(thumbs, (200, 400), 5, os.path.join(shots_dir, "sheet-catalog.png"))
+    return sheets
 
-    fonts = spec.get("fonts") if isinstance(spec.get("fonts"), dict) else {}
-    catalog = theme_font_catalog()
-    for role in ("heading", "body", "script"):
-        fam = str(fonts.get(role) or "").strip().strip("'\"")
-        if not fam:
-            continue
-        if fam not in catalog:
-            errors.append(f"fonts.{role} '{fam}' tidak ada di katalog font lokal: {', '.join(catalog)}")
-            continue
-        html = re.sub(rf"(--font-{role}:\s*)[^;]+;", rf"\g<1>'{fam}', {THEME_FONT_FALLBACK[role]};", html, count=1)
 
-    texture = str(spec.get("texture") or "").strip()
-    if texture:
-        if texture not in theme_texture_catalog():
-            errors.append(f"texture '{texture}' tidak ada. Pilihan: {', '.join(theme_texture_catalog())}")
-        else:
-            html = re.sub(r"(--canvas-texture:\s*)[^;]+;", rf"\g<1>url('/assets/ornaments/background/{texture}');", html, count=1)
+def critique_theme_draft(meta, design, sheets, research, round_no, prev_issues):
+    names = {"mobile": "sheet-mobile.png", "desktop": "sheet-desktop.png", "catalog": "sheet-catalog.png"}
+    files = ", ".join(names[k] for k in sheets)
+    prompt = (
+        "Kamu Bima, manajer Dept Theme Lab Luxvite dan kurator desain yang tegas. Buka dan LIHAT gambar berikut di folder kerja: "
+        f"{files}. sheet-mobile = 9 layar HP 390px (sampul, lalu isi undangan digulir); sheet-desktop = 4 layar 1440px; "
+        "sheet-catalog = tema aktif semode yang sudah dijual (pembanding).\n"
+        f"Rancangan: {meta['name']} ({meta['eventType']}, {meta['style']}). Konsep: {meta.get('description', '')}\n"
+        f"Spesifikasi yang dipakai: {json.dumps(design, ensure_ascii=False)[:3000]}\n"
+        + (f"Masalah putaran sebelumnya: {'; '.join(prev_issues)[:800]}\n" if prev_issues else "")
+        + (f"Ringkasan riset tren tim: {research[:1500]}\n" if research else "")
+        + "Nilai 1-10 berdasarkan apa yang TERLIHAT: keterbacaan & kontras teks di atas foto/latar, hierarki tipografi, harmoni palet, "
+        "komposisi sampul HP dan desktop, keunikan dibanding katalog (jangan mirip tema yang ada), kesesuaian dengan konsep & riset, "
+        "dan cacat (teks terpotong, tumpang tindih, area kosong janggal, warna tombol tenggelam).\n"
+        "Kosakata perbaikan yang sah:\n" + theme_studio_vocabulary_text() + "\n"
+        f"Lulus bila skor >= {THEME_STUDIO_MIN_SCORE}. Bila belum lulus, beri 'patch' berupa objek parsial spesifikasi (hanya kunci yang diubah, "
+        "nilai dari kosakata di atas) yang paling memperbaiki masalah.\n"
+        'Jawab HANYA JSON valid: {"score":0,"verdict":"PASS|REVISE","strengths":["..."],"issues":["..."],"patch":{}}'
+    )
+    text = _agy_look(prompt, add_dir=os.path.dirname(sheets["mobile"]), agent_name="Bima")
+    m = re.search(r"\{[\s\S]*\}", text)
+    if not m:
+        raise RuntimeError(f"Kritik visual tidak berbentuk JSON: {text[:200]}")
+    res = json.loads(m.group(0), strict=False)
+    score = int(res.get("score") or 0)
+    return {
+        "round": round_no,
+        "score": score,
+        "verdict": "PASS" if score >= THEME_STUDIO_MIN_SCORE else "REVISE",
+        "strengths": [str(x) for x in (res.get("strengths") or [])][:6],
+        "issues": [str(x) for x in (res.get("issues") or [])][:8],
+        "patch": res.get("patch") if isinstance(res.get("patch"), dict) else {},
+    }
 
-    extra_css = str(spec.get("extraCss") or "")
-    if extra_css:
-        if len(extra_css) > 8000:
-            errors.append("extraCss maksimal 8000 karakter.")
-        elif re.search(r"<|@import|url\(\s*['\"]?(?:https?:|//|javascript:|data:)|expression\(", extra_css, re.I):
-            errors.append("extraCss tidak boleh berisi tag HTML, @import, URL eksternal/data, atau expression().")
-        else:
-            html = html.replace("</style>", f"\n/* Desain {spec.get('name', '')} — Dept Theme Lab */\n{extra_css}\n</style>", 1)
 
-    name = str(spec.get("name") or "").strip()
-    if name:
-        html = re.sub(r"<title>.*?</title>", f"<title>{name} — Luxvite</title>", html, count=1, flags=re.S | re.I)
-    return html, errors
+def _theme_studio_round(design, work_dir, event_type):
+    build_dir = os.path.join(work_dir, "build")
+    shots_dir = os.path.join(work_dir, "shots")
+    shutil.rmtree(shots_dir, ignore_errors=True)
+    design_path = os.path.join(work_dir, "design.json")
+    with open(design_path, "w", encoding="utf-8") as f:
+        json.dump(design, f, ensure_ascii=False, indent=2)
+    built = _theme_studio_tsx(["build", design_path, build_dir], 120)
+    if not built.get("ok"):
+        return {"ok": False, "error": "Spesifikasi ditolak mesin Theme Builder: " + " | ".join(built.get("errors") or [])}
+    node = _node_bin()
+    shot = subprocess.run([node, os.path.join(THEME_STUDIO_DIR, "shoot.js"), os.path.join(build_dir, "preview.html"), shots_dir],
+                          cwd=THEME_STUDIO_DIR, env=_theme_studio_env(), capture_output=True, text=True, timeout=240)
+    if shot.returncode != 0:
+        raise RuntimeError(f"Pemotretan pratinjau gagal: {(shot.stderr or shot.stdout).strip()[-300:]}")
+    return {"ok": True, "issues": built.get("issues") or [], "sheets": _theme_sheets(shots_dir, event_type), "build_dir": build_dir}
 
 
 def create_theme_draft_from_spec(spec, room="THEMES"):
     slug = str(spec.get("slug") or "").strip().lower()
     name = str(spec.get("name") or "").strip()
     style = str(spec.get("style") or "modern").strip().lower()
+    event_type = str(spec.get("eventType") or "WEDDING").strip().upper()
+    design = spec.get("design")
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,48}", slug):
         return {"ok": False, "error": "slug wajib huruf kecil/angka/tanda hubung, 2-49 karakter (contoh: maison-lumiere)."}
     if not name or len(name) > 80:
         return {"ok": False, "error": "name wajib diisi (maks 80 karakter)."}
     if style not in ("minimalist", "modern", "traditional"):
         return {"ok": False, "error": "style harus minimalist, modern, atau traditional."}
-    html, errors = build_theme_draft_html(spec)
-    if errors:
-        return {"ok": False, "error": " | ".join(errors)}
-    args = {
-        "slug": slug,
-        "name": name,
-        "eventType": str(spec.get("eventType") or "WEDDING").strip().upper(),
-        "style": style,
-        "description": str(spec.get("description") or f"{name} — draf Dept Theme Lab")[:300],
-        "htmlContent": html,
-    }
+    if event_type not in ("WEDDING", "PERSONAL", "EVENT"):
+        return {"ok": False, "error": "eventType harus WEDDING, PERSONAL, atau EVENT."}
+    if not isinstance(design, dict) or not isinstance(design.get("palette"), dict) or not isinstance(design.get("variants"), dict):
+        return {"ok": False, "error": "design wajib objek BuilderSpec berisi minimal palette (8 hex) dan variants (lihat kosakata desain)."}
+    if any(slug == t.split(" ")[0] for t in _active_theme_list()):
+        return {"ok": False, "error": f"slug '{slug}' sudah dipakai tema aktif."}
+    meta = {"name": name, "eventType": event_type, "style": style, "description": str(spec.get("description") or "")[:300]}
+    design = dict(design, eventType=event_type)
+    research, _age = latest_theme_research()
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    rel_dir = f"content-queue/{stamp}-tema-{slug}"
+    work_dir = os.path.join(DATA_DIR, rel_dir)
+    os.makedirs(work_dir, exist_ok=True)
+    rounds = []
+    with THEME_STUDIO_LOCK:
+        for round_no in range(THEME_STUDIO_MAX_REVISIONS + 1):
+            update_world_state({"liveStepStatus": f"🎨 Theme Studio: merakit & memotret '{name}' (putaran {round_no + 1})"})
+            rr = _theme_studio_round(design, work_dir, event_type)
+            if not rr["ok"]:
+                if not rounds:
+                    shutil.rmtree(work_dir, ignore_errors=True)
+                    return rr
+                break
+            update_world_state({"liveStepStatus": f"🧐 Bima mengkritik tampilan '{name}' (putaran {round_no + 1})"})
+            crit = critique_theme_draft(meta, design, rr["sheets"], research, round_no + 1,
+                                        [i for r in rounds for i in r["issues"]])
+            crit["design"] = design
+            crit["build_dir"] = rr["build_dir"]
+            crit["sheets"] = rr["sheets"]
+            rounds.append(crit)
+            if crit["verdict"] == "PASS" or not crit["patch"] or round_no == THEME_STUDIO_MAX_REVISIONS:
+                break
+            # Simpan pratinjau putaran ini sebelum direvisi agar CEO bisa membandingkan sebelum/sesudah.
+            for kind, src in rr["sheets"].items():
+                shutil.copy(src, os.path.join(work_dir, f"r{round_no + 1}-{os.path.basename(src)}"))
+            design = _deep_merge(design, crit["patch"])
+            design["eventType"] = event_type
+
+    best = max(rounds, key=lambda r: r["score"])
+    for kind, src in best["sheets"].items():
+        shutil.copy(src, os.path.join(work_dir, os.path.basename(src)))
+    report = [f"# Kritik Visual Theme Studio — {name} (`{slug}`)", f"- Mode & gaya: {event_type} · {style}", f"- Konsep: {meta['description']}", ""]
+    for r in rounds:
+        report += [f"## Putaran {r['round']} — skor {r['score']}/10 ({r['verdict']})",
+                   "Kekuatan: " + ("; ".join(r["strengths"]) or "-"), "Masalah: " + ("; ".join(r["issues"]) or "-"),
+                   f"Patch: `{json.dumps(r['patch'], ensure_ascii=False)}`", ""]
+    report += ["## Spesifikasi akhir", "```json", json.dumps(best["design"], ensure_ascii=False, indent=2), "```"]
+    with open(os.path.join(work_dir, "kritik-visual.md"), "w", encoding="utf-8") as f:
+        f.write("\n".join(report) + "\n")
+
+    if best["score"] < THEME_STUDIO_MIN_SCORE:
+        return {"ok": False, "error": (f"Kritik visual Bima: skor terbaik {best['score']}/10 (< {THEME_STUDIO_MIN_SCORE}) setelah {len(rounds)} putaran, "
+                                       f"draf TIDAK dikirim. Masalah: {'; '.join(best['issues'])[:600]}. Laporan: {rel_dir}/kritik-visual.md. "
+                                       "Rancang ulang dengan arah yang lebih kuat lalu kirim THEME_DRAFT baru.")}
+    with open(os.path.join(best["build_dir"], "master.html"), "r", encoding="utf-8") as f:
+        html = f.read()
+    args = {"slug": slug, "name": name, "eventType": event_type, "style": style,
+            "description": (meta["description"] or f"{name} — draf Dept Theme Lab")[:300], "htmlContent": html}
     if spec.get("subEvent"):
         args["subEvent"] = str(spec["subEvent"])[:60]
     # Draf selalu nonaktif, preview admin di-sandbox, dan tool menolak menimpa tema lain: aman dikirim otomatis tanpa ACC.
     # Kunci Dept 2 tidak punya ops:write, jadi khusus tool ini boleh memakai slot yang memilikinya.
     res = call_remote_mcp_tool("luxvite_create_draft_theme", args, room=room, allow_cross_slot=True)
-    if res.get("ok"):
-        os.makedirs(os.path.join(REPORTS_DIR, "draft-themes"), exist_ok=True)
-        with open(os.path.join(REPORTS_DIR, "draft-themes", f"{slug}.html"), "w", encoding="utf-8") as f:
-            f.write(html)
-    return res
+    if not res.get("ok"):
+        return res
+    os.makedirs(os.path.join(REPORTS_DIR, "draft-themes"), exist_ok=True)
+    with open(os.path.join(REPORTS_DIR, "draft-themes", f"{slug}.html"), "w", encoding="utf-8") as f:
+        f.write(html)
+    item = {
+        "id": f"theme_{stamp}_{slug[:20]}",
+        "title": f"Draf tema {name} — skor visual {best['score']}/10",
+        "platform": "file",
+        "format": "md",
+        "file": f"{rel_dir}/kritik-visual.md",
+        "slides": [f"{rel_dir}/{os.path.basename(p)}" for k, p in best["sheets"].items() if k != "catalog"],
+        "caption": f"Draf nonaktif di Draft Themes luxvite.id ({len(rounds)} putaran kritik). Preview admin: https://luxvite.id/demo/{slug}",
+        "preview": "\n".join(report[:12]),
+        "dir": rel_dir,
+        "status": "SIAP_DIPAKAI",
+        "dept": "THEMES",
+        "agentName": "Bima",
+        "createdAt": time.strftime("%Y-%m-%d %H:%M:%S WITA"),
+        "ceoNote": "",
+    }
+    with CONTENT_QUEUE_LOCK:
+        q = load_content_queue()
+        q.insert(0, item)
+        save_content_queue(q)
+    bump_world_chat_version(toast_msg=f"🎨 Draf tema {name} lolos kritik visual ({best['score']}/10) dan terkirim ke Draft Themes")
+    return dict(res, score=best["score"], rounds=len(rounds), dir=rel_dir)
 
 
 # ===== Dept SOCIAL: Paket Posting dirender jadi gambar slide nyata + antrean "Siap Posting" untuk CEO =====
@@ -9518,7 +9758,10 @@ def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, p
                     spec_obj, th_res = {}, {"ok": False, "error": f"JSON THEME_DRAFT tidak valid: {th_err}"}
                 if th_res.get("ok"):
                     slug = spec_obj.get("slug")
-                    production_done.append(f"✅ Draf tema `{slug}` terkirim ke Draft Themes luxvite.id (nonaktif). Preview admin: https://luxvite.id/demo/{slug}")
+                    production_done.append(
+                        f"✅ Draf tema `{slug}` terkirim ke Draft Themes luxvite.id (nonaktif) setelah kritik visual Bima "
+                        f"{th_res.get('score')}/10 dalam {th_res.get('rounds')} putaran. Foto & laporan: `{th_res.get('dir')}`. Preview admin: https://luxvite.id/demo/{slug}"
+                    )
                     executed_tools.append({"tool": f"Draft Tema: {slug}", "source": "REMOTE_MCP", "summary": "DRAFT_REVIEW"})
                 else:
                     production_failed.append(f"- THEME_DRAFT DITOLAK: {th_res.get('error')}. Perbaiki lalu kirim ulang tag THEME_DRAFT.")
