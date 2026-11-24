@@ -1817,6 +1817,23 @@ AGY_AUTH_SESSION = {
 }
 
 
+def _resolve_agy_bin():
+    global AGY_BIN
+    cand = shutil.which("agy") or os.path.expanduser("~/.local/bin/agy")
+    if cand and os.path.isfile(cand) and os.access(cand, os.X_OK):
+        AGY_BIN = cand
+        return cand
+    for extra in (
+        "/usr/local/bin/agy",
+        os.path.expanduser("~/.npm-global/bin/agy"),
+        os.path.expanduser("~/.gemini/antigravity/bin/agy"),
+    ):
+        if os.path.isfile(extra) and os.access(extra, os.X_OK):
+            AGY_BIN = extra
+            return extra
+    return AGY_BIN if (AGY_BIN and os.path.isfile(AGY_BIN)) else ""
+
+
 def start_agy_oauth_session():
     # Terminate any previous waiting process so there is never more than 1
     old_proc = AGY_AUTH_SESSION.get("proc")
@@ -1826,8 +1843,9 @@ def start_agy_oauth_session():
         except Exception:
             pass
 
-    if not os.path.exists(AGY_BIN):
-        return {"ok": False, "error": "Binary agy tidak ditemukan."}
+    agy_path = _resolve_agy_bin()
+    if not agy_path or not os.path.exists(agy_path):
+        return {"ok": False, "not_installed": True, "error": "Binary Antigravity CLI (agy) belum terinstal di server ini."}
 
     env = os.environ.copy()
     # Prevent agy from automatically launching browser tabs on its own; let the Web UI open 1 tab cleanly
@@ -2233,14 +2251,161 @@ def detect_claude_local_session(force=False):
     return data
 
 
-def start_claude_local_login():
-    """Memulai login OAuth lokal Claude Code (`claude auth login --claudeai`) tanpa API Key."""
+_CLI_INSTALL_STATE = {
+    "installing": False,
+    "target": "",
+    "ok": None,
+    "message": "",
+    "logTail": "",
+    "updatedAt": 0,
+}
+_CLI_INSTALL_LOCK = threading.Lock()
+
+
+def get_cli_environment_status():
+    agy_path = _resolve_agy_bin()
+    claude_path = find_claude_cli_bin() or ""
+    with _CLI_INSTALL_LOCK:
+        inst = dict(_CLI_INSTALL_STATE)
+    return {
+        "os": sys.platform,
+        "agyInstalled": bool(agy_path and os.path.isfile(agy_path)),
+        "agyPath": agy_path or "",
+        "claudeInstalled": bool(claude_path and os.path.isfile(claude_path)),
+        "claudePath": claude_path,
+        "installer": inst,
+    }
+
+
+def start_cli_auto_install(target):
+    tgt = str(target or "").strip().lower()
+    if tgt not in ("claude", "agy"):
+        return {"ok": False, "error": "Target CLI harus 'claude' atau 'agy'."}
+
+    with _CLI_INSTALL_LOCK:
+        if _CLI_INSTALL_STATE.get("installing"):
+            return {
+                "ok": False,
+                "error": f"Sedang menginstal {_CLI_INSTALL_STATE.get('target')} CLI. Tunggu hingga selesai.",
+                "cli": get_cli_environment_status(),
+            }
+        _CLI_INSTALL_STATE.update({
+            "installing": True,
+            "target": tgt,
+            "ok": None,
+            "message": f"Menyiapkan instalasi otomatis {tgt.upper()} CLI di server...",
+            "logTail": "",
+            "updatedAt": time.time(),
+        })
+
+    def _worker():
+        env = os.environ.copy()
+        extra_bins = [
+            os.path.expanduser("~/.local/bin"),
+            os.path.expanduser("~/.npm-global/bin"),
+            "/usr/local/bin",
+            "/opt/homebrew/bin",
+        ]
+        env["PATH"] = os.pathsep.join([p for p in extra_bins if os.path.isdir(p)] + [env.get("PATH", "")])
+        ok_flag = False
+        msg = ""
+        tail = ""
+        try:
+            if tgt == "claude":
+                cmds = [
+                    "curl -fsSL https://claude.ai/install.sh | bash",
+                    "npm install -g @anthropic-ai/claude-code",
+                ]
+                for idx, cmd in enumerate(cmds):
+                    with _CLI_INSTALL_LOCK:
+                        _CLI_INSTALL_STATE["message"] = f"Menginstal Claude Code CLI (metode {idx + 1}/{len(cmds)})..."
+                        _CLI_INSTALL_STATE["updatedAt"] = time.time()
+                    r = subprocess.run(
+                        ["bash", "-lc", cmd],
+                        capture_output=True,
+                        text=True,
+                        timeout=180,
+                        env=env,
+                    )
+                    out = ((r.stdout or "") + "\n" + (r.stderr or "")).strip()
+                    tail = out[-500:]
+                    found = find_claude_cli_bin()
+                    if r.returncode == 0 and found:
+                        ok_flag = True
+                        msg = f"Claude Code CLI berhasil terinstal di {found}! Klik 'Buka Halaman Login' untuk menghubungkan akun."
+                        detect_claude_local_session(force=True)
+                        break
+                if not ok_flag:
+                    msg = "Instalasi otomatis Claude CLI belum berhasil. Pastikan server memiliki akses internet & curl atau Node.js/npm."
+            else:
+                # Target: agy
+                found = _resolve_agy_bin()
+                if found:
+                    ok_flag = True
+                    msg = f"Antigravity CLI (agy) sudah terpasang di {found}!"
+                else:
+                    r = subprocess.run(
+                        ["bash", "-lc", "npm install -g @google/antigravity-cli 2>&1 || true"],
+                        capture_output=True,
+                        text=True,
+                        timeout=150,
+                        env=env,
+                    )
+                    tail = ((r.stdout or "") + "\n" + (r.stderr or "")).strip()[-500:]
+                    found2 = _resolve_agy_bin()
+                    if found2:
+                        ok_flag = True
+                        msg = f"Antigravity CLI (agy) berhasil terinstal di {found2}!"
+                    else:
+                        msg = "Installer paket publik agy tidak tersedia di server ini. Pasang binary agy sesuai OS homelab, atau gunakan Claude Code CLI / API Key."
+        except Exception as err:
+            ok_flag = False
+            msg = f"Gagal menjalankan installer: {str(err)[:180]}"
+        finally:
+            with _CLI_INSTALL_LOCK:
+                _CLI_INSTALL_STATE.update({
+                    "installing": False,
+                    "target": tgt,
+                    "ok": ok_flag,
+                    "message": msg,
+                    "logTail": tail,
+                    "updatedAt": time.time(),
+                })
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return {"ok": True, "started": True, "cli": get_cli_environment_status()}
+
+
+def _cleanup_claude_login_proc():
+    old_p = _CLAUDE_LOGIN_PROC.get("proc")
+    old_fd = _CLAUDE_LOGIN_PROC.get("master_fd")
+    if old_p and old_p.poll() is None:
+        try:
+            old_p.terminate()
+        except Exception:
+            pass
+    if old_fd is not None:
+        try:
+            os.close(old_fd)
+        except Exception:
+            pass
+    _CLAUDE_LOGIN_PROC["proc"] = None
+    _CLAUDE_LOGIN_PROC["master_fd"] = None
+    _CLAUDE_LOGIN_PROC["auth_url"] = None
+
+
+def start_claude_local_login(force_relogin=False):
+    """Memulai login OAuth Claude Code (`claude auth login --claudeai`) via PTY agar URL login dapat dibuka langsung dari browser pengunjung/Admin tanpa SSH."""
     claude_bin = find_claude_cli_bin()
     if not claude_bin:
-        return {"ok": False, "error": "Binary Claude Code CLI tidak ditemukan di sistem."}
+        return {
+            "ok": False,
+            "not_installed": True,
+            "error": "Binary Claude Code CLI belum terinstal di server ini. Klik tombol 'Instal Otomatis' terlebih dahulu.",
+        }
 
     st = detect_claude_local_session(force=True)
-    if st.get("logged_in"):
+    if st.get("logged_in") and not force_relogin:
         return {
             "ok": True,
             "already_logged_in": True,
@@ -2249,34 +2414,181 @@ def start_claude_local_login():
         }
 
     try:
-        old_p = _CLAUDE_LOGIN_PROC.get("proc")
-        if old_p and old_p.poll() is None:
-            try:
-                old_p.terminate()
-            except Exception:
-                pass
+        _cleanup_claude_login_proc()
 
         cmd = [claude_bin, "auth", "login", "--claudeai"]
-        if st.get("email"):
-            cmd.extend(["--email", st["email"]])
+        env = os.environ.copy()
+        # Prevent CLI from popping up a browser on the headless homelab host; let Admin's browser open the captured OAuth URL!
+        env["BROWSER"] = "/usr/bin/true"
+        env["NO_COLOR"] = "1"
 
-        proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            cwd=BASE_DIR,
-        )
+        master_fd = None
+        slave_fd = None
+        proc = None
+        try:
+            import pty
+            master_fd, slave_fd = pty.openpty()
+            proc = subprocess.Popen(
+                cmd,
+                stdin=slave_fd,
+                stdout=slave_fd,
+                stderr=slave_fd,
+                cwd=BASE_DIR,
+                env=env,
+                close_fds=True,
+            )
+            os.close(slave_fd)
+            slave_fd = None
+        except Exception:
+            if slave_fd is not None:
+                try:
+                    os.close(slave_fd)
+                except Exception:
+                    pass
+            if master_fd is not None:
+                try:
+                    os.close(master_fd)
+                except Exception:
+                    pass
+            master_fd = None
+            proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                cwd=BASE_DIR,
+                env=env,
+            )
+
         _CLAUDE_LOGIN_PROC["proc"] = proc
+        _CLAUDE_LOGIN_PROC["master_fd"] = master_fd
+        _CLAUDE_LOGIN_PROC["auth_url"] = None
+
+        import select
+        read_fd = master_fd if master_fd is not None else proc.stdout.fileno()
+        collected = ""
+        ansi_re = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+        url_re = re.compile(r"(https://claude\.ai/oauth/authorize[^\s\r\n\"'<>]+)")
+        deadline = time.time() + 14.0
+
+        while time.time() < deadline:
+            try:
+                rlist, _, _ = select.select([read_fd], [], [], 0.3)
+            except Exception:
+                break
+            if rlist:
+                try:
+                    chunk = os.read(read_fd, 4096).decode("utf-8", errors="ignore")
+                except OSError:
+                    break
+                if chunk:
+                    collected += ansi_re.sub("", chunk)
+                    m_url = url_re.search(collected)
+                    if m_url:
+                        auth_url = m_url.group(1).strip()
+                        _CLAUDE_LOGIN_PROC["auth_url"] = auth_url
+                        return {
+                            "ok": True,
+                            "needs_code": True,
+                            "auth_url": auth_url,
+                            "claude": st,
+                            "message": "Link login Claude.ai siap! Selesaikan Authorize di tab yang terbuka, lalu copy-paste kode lengkapnya (termasuk tanda #) ke kotak di bawah.",
+                        }
+            if proc.poll() is not None:
+                break
+
+        clean_out = ansi_re.sub("", collected)
+        m_url = url_re.search(clean_out)
+        if m_url:
+            auth_url = m_url.group(1).strip()
+            _CLAUDE_LOGIN_PROC["auth_url"] = auth_url
+            return {
+                "ok": True,
+                "needs_code": True,
+                "auth_url": auth_url,
+                "claude": st,
+                "message": "Link login Claude.ai siap! Selesaikan Authorize lalu paste kode lengkapnya ke kotak di bawah.",
+            }
+
+        st_after = detect_claude_local_session(force=True)
+        if st_after.get("logged_in"):
+            _cleanup_claude_login_proc()
+            return {
+                "ok": True,
+                "already_logged_in": True,
+                "claude": st_after,
+                "message": f"Berhasil login sebagai {st_after.get('email') or 'akun Claude'}!",
+            }
+
         return {
-            "ok": True,
-            "started": True,
-            "claude": st,
-            "message": "Browser login Claude.ai telah dibuka oleh Claude Code CLI. Selesaikan klik Authorize di browser lalu klik 'Cek Status Sesi'!",
+            "ok": False,
+            "error": f"Tidak menemukan URL OAuth dari Claude CLI: {clean_out.strip()[:220]}",
+            "claude": st_after,
         }
     except Exception as e:
         return {"ok": False, "error": f"Gagal menjalankan claude auth login: {str(e)}"}
+
+
+def submit_claude_oauth_code(raw_code):
+    """Meneruskan kode otorisasi (code#state) yang di-paste CEO dari browser ke proses PTY `claude auth login`."""
+    code = (raw_code or "").strip()
+    if not code:
+        return {"ok": False, "error": "Kode otorisasi Claude masih kosong."}
+
+    proc = _CLAUDE_LOGIN_PROC.get("proc")
+    master_fd = _CLAUDE_LOGIN_PROC.get("master_fd")
+    if not proc or proc.poll() is not None:
+        return {
+            "ok": False,
+            "error": "Sesi login Claude sebelumnya sudah kedaluwarsa. Klik 'Buka Halaman Login' untuk memulai sesi baru.",
+        }
+
+    try:
+        payload_bytes = (code + "\r\n").encode("utf-8")
+        if master_fd is not None:
+            os.write(master_fd, payload_bytes)
+        elif proc.stdin:
+            proc.stdin.write(payload_bytes)
+            proc.stdin.flush()
+
+        import select
+        read_fd = master_fd if master_fd is not None else (proc.stdout.fileno() if proc.stdout else None)
+        collected = ""
+        ansi_re = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+        deadline = time.time() + 18.0
+        while time.time() < deadline:
+            if read_fd is not None:
+                try:
+                    rlist, _, _ = select.select([read_fd], [], [], 0.35)
+                except Exception:
+                    rlist = []
+                if rlist:
+                    try:
+                        chunk = os.read(read_fd, 4096).decode("utf-8", errors="ignore")
+                        if chunk:
+                            collected += ansi_re.sub("", chunk)
+                    except OSError:
+                        pass
+            if "Login successful" in collected or proc.poll() is not None:
+                break
+
+        st = detect_claude_local_session(force=True)
+        if st.get("logged_in") or "Login successful" in collected:
+            _cleanup_claude_login_proc()
+            return {
+                "ok": True,
+                "logged_in": True,
+                "claude": st,
+                "message": f"Login Claude.ai berhasil! Akun aktif: {st.get('email') or 'Claude User'}",
+            }
+        err_hint = re.sub(r"\s+", " ", collected).strip()[-220:]
+        return {
+            "ok": False,
+            "claude": st,
+            "error": err_hint or "Kode tidak diterima. Pastikan Anda meng-copy seluruh kode (termasuk tanda # di tengahnya).",
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"Gagal mengirim kode ke Claude CLI: {str(e)}"}
 
 
 def call_local_claude_cli(model_display_or_id, system_prompt, history_messages, latest_prompt, attachments=None, live_mcp_ctx=None, session_key="", room="", agent_name=""):
@@ -6922,6 +7234,10 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             self._send_json(200, {"ok": True, "housekeeping": get_housekeeping_status()})
             return
 
+        if self.path.startswith("/api/cli/status"):
+            self._send_json(200, {"ok": True, "cli": get_cli_environment_status(), "claude": detect_claude_local_session(force=False)})
+            return
+
         if self.path.startswith("/api/export/content-calendar.csv"):
             parsed_csv = urllib.parse.urlparse(self.path)
             qs_csv = urllib.parse.parse_qs(parsed_csv.query)
@@ -7535,13 +7851,23 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             return
 
         if self.path.startswith("/api/claude-auth/login"):
-            res = start_claude_local_login()
+            res = start_claude_local_login(force_relogin=bool(body.get("force")))
+            self._send_json(200, res)
+            return
+
+        if self.path.startswith("/api/claude-auth/submit"):
+            res = submit_claude_oauth_code(body.get("code", ""))
             self._send_json(200, res)
             return
 
         if self.path.startswith("/api/claude-auth/status"):
             st = detect_claude_local_session(force=True)
-            self._send_json(200, {"ok": True, "claude": st})
+            self._send_json(200, {"ok": True, "claude": st, "cli": get_cli_environment_status()})
+            return
+
+        if self.path.startswith("/api/cli/install"):
+            res = start_cli_auto_install(body.get("target", ""))
+            self._send_json(200, res)
             return
 
         if self.path.startswith("/api/office-mode"):

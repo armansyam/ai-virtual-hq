@@ -1444,66 +1444,92 @@
 
       <div id="settings-panel-API" class="p-5 overflow-y-auto space-y-4 text-xs">
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div class="rounded-xl bg-[#13131b] border border-emerald-500/40 p-3.5 flex flex-col justify-between gap-2.5">
-            <div class="flex items-start justify-between gap-2">
-              <div class="flex items-center gap-2.5">
-                <div class="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center font-bold text-emerald-300">AG</div>
-                <div>
-                  <div class="font-bold text-white text-xs">Sesi Lokal Antigravity CLI (OAuth)</div>
-                  <div id="agy-auth-status" class="text-[10.5px] text-emerald-400">● Memeriksa akun Antigravity...</div>
-                  <div id="agy-account-badge" class="text-[10.5px] text-cyan-300 font-mono mt-0.5">👤 Akun: Memuat...</div>
+          <!-- Card 1: Antigravity CLI (OAuth) -->
+          <div class="rounded-xl bg-[#13131b] border border-emerald-500/35 p-4 flex flex-col justify-between gap-2.5">
+            <div class="flex items-start justify-between gap-2.5">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <div class="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/35 flex items-center justify-center font-bold text-emerald-300 text-xs shrink-0">AG</div>
+                <div class="min-w-0">
+                  <div class="font-bold text-white text-xs truncate">Antigravity CLI (Langganan)</div>
+                  <div id="agy-auth-status" class="text-[10.5px] text-emerald-400 truncate">● Memeriksa akun Antigravity...</div>
+                  <div id="agy-account-badge" class="text-[10px] text-slate-300 font-mono mt-0.5 truncate">👤 Memuat...</div>
                 </div>
               </div>
-              <button id="btn-toggle-agy-form" onclick="toggleAgyOAuthForm()" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-emerald-200 border border-emerald-500/35 text-[10.5px] font-bold cursor-pointer shrink-0">
-                ✏️ Edit / Ganti Akun
+              <button id="btn-toggle-agy-form" onclick="toggleAgyOAuthForm()" class="px-2.5 py-1 rounded-lg bg-white/[0.06] hover:bg-white/12 text-emerald-200 border border-emerald-500/30 text-[10.5px] font-semibold cursor-pointer shrink-0 transition">
+                Kelola
               </button>
             </div>
-            <div id="agy-oauth-form-wrap" class="hidden space-y-1.5 pt-2 border-t border-white/10">
-              <div class="flex items-center justify-between gap-2">
-                <label class="block text-[10.5px] text-amber-300 font-semibold">
-                  📋 Paste Kode OAuth / URL <code class="text-emerald-300">oauth-callback?code=...</code>:
-                </label>
-                <button onclick="startAgyOAuthFlow()" class="px-2 py-0.5 rounded bg-emerald-500/25 hover:bg-emerald-500/40 text-emerald-200 border border-emerald-500/40 text-[10px] font-bold cursor-pointer shrink-0">
-                  🔄 Buka Link Login Baru
+
+            <!-- Contextual Auto-Install Banner (Hidden when installed) -->
+            <div id="agy-install-banner" class="hidden flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg bg-rose-500/10 border border-rose-500/25">
+              <span class="text-[10.5px] text-rose-200">CLI <code>agy</code> belum terpasang di server</span>
+              <button id="btn-install-agy-cli" onclick="installCliOnServer('agy')" class="px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10px] cursor-pointer shrink-0">
+                ⬇️ Instal Otomatis
+              </button>
+            </div>
+
+            <div id="agy-oauth-form-wrap" class="hidden space-y-2 pt-2.5 border-t border-white/10">
+              <div class="flex flex-wrap items-center justify-between gap-1.5">
+                <button onclick="startAgyOAuthFlow()" class="px-2.5 py-1.5 rounded-lg bg-emerald-600/85 hover:bg-emerald-500 text-white text-[10.5px] font-bold cursor-pointer transition">
+                  🌐 1. Buka Login Browser
+                </button>
+                <button onclick="syncAntigravityModels(); loadCliEnvironmentStatus();" class="px-2.5 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/12 text-slate-200 border border-white/10 text-[10.5px] font-medium cursor-pointer transition">
+                  🔄 Cek Status
                 </button>
               </div>
               <div class="flex items-center gap-1.5">
-                <input id="agy-oauth-code-input" type="text" placeholder="Paste kode authorization atau URL oauth-callback di sini..." class="flex-1 px-2.5 py-1.5 rounded-lg bg-[#1c1c28] border border-emerald-500/40 text-white font-mono text-[11px] focus:outline-none focus:border-emerald-400" />
-                <button onclick="submitAgyOAuthCode()" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] cursor-pointer shrink-0 shadow">
+                <input id="agy-oauth-code-input" type="text" placeholder="2. Paste kode atau URL oauth-callback di sini..." class="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 focus:border-emerald-400 text-white font-mono text-[11px] focus:outline-none" />
+                <button onclick="submitAgyOAuthCode()" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[11px] cursor-pointer shrink-0">
                   ✓ Verifikasi
                 </button>
               </div>
-              <div id="agy-oauth-feedback" class="text-[10.5px] text-slate-400">
-                Menggunakan sesi OAuth lokal Antigravity CLI (tanpa API Key).
+              <div id="agy-oauth-feedback" class="text-[10.5px] text-slate-400 leading-relaxed">
+                Login 1-klik dari browser Anda tanpa SSH — langsung memakai kuota langganan.
               </div>
             </div>
           </div>
 
-          <div class="rounded-xl bg-[#13131b] border border-amber-500/35 p-3.5 flex flex-col justify-between gap-2.5">
-            <div class="flex items-start justify-between gap-2">
-              <div class="flex items-center gap-2.5">
-                <div class="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center font-bold text-amber-300">CL</div>
-                <div>
-                  <div class="font-bold text-white text-xs">Sesi Lokal Claude Code CLI (Tanpa API Key)</div>
-                  <div id="claude-auth-status" class="text-[10.5px] text-amber-300">● Memeriksa sesi lokal Claude Code...</div>
-                  <div id="claude-account-badge" class="text-[10.5px] text-amber-200 font-mono mt-0.5">👤 Akun: Memuat...</div>
+          <!-- Card 2: Claude Code CLI (OAuth) -->
+          <div class="rounded-xl bg-[#13131b] border border-amber-500/35 p-4 flex flex-col justify-between gap-2.5">
+            <div class="flex items-start justify-between gap-2.5">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <div class="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/35 flex items-center justify-center font-bold text-amber-300 text-xs shrink-0">CL</div>
+                <div class="min-w-0">
+                  <div class="font-bold text-white text-xs truncate">Claude Code CLI (Pro / Max)</div>
+                  <div id="claude-auth-status" class="text-[10.5px] text-amber-300 truncate">● Memeriksa sesi lokal Claude Code...</div>
+                  <div id="claude-account-badge" class="text-[10px] text-slate-300 font-mono mt-0.5 truncate">👤 Memuat...</div>
                 </div>
               </div>
-              <button id="btn-toggle-claude-form" onclick="toggleClaudeAuthForm()" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-amber-200 border border-amber-500/35 text-[10.5px] font-bold cursor-pointer shrink-0">
-                ✏️ Edit / Login
+              <button id="btn-toggle-claude-form" onclick="toggleClaudeAuthForm()" class="px-2.5 py-1 rounded-lg bg-white/[0.06] hover:bg-white/12 text-amber-200 border border-amber-500/30 text-[10.5px] font-semibold cursor-pointer shrink-0 transition">
+                Kelola
               </button>
             </div>
-            <div id="claude-auth-form-wrap" class="hidden space-y-2 pt-2 border-t border-white/10">
-              <div class="flex flex-wrap items-center gap-2">
-                <button onclick="loginClaudeLocalSession()" class="px-3 py-1.5 rounded-lg bg-amber-500/25 hover:bg-amber-500/35 text-amber-200 border border-amber-500/50 text-[10.5px] font-bold cursor-pointer">
-                  🔑 Login Sesi Lokal Claude.ai
+
+            <!-- Contextual Auto-Install Banner (Hidden when installed) -->
+            <div id="claude-install-banner" class="hidden flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg bg-rose-500/10 border border-rose-500/25">
+              <span class="text-[10.5px] text-rose-200">CLI <code>claude</code> belum terpasang di server</span>
+              <button id="btn-install-claude-cli" onclick="installCliOnServer('claude')" class="px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[10px] cursor-pointer shrink-0">
+                ⬇️ Instal Otomatis
+              </button>
+            </div>
+
+            <div id="claude-auth-form-wrap" class="hidden space-y-2 pt-2.5 border-t border-white/10">
+              <div class="flex flex-wrap items-center justify-between gap-1.5">
+                <button onclick="loginClaudeLocalSession(true)" class="px-2.5 py-1.5 rounded-lg bg-amber-500/85 hover:bg-amber-400 text-slate-950 text-[10.5px] font-bold cursor-pointer transition">
+                  🌐 1. Buka Login Browser
                 </button>
-                <button onclick="refreshClaudeLocalSession(true)" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 border border-white/15 text-[10.5px] font-semibold cursor-pointer">
-                  🔄 Cek Status &amp; Muat Model Lokal
+                <button onclick="refreshClaudeLocalSession(true); loadCliEnvironmentStatus();" class="px-2.5 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/12 text-slate-200 border border-white/10 text-[10.5px] font-medium cursor-pointer transition">
+                  🔄 Cek Status
                 </button>
               </div>
-              <div id="claude-oauth-feedback" class="text-[10.5px] text-slate-400">
-                Langsung memakai langganan Claude Pro/Max lokal via <code>claude auth login --claudeai</code> (100% sesi lokal, BUKAN Anthropic API berbayar).
+              <div class="flex items-center gap-1.5">
+                <input id="claude-oauth-code-input" type="text" placeholder="2. Paste kode otorisasi lengkap (termasuk #) di sini..." class="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 focus:border-amber-400 text-white font-mono text-[11px] focus:outline-none" />
+                <button onclick="submitClaudeOAuthCode()" class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] cursor-pointer shrink-0">
+                  ✓ Verifikasi
+                </button>
+              </div>
+              <div id="claude-oauth-feedback" class="text-[10.5px] text-slate-400 leading-relaxed">
+                Langsung memakai langganan Claude Pro/Max via browser Anda tanpa SSH &amp; tanpa API Key.
               </div>
             </div>
           </div>
@@ -4922,7 +4948,7 @@
       if (!wrap) return;
       const shouldOpen = forceOpen !== null ? Boolean(forceOpen) : wrap.classList.contains("hidden");
       wrap.classList.toggle("hidden", !shouldOpen);
-      if (btn) btn.textContent = shouldOpen ? "✕ Tutup Form" : "✏️ Edit / Ganti Akun";
+      if (btn) btn.textContent = shouldOpen ? "✕ Tutup" : "Kelola";
     }
 
     function toggleClaudeAuthForm(forceOpen = null) {
@@ -4931,7 +4957,7 @@
       if (!wrap) return;
       const shouldOpen = forceOpen !== null ? Boolean(forceOpen) : wrap.classList.contains("hidden");
       wrap.classList.toggle("hidden", !shouldOpen);
-      if (btn) btn.textContent = shouldOpen ? "✕ Tutup Form" : "✏️ Edit / Login";
+      if (btn) btn.textContent = shouldOpen ? "✕ Tutup" : "Kelola";
     }
 
     function toggleApiConnForm(forceOpen = null) {
@@ -5524,15 +5550,20 @@
           return;
         }
         if (data.ok && data.auth_url) {
-          if (st) st.textContent = "⏳ Menunggu kode oauth-callback di-paste (60 detik)...";
+          try { window.open(data.auth_url, "_blank", "noopener"); } catch (e) {}
+          if (st) st.textContent = "⏳ Menunggu kode oauth-callback di-paste...";
           if (fb) {
-            fb.innerHTML = `<span class="text-emerald-300 font-semibold">✓ Sesi OAuth siap!</span> <a href="${data.auth_url}" target="_blank" class="underline text-amber-300 font-bold">Klik di sini jika tab login Google belum terbuka otomatis</a>, lalu salin kode / URL dari <code class="text-amber-300">oauth-callback</code> dan <b>paste ke kotak di atas</b> → klik <b>"✓ 2. Verifikasi Kode"</b>.`;
+            fb.innerHTML = `<span class="text-emerald-300 font-semibold">✓ Tab login Google dibuka!</span> <a href="${escapeHtmlSafe(data.auth_url)}" target="_blank" rel="noopener" class="underline text-amber-300 font-bold">Buka manual jika terblokir</a>, lalu paste kode / URL callback ke kotak di atas &amp; klik <b>Verifikasi</b>.`;
           }
           const inp = document.getElementById("agy-oauth-code-input");
           if (inp) inp.focus();
           return;
         }
-        if (fb) fb.innerHTML = `<span class="text-rose-400">⚠️ ${data.error || "Gagal memulai sesi OAuth."}</span>`;
+        if (data.not_installed) {
+          const b = document.getElementById("agy-install-banner");
+          if (b) b.classList.remove("hidden");
+        }
+        if (fb) fb.innerHTML = `<span class="text-rose-400">⚠️ ${escapeHtmlSafe(data.error || "Gagal memulai sesi OAuth.")}</span>`;
       } catch (e) {
         if (fb) fb.innerHTML = `<span class="text-rose-400">⚠️ Error koneksi: ${e.message}</span>`;
       }
@@ -8203,38 +8234,159 @@
       }
     }
 
-    async function loginClaudeLocalSession() {
+    let _CLI_INSTALL_POLL = null;
+
+    function applyCliEnvironmentUI(cli) {
+      if (!cli || typeof cli !== "object") return;
+      const agyBan = document.getElementById("agy-install-banner");
+      const clBan = document.getElementById("claude-install-banner");
+      if (agyBan) agyBan.classList.toggle("hidden", Boolean(cli.agyInstalled));
+      if (clBan) clBan.classList.toggle("hidden", Boolean(cli.claudeInstalled));
+
+      const inst = cli.installer || {};
+      const btnAgy = document.getElementById("btn-install-agy-cli");
+      const btnCl = document.getElementById("btn-install-claude-cli");
+      if (btnAgy) {
+        const busy = Boolean(inst.installing && inst.target === "agy");
+        btnAgy.disabled = busy;
+        btnAgy.textContent = busy ? "⏳ Menginstal..." : "⬇️ Instal Otomatis";
+      }
+      if (btnCl) {
+        const busy = Boolean(inst.installing && inst.target === "claude");
+        btnCl.disabled = busy;
+        btnCl.textContent = busy ? "⏳ Menginstal..." : "⬇️ Instal Otomatis";
+      }
+      if (inst.target && inst.message) {
+        const fbId = inst.target === "claude" ? "claude-oauth-feedback" : "agy-oauth-feedback";
+        const fb = document.getElementById(fbId);
+        if (fb && (inst.installing || inst.ok !== null)) {
+          const cls = inst.installing ? "text-amber-300" : (inst.ok ? "text-emerald-400 font-semibold" : "text-rose-400");
+          fb.innerHTML = `<span class="${cls}">${escapeHtmlSafe(inst.message)}</span>`;
+        }
+      }
+    }
+
+    async function loadCliEnvironmentStatus() {
+      if (!IS_AUTHENTICATED) return;
+      try {
+        const res = await fetch("/api/cli/status");
+        const data = await res.json();
+        if (data && data.ok) {
+          if (data.cli) applyCliEnvironmentUI(data.cli);
+          if (data.claude) applyClaudeSessionUI(data.claude);
+        }
+      } catch (e) {}
+    }
+
+    async function installCliOnServer(target) {
+      const wrapId = target === "claude" ? "claude-auth-form-wrap" : "agy-oauth-form-wrap";
+      const wrap = document.getElementById(wrapId);
+      if (wrap) wrap.classList.remove("hidden");
+      const fb = document.getElementById(target === "claude" ? "claude-oauth-feedback" : "agy-oauth-feedback");
+      if (fb) fb.innerHTML = `<span class="text-amber-300">⏳ Memulai instalasi otomatis ${target.toUpperCase()} CLI di server (tunggu ±20–60 detik)...</span>`;
+      try {
+        const res = await fetch("/api/cli/install", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ target })
+        });
+        const data = await res.json();
+        if (data.cli) applyCliEnvironmentUI(data.cli);
+        if (!data.ok) {
+          if (fb) fb.innerHTML = `<span class="text-rose-400">⚠️ ${escapeHtmlSafe(data.error || "Gagal memulai instalasi.")}</span>`;
+          return;
+        }
+        updateToast(`⬇️ Menginstal ${target.toUpperCase()} CLI otomatis di server...`);
+        if (_CLI_INSTALL_POLL) clearInterval(_CLI_INSTALL_POLL);
+        _CLI_INSTALL_POLL = setInterval(async () => {
+          try {
+            const r2 = await fetch("/api/cli/status");
+            const d2 = await r2.json();
+            if (d2 && d2.ok && d2.cli) {
+              applyCliEnvironmentUI(d2.cli);
+              if (d2.claude) applyClaudeSessionUI(d2.claude);
+              const inst = d2.cli.installer || {};
+              if (!inst.installing) {
+                clearInterval(_CLI_INSTALL_POLL);
+                _CLI_INSTALL_POLL = null;
+                if (inst.ok) {
+                  updateToast(`✅ ${target.toUpperCase()} CLI berhasil terinstal! Langsung klik 'Buka Login Browser'.`);
+                  if (target === "claude") loginClaudeLocalSession(true);
+                  else startAgyOAuthFlow();
+                }
+              }
+            }
+          } catch (e) {}
+        }, 3000);
+      } catch (e) {
+        if (fb) fb.innerHTML = `<span class="text-rose-400">⚠️ Error: ${escapeHtmlSafe(e.message)}</span>`;
+      }
+    }
+
+    async function loginClaudeLocalSession(forceRelogin = false) {
       const fb = document.getElementById("claude-oauth-feedback");
-      if (fb) fb.innerHTML = `<span class="text-amber-300">⏳ Membuka login OAuth lokal Claude Code (claude auth login --claudeai)...</span>`;
+      const st = document.getElementById("claude-auth-status");
+      if (fb) fb.innerHTML = `<span class="text-amber-300">⏳ Menyiapkan link login OAuth Claude.ai (PTY headless)...</span>`;
       try {
         const res = await fetch("/api/claude-auth/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({})
+          body: JSON.stringify({ force: Boolean(forceRelogin) })
         });
         const data = await res.json();
         if (data.claude) applyClaudeSessionUI(data.claude);
+        if (data.not_installed) {
+          const clBan = document.getElementById("claude-install-banner");
+          if (clBan) clBan.classList.remove("hidden");
+        }
         if (data.ok && data.already_logged_in) {
-          if (fb) fb.innerHTML = `<span class="text-emerald-400 font-bold">✓ ${data.message}</span>`;
+          if (fb) fb.innerHTML = `<span class="text-emerald-400 font-bold">✓ ${escapeHtmlSafe(data.message)}</span>`;
           await refreshClaudeLocalSession(true);
           return;
         }
-        if (data.ok) {
-          if (fb) fb.innerHTML = `<span class="text-emerald-300 font-semibold">✓ ${data.message}</span>`;
-          updateToast("🌐 Browser login Claude.ai dibuka — selesaikan Authorize lalu klik Cek Status!");
-          // Auto-poll status beberapa kali setelah user authorize di browser
-          let tries = 0;
-          const poller = setInterval(async () => {
-            tries++;
-            if (tries > 18) { clearInterval(poller); return; }
-            const ok = await refreshClaudeLocalSession(false);
-            if (ok) clearInterval(poller);
-          }, 5000);
+        if (data.ok && data.auth_url) {
+          try { window.open(data.auth_url, "_blank", "noopener"); } catch (e) {}
+          if (st) st.textContent = "⏳ Menunggu kode otorisasi Claude di-paste...";
+          if (fb) {
+            fb.innerHTML = `<span class="text-emerald-300 font-semibold">✓ Tab login Claude.ai dibuka!</span> <a href="${escapeHtmlSafe(data.auth_url)}" target="_blank" rel="noopener" class="underline text-amber-300 font-bold">Buka manual jika terblokir</a>, lalu copy kode lengkap (termasuk <code>#</code>) &amp; paste ke kotak di atas → klik <b>Verifikasi</b>.`;
+          }
+          const inp = document.getElementById("claude-oauth-code-input");
+          if (inp) inp.focus();
+          return;
+        }
+        if (fb) fb.innerHTML = `<span class="text-rose-400">⚠️ ${escapeHtmlSafe(data.error || "Gagal memulai login lokal Claude.")}</span>`;
+      } catch (e) {
+        if (fb) fb.innerHTML = `<span class="text-rose-400">⚠️ Error: ${escapeHtmlSafe(e.message)}</span>`;
+      }
+    }
+
+    async function submitClaudeOAuthCode() {
+      const inp = document.getElementById("claude-oauth-code-input");
+      const fb = document.getElementById("claude-oauth-feedback");
+      const code = (inp ? inp.value : "").trim();
+      if (!code) {
+        if (fb) fb.innerHTML = `<span class="text-rose-400">⚠️ Paste terlebih dahulu kode otorisasi Claude (termasuk tanda #) ke kotak input!</span>`;
+        return;
+      }
+      if (fb) fb.innerHTML = `<span class="text-amber-300">⏳ Memverifikasi kode OAuth ke Claude Code CLI...</span>`;
+      try {
+        const res = await fetch("/api/claude-auth/submit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code })
+        });
+        const data = await res.json();
+        if (data.claude) applyClaudeSessionUI(data.claude);
+        if (data.ok && data.logged_in) {
+          if (inp) inp.value = "";
+          if (fb) fb.innerHTML = `<span class="text-emerald-400 font-bold">🎉 ${escapeHtmlSafe(data.message)}</span>`;
+          await refreshClaudeLocalSession(true);
+          updateToast("🎉 Login Claude Code CLI berhasil terhubung!");
         } else {
-          if (fb) fb.innerHTML = `<span class="text-rose-400">⚠️ ${data.error || "Gagal memulai login lokal Claude."}</span>`;
+          if (fb) fb.innerHTML = `<span class="text-rose-400">⚠️ ${escapeHtmlSafe(data.error || "Verifikasi kode gagal.")}</span>`;
         }
       } catch (e) {
-        if (fb) fb.innerHTML = `<span class="text-rose-400">⚠️ Error: ${e.message}</span>`;
+        if (fb) fb.innerHTML = `<span class="text-rose-400">⚠️ Error: ${escapeHtmlSafe(e.message)}</span>`;
       }
     }
 
@@ -8337,6 +8489,9 @@
         loadCompanyProfile();
         refreshMemoryVaultSettingsUI();
         refreshMeetingPresetsUI();
+      }
+      if (tabKey === "API") {
+        loadCliEnvironmentStatus();
       }
       if (tabKey === "TOKENSAVER") {
         loadTokenSaverUI();
