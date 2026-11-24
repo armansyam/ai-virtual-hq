@@ -8813,15 +8813,50 @@ def run_gm_autopilot_cycle(manual=False):
                 "apiKey": t_key,
             }
 
-        set_agents_busy([target_aid], True)
-        bump_world_chat_version(toast_msg=f"⚡ {gm_name} mendelegasikan tugas ke {target_aname}: {str(decision.get('taskTitle') or summary)[:80]}")
-        try:
-            exec_result = execute_department_work_engine(t_type, exec_payload)
-            artifact_file = (exec_result or {}).get("report_file") or ""
-        except Exception as ex_err:
-            error_msg = str(ex_err)
-        finally:
-            set_agents_busy([target_aid], False)
+        if target_dept in DEPT_SQUADS and t_type in ("execute_custom_directive", "meeting_action_item"):
+            proj_tid = (target_task.get("id") if target_task else "") or f"task_ap_{int(time.time() * 1000)}"
+            proj_title = (target_task.get("title") if target_task else "") or str(decision.get("taskTitle") or summary)[:110]
+            proj_instr = (target_task.get("instruction") or target_task.get("detail") if target_task else "") or str(decision.get("taskDetail") or summary)
+            proj_item = {
+                "id": proj_tid,
+                "title": proj_title,
+                "dept": target_dept,
+                "agentId": target_aid,
+                "agentName": target_aname,
+                "agentRole": target_task.get("agentRole") if target_task else str(decision.get("delegateAgentRole") or "Kepala Departemen"),
+                "instruction": proj_instr,
+            }
+            if not target_task:
+                with TASKBOARD_LOCK:
+                    tb_ap = load_taskboard()
+                    tb_ap.insert(0, {
+                        **proj_item,
+                        "taskType": "meeting_action_item",
+                        "priority": "HIGH",
+                        "status": "IN_PROGRESS",
+                        "detail": f"[Autopilot GM] Didelegasikan ke tim {target_dept} ({target_aname} + staf) pada {ts_str}.",
+                        "artifactFile": "",
+                        "updatedAt": ts_str,
+                    })
+                    save_taskboard(tb_ap)
+            bump_world_chat_version(toast_msg=f"⚡ {gm_name} mendelegasikan ke tim {target_dept} ({target_aname} + staf squad): {proj_title[:75]}")
+            try:
+                _execute_single_department_project(proj_item, 1, 1)
+                tb_after = load_taskboard()
+                done_row = next((t for t in tb_after if t.get("id") == proj_tid), None)
+                artifact_file = (done_row or {}).get("artifactFile") or ""
+            except Exception as ex_err:
+                error_msg = str(ex_err)
+        else:
+            set_agents_busy([target_aid], True)
+            bump_world_chat_version(toast_msg=f"⚡ {gm_name} mendelegasikan tugas ke {target_aname}: {str(decision.get('taskTitle') or summary)[:80]}")
+            try:
+                exec_result = execute_department_work_engine(t_type, exec_payload)
+                artifact_file = (exec_result or {}).get("report_file") or ""
+            except Exception as ex_err:
+                error_msg = str(ex_err)
+            finally:
+                set_agents_busy([target_aid], False)
     else:
         bump_world_chat_version(toast_msg=f"✅ Patroli {gm_name}: {summary[:100]}")
 
@@ -8898,7 +8933,18 @@ def handle_autopilot_approval_action(approval_id, action):
             aid = int(target_item.get("agentId") or 10)
             aname = target_item.get("agentName") or "👑 Raka"
             arole = target_item.get("agentRole") or "Kepala Departemen"
-            dept = target_item.get("dept") or "ALL"
+            dept = str(target_item.get("dept") or "ADMIN").upper()
+            if dept in DEPT_SQUADS:
+                _execute_single_department_project({
+                    "id": f"task_acc_{int(time.time() * 1000)}",
+                    "title": target_item.get("title", "Tugas ACC CEO"),
+                    "dept": dept,
+                    "agentId": aid,
+                    "agentName": aname,
+                    "agentRole": arole,
+                    "instruction": f"[ACC CEO] {target_item.get('title', '')} — {target_item.get('detail', '')}",
+                }, 1, 1)
+                return
             mid, ep, key = _resolve_agent_model_creds(aid)
             set_agents_busy([aid], True)
             bump_world_chat_version(toast_msg=f"✅ CEO menyetujui usulan GM — {aname} sedang mengeksekusi: {target_item.get('title', '')[:80]}")
@@ -9604,6 +9650,13 @@ def create_hq_server(host=None, port=None, start_heartbeat=True):
     try:
         ensure_obsidian_vault_seeded()
         ensure_skills_dir_ready()
+        # Clear any stale busy/running flags left over from a prior process shutdown
+        update_world_state({"busyAgentIds": [], "liveStepStatus": ""})
+        with AUTOPILOT_LOCK:
+            ap_boot = load_autopilot_config()
+            if ap_boot.get("isRunning"):
+                ap_boot["isRunning"] = False
+                _save_autopilot_config_unlocked(ap_boot)
     except Exception:
         pass
     _init_cfg = load_saved_config()
