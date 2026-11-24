@@ -8626,7 +8626,7 @@ def _execute_approved_agent_action(item):
     return res
 
 
-def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, prompt, attachments=None, live_mcp_ctx=None, executed_tools=None, room="", max_steps=3, agent_id=None, agent_name=""):
+def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, prompt, attachments=None, live_mcp_ctx=None, executed_tools=None, room="", max_steps=3, agent_id=None, agent_name="", stop_check=None):
     """Executes multi-step autonomous [[TOOL_CALL:{...}]] requests with live step status updates in world_state."""
     executed_tools = executed_tools if isinstance(executed_tools, list) else []
     cur_history = list(history or [])
@@ -8637,6 +8637,8 @@ def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, p
 
     try:
         for step_idx in range(max_steps + 1):
+            if stop_check and stop_check():
+                raise OfficePausedError()
             step_lbl = f"⚡ {who_label} sedang berpikir ({model_id})..." if step_idx == 0 else f"⚡ {who_label} menyusun hasil langkah ke-{step_idx + 1}..."
             update_world_state({"liveStepStatus": step_lbl})
             reply, used_engine = run_agent_llm_unified(
@@ -9223,6 +9225,8 @@ def _default_autopilot_config():
     return {
         "enabled": False,
         "autonomousDepts": True,
+        "autoMeeting": True,
+        "autoMeetingIntervalMinutes": 120,
         "maxConcurrentDepts": 2,
         "deptCooldownMinutes": 15,
         "intervalMinutes": 30,
@@ -10110,6 +10114,14 @@ def _pick_squad_members(dept, task_text, manager_id=None, max_staff=2):
 MAX_TASK_FAILURES = 2
 MAX_REVISION_ROUNDS = 2
 
+
+class OfficePausedError(Exception):
+    """Kantor diistirahatkan saat proyek berjalan: proyek berhenti rapi dan tugas kembali ke antrean."""
+
+
+def _office_paused():
+    return bool(load_world_state().get("officeOff"))
+
 QUALITY_GATE_TAG_RE = re.compile(r"\[\[GATE:\s*(PASS|REVISI)\s*\]\]", re.I)
 
 
@@ -10168,6 +10180,8 @@ def _execute_single_department_project(item, idx=1, total=1):
     assignments = []
     mid, ep, key = _resolve_agent_model_creds(aid)
     try:
+        if _office_paused():
+            raise OfficePausedError()
         if all_dept_staff:
             staff_catalog = "\n".join(
                 f"- id={s['id']} | {s['name']} — {s['role']}" for s in all_dept_staff
@@ -10290,7 +10304,7 @@ def _execute_single_department_project(item, idx=1, total=1):
                 s_out, s_eng = run_agent_with_tool_loop(
                     s_mid, s_ep, s_key, s_sys, [], s_prompt,
                     live_mcp_ctx=st_live_ctx, executed_tools=st_exec_tools,
-                    room=dept, max_steps=2, agent_id=sid, agent_name=sname
+                    room=dept, max_steps=2, agent_id=sid, agent_name=sname, stop_check=_office_paused
                 )
                 ts_s = time.strftime("%Y%m%d-%H%M%S")
                 now_s = time.strftime("%Y-%m-%d %H:%M:%S WITA")
@@ -10334,6 +10348,8 @@ def _execute_single_department_project(item, idx=1, total=1):
                     "file": st_rel_file, "tools": tools_used_str, "engine": s_eng,
                     "output": str(s_out or "").strip(), "ok": True,
                 }
+            except OfficePausedError:
+                raise
             except Exception as se:
                 return {
                     "id": sid, "name": sname, "role": srole, "subTitle": sub_title,
@@ -10398,10 +10414,12 @@ def _execute_single_department_project(item, idx=1, total=1):
             + (f"HASIL EKSEKUSI MANDIRI STAF ({squad_names}):\n{squad_block}\n\n" if squad_block else "")
             + "Lakukan Quality Gate dan susun laporan final konsolidasi departemen sekarang."
         )
+        if _office_paused():
+            raise OfficePausedError()
         deliv_md_raw, used_engine = run_agent_with_tool_loop(
             mid, ep, key, mgr_sys, [], mgr_prompt,
             live_mcp_ctx=mgr_live_ctx, executed_tools=mgr_tools,
-            room=dept, max_steps=2, agent_id=aid, agent_name=f"{aname} (QA)"
+            room=dept, max_steps=2, agent_id=aid, agent_name=f"{aname} (QA)", stop_check=_office_paused
         )
 
         # Parse optional REAL [[HANDOFF_DEPT:{...}]] tag & strip it cleanly from the final report
@@ -10618,6 +10636,18 @@ def _execute_single_department_project(item, idx=1, total=1):
                 toast_msg=f"✅ [{dept}] QA PASS! {squad_names} & {aname} menuntaskan: {title[:48]}",
                 coord_event=coord,
             )
+    except OfficePausedError:
+        now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
+        with TASKBOARD_LOCK:
+            tb = load_taskboard()
+            for t in tb:
+                if t.get("id") == tid:
+                    t["status"] = "TODO"
+                    t["detail"] = f"Dijeda {now_str}: kantor istirahat. Dilanjutkan otomatis saat jam kerja atau Lembur."
+                    t["updatedAt"] = now_str
+                    break
+            save_taskboard(tb)
+        bump_world_chat_version(toast_msg=f"💤 [{dept}] '{title[:44]}' dijeda karena kantor istirahat — lanjut saat jam kerja.")
     except Exception as err:
         now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
         print(f"[dept-project] {dept} '{title[:60]}' gagal: {err!r}", flush=True)
@@ -11005,6 +11035,92 @@ def build_business_targets_block():
     return "\n".join(lines)
 
 
+AUTO_MEETING_STATE_FILE = os.path.join(CONFIG_DIR, "auto_meeting_state.json")
+_AUTO_MEETING_LOCK = threading.Lock()
+
+
+def _load_auto_meeting_state():
+    try:
+        with open(AUTO_MEETING_STATE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        return {}
+
+
+def auto_meeting_due(cfg, tb):
+    """Rapat koordinasi diadakan sekali di awal hari kerja, lalu lagi bila semua tim kosong dan jeda minimum sudah lewat."""
+    if not cfg.get("autoMeeting", True):
+        return False
+    st = _load_auto_meeting_state()
+    if st.get("lastDate") != time.strftime("%Y-%m-%d"):
+        return True
+    has_active = any(str(t.get("status") or "").upper() in ("TODO", "IN_PROGRESS") for t in tb)
+    with _AUTO_DEPT_STATE_LOCK:
+        depts_busy = bool(_AUTO_DEPT_RUNNING)
+    interval = max(30, int(cfg.get("autoMeetingIntervalMinutes") or 120)) * 60
+    return (not has_active) and (not depts_busy) and (time.time() - float(st.get("lastTs") or 0)) >= interval
+
+
+def run_auto_coordination_meeting():
+    """Rapat Koordinasi Otomatis: tiap manajer mengusulkan 1 tugas dari target bisnis, hasil kerja, dan revisi timnya,
+    lalu notulen GM (finish_meeting_and_execute_tasks) menyaring maksimal 4 tugas dan menjalankannya / mengantrekan ACC."""
+    import concurrent.futures
+    if not _AUTO_MEETING_LOCK.acquire(blocking=False):
+        return {"ok": False, "error": "Rapat otomatis sedang berlangsung."}
+    try:
+        with open(AUTO_MEETING_STATE_FILE + ".tmp", "w", encoding="utf-8") as f:
+            json.dump({"lastDate": time.strftime("%Y-%m-%d"), "lastTs": time.time()}, f)
+        os.replace(AUTO_MEETING_STATE_FILE + ".tmp", AUTO_MEETING_STATE_FILE)
+
+        targets_block = build_business_targets_block()
+        tb = load_taskboard()
+        mgr_ids = [int(DEPT_SQUADS[d]["manager"]["id"]) for d in DEPT_SQUADS]
+        set_agents_busy(mgr_ids, True)
+        update_world_state({"liveStepStatus": "🗓️ Rapat koordinasi otomatis: para manajer menyusun usulan tugas..."})
+        bump_world_chat_version(toast_msg="🗓️ Rapat koordinasi otomatis dimulai: tiap manajer mengusulkan tugas berdasarkan target & hasil kerja.")
+
+        def _proposal(dept):
+            mgr = DEPT_SQUADS[dept]["manager"]
+            done = [t.get("title") for t in tb if str(t.get("dept") or "").upper() == dept and t.get("status") == "DONE"][:5]
+            revisi = [t.get("title") for t in tb if str(t.get("dept") or "").upper() == dept and t.get("status") in ("REVISI", "GAGAL")][:3]
+            mid, ep, key = _resolve_agent_model_creds(int(mgr["id"]))
+            sys_p = (
+                f"Kamu adalah {mgr['name']} ({mgr['role']}) dalam rapat koordinasi harian. Usulkan TEPAT 1 tugas untuk timmu yang paling "
+                "mungkin menggerakkan angka target bisnis, konkret, bisa dikerjakan tim AI tanpa akses akun luar, dan tidak mengulang tugas yang sudah selesai. "
+                "Jawab 2-3 kalimat: judul tugas, alasan (metrik yang dikejar), dan hasil yang akan diserahkan."
+            )
+            prompt = (
+                f"{targets_block}\n\nTUGAS SELESAI TIMMU:\n" + ("\n".join(f"- {x}" for x in done) or "- Belum ada")
+                + "\n\nTUGAS TIMMU YANG MASIH REVISI/GAGAL:\n" + ("\n".join(f"- {x}" for x in revisi) or "- Tidak ada")
+            )
+            text, _ = run_agent_llm_unified(mid, ep, key, sys_p, [], prompt, live_mcp_ctx="", agent_id=int(mgr["id"]), room=dept, agent_name=f"{mgr['name']} (Rapat)")
+            return dept, mgr, str(text or "").strip()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            proposals = [f.result() for f in [pool.submit(_proposal, d) for d in DEPT_SQUADS]]
+
+        history = [{
+            "sender": "👑 Raka (GM)",
+            "text": f"Agenda rapat koordinasi otomatis {time.strftime('%H:%M')} WITA. Pilih tugas yang paling menggerakkan target.\n{targets_block}",
+        }] + [{"sender": f"{mgr['name']} ({dept})", "text": text[:900]} for dept, mgr, text in proposals if text]
+        participants = [{"id": int(m["id"]), "name": m["name"], "role": m["role"], "room": d} for d, m, _ in proposals]
+        res = finish_meeting_and_execute_tasks({
+            "meetingTitle": f"Rapat Koordinasi Otomatis {time.strftime('%d %b %H:%M')}",
+            "history": history,
+            "participants": participants,
+        })
+        print(f"[auto-meeting] selesai: {len(res.get('createdTasks') or [])} tugas dibuat, {res.get('queuedCount', 0)} langsung jalan, {res.get('approvalCount', 0)} menunggu ACC. {res.get('error') or ''}", flush=True)
+        return res
+    except Exception as mtg_err:
+        print(f"[auto-meeting] gagal: {mtg_err!r}", flush=True)
+        return {"ok": False, "error": str(mtg_err)}
+    finally:
+        set_agents_busy([int(DEPT_SQUADS[d]["manager"]["id"]) for d in DEPT_SQUADS], False)
+        update_world_state({"liveStepStatus": ""})
+        _AUTO_MEETING_LOCK.release()
+
+
 def run_autonomous_department_self_plan(dept_key):
     """True Autonomous Department Loop: Department Head reads own Obsidian roadmap, creates 1 non-duplicate next task on Taskboard, and runs 3-Phase Staff Squad execution."""
     dept = str(dept_key or "").strip().upper()
@@ -11159,8 +11275,14 @@ def _run_gm_autopilot_background_loop():
                             if has_runnable:
                                 resume_in_progress_tasks()
 
+                        # 1b. Rapat koordinasi otomatis (awal hari kerja, dan saat semua tim kosong)
+                        meeting_started = False
+                        if not world.get("inTownHallMeeting") and not _AUTO_MEETING_LOCK.locked() and auto_meeting_due(cfg, load_taskboard()):
+                            meeting_started = True
+                            threading.Thread(target=run_auto_coordination_meeting, daemon=True).start()
+
                         # 2. Autonomous Self-Planning Departments: each dept automatically creates & runs its own next task!
-                        if cfg.get("autonomousDepts", True) and not world.get("inTownHallMeeting"):
+                        if cfg.get("autonomousDepts", True) and not world.get("inTownHallMeeting") and not meeting_started and not _AUTO_MEETING_LOCK.locked():
                             max_conc = max(1, min(3, int(cfg.get("maxConcurrentDepts") or 2)))
                             cooldown_sec = max(5, int(cfg.get("deptCooldownMinutes") or 15)) * 60
                             now_ts = time.time()
