@@ -1925,6 +1925,9 @@ def submit_agy_oauth_code(raw_input):
         return {"ok": False, "error": f"Gagal mengirim kode ke agy CLI: {str(e)}"}
 
 
+_AGY_CLI_SEMAPHORE = threading.BoundedSemaphore(3)
+
+
 def call_verified_agy_cli(model_display_or_id, system_prompt, history_messages, latest_prompt, attachments=None, live_mcp_ctx=None, session_key="", room="", agent_name=""):
     # Honor the user's true selected model fidelity (High / XHigh / Medium / Low) without silent downgrade!
     agy_model = MODEL_DISPLAY_TO_AGY_ID.get(model_display_or_id, model_display_or_id if str(model_display_or_id).startswith(("gemini-", "claude-")) else "gemini-4-argon-high")
@@ -1999,9 +2002,10 @@ def call_verified_agy_cli(model_display_or_id, system_prompt, history_messages, 
             use_conv_id = existing_sess.get("id") or ""
 
         is_heavy = any(k in try_model for k in ("xhigh", "high", "opus"))
-        step_timeout = 95 if (idx_try == 0 and is_heavy) else (75 if idx_try == 0 else 55)
+        step_timeout = 125 if (idx_try == 0 and is_heavy) else (95 if idx_try == 0 else 65)
 
         attempts = [use_conv_id, ""] if use_conv_id else [""]
+        last_cli_err = ""
         for conv_id in attempts:
             prompt_payload = _build_delta_prompt() if conv_id else _build_full_prompt()
             cmd = [
@@ -2009,23 +2013,27 @@ def call_verified_agy_cli(model_display_or_id, system_prompt, history_messages, 
                 f"--model={try_model}",
                 "--disable-slash-commands",
                 "--output-format=json",
-                f"--print-timeout={max(30, step_timeout - 5)}s",
+                f"--print-timeout={max(35, step_timeout - 5)}s",
             ]
             if conv_id:
                 cmd.append(f"--conversation={conv_id}")
             cmd.append(f"-p={prompt_payload}")
             try:
-                proc = subprocess.run(
-                    cmd,
-                    stdin=subprocess.DEVNULL,
-                    capture_output=True,
-                    text=True,
-                    timeout=step_timeout,
-                    cwd=safe_cwd,
-                    env=env
-                )
+                # Throttle concurrent agy CLI spawns (max 3 simultaneously) to prevent rate-limit / timeout storms
+                with _AGY_CLI_SEMAPHORE:
+                    proc = subprocess.run(
+                        cmd,
+                        stdin=subprocess.DEVNULL,
+                        capture_output=True,
+                        text=True,
+                        timeout=step_timeout,
+                        cwd=safe_cwd,
+                        env=env
+                    )
                 out = (proc.stdout or "").strip()
                 err = (proc.stderr or "").strip()
+                if err:
+                    last_cli_err = err[:160]
                 if "Authentication required" in out or "Authentication required" in err:
                     AGY_AUTH_SESSION["verified"] = False
                     raise RuntimeError("Sesi Antigravity CLI perlu login ulang di ⚙️ Pengaturan AI & Model.")
@@ -5683,16 +5691,32 @@ def record_model_health_event(model_id, ok, error="", ms=None):
         return
     try:
         cached = load_model_health_cache()
+        now_ts = time.time()
         if ok:
-            cached[mid] = {"ok": True, "ms": int(ms or 0), "errorType": "", "ts": time.time()}
+            cached[mid] = {"ok": True, "ms": int(ms or 0), "errorType": "", "failStreak": 0, "ts": now_ts}
         else:
             err_str = str(error or "Model tidak merespons")[:300]
-            cached[mid] = {
-                "ok": False,
-                "error": err_str,
-                "errorType": classify_llm_error_type(err_str),
-                "ts": time.time(),
-            }
+            err_type = classify_llm_error_type(err_str)
+            prev = cached.get(mid) if isinstance(cached.get(mid), dict) else {}
+            prev_ok = bool(prev.get("ok"))
+            prev_ts = float(prev.get("ts") or 0)
+            prev_streak = int(prev.get("failStreak") or 0)
+            # Don't flip a healthy model to RED on a single transient timeout/congestion spike!
+            if err_type == "OFFLINE" and prev_ok and (now_ts - prev_ts) < 300 and prev_streak < 1:
+                cached[mid] = {
+                    **prev,
+                    "ok": True,
+                    "failStreak": prev_streak + 1,
+                    "lastTransientWarning": err_str,
+                }
+            else:
+                cached[mid] = {
+                    "ok": False,
+                    "error": err_str,
+                    "errorType": err_type,
+                    "failStreak": prev_streak + 1,
+                    "ts": now_ts,
+                }
         save_model_health_cache(cached)
     except Exception:
         pass
@@ -9067,6 +9091,7 @@ DEPT_SQUADS = {
 
 _ACTIVE_TASK_IDS_LOCK = threading.Lock()
 _ACTIVE_RUNNING_TASK_IDS = set()
+_DEPT_EXEC_LOCKS = {d: threading.Lock() for d in ("SOCIAL", "THEMES", "GROWTH", "ENGINEERING", "FINANCE", "ADMIN")}
 
 
 def _pick_squad_members(dept, task_text, manager_id=None, max_staff=2):
@@ -9098,6 +9123,9 @@ def _execute_single_department_project(item, idx=1, total=1):
         _ACTIVE_RUNNING_TASK_IDS.add(tid)
 
     dept = str(item.get("dept") or "ADMIN").strip().upper()
+    dept_lock = _DEPT_EXEC_LOCKS.get(dept)
+    if dept_lock:
+        dept_lock.acquire()
     dept_info = DEPT_SQUADS.get(dept) or DEPT_SQUADS["ADMIN"]
     mgr_def = dept_info["manager"]
     aid = int(item.get("agentId") or mgr_def["id"])
@@ -9408,6 +9436,11 @@ def _execute_single_department_project(item, idx=1, total=1):
         update_world_state({"liveStepStatus": ""})
         with _ACTIVE_TASK_IDS_LOCK:
             _ACTIVE_RUNNING_TASK_IDS.discard(tid)
+        if dept_lock and dept_lock.locked():
+            try:
+                dept_lock.release()
+            except Exception:
+                pass
 
 
 def _execute_meeting_tasks_background(queued_tasks):
