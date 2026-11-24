@@ -1863,6 +1863,16 @@ def start_agy_oauth_session():
     AGY_AUTH_SESSION["proc"] = proc
     AGY_AUTH_SESSION["auth_url"] = None
 
+    def _reap_abandoned_agy(target_proc):
+        time.sleep(180)
+        try:
+            if AGY_AUTH_SESSION.get("proc") is target_proc and target_proc.poll() is None:
+                target_proc.kill()
+                AGY_AUTH_SESSION["proc"] = None
+        except Exception:
+            pass
+    threading.Thread(target=_reap_abandoned_agy, args=(proc,), daemon=True).start()
+
     import select
     collected = ""
     fd = proc.stdout.fileno()
@@ -2463,6 +2473,15 @@ def start_claude_local_login(force_relogin=False):
         _CLAUDE_LOGIN_PROC["proc"] = proc
         _CLAUDE_LOGIN_PROC["master_fd"] = master_fd
         _CLAUDE_LOGIN_PROC["auth_url"] = None
+
+        def _reap_abandoned_claude(target_proc):
+            time.sleep(180)
+            try:
+                if _CLAUDE_LOGIN_PROC.get("proc") is target_proc and target_proc.poll() is None:
+                    _cleanup_claude_login_proc()
+            except Exception:
+                pass
+        threading.Thread(target=_reap_abandoned_claude, args=(proc,), daemon=True).start()
 
         import select
         read_fd = master_fd if master_fd is not None else proc.stdout.fileno()
@@ -5429,6 +5448,7 @@ def update_world_state(patch, bump_chat=False):
             if k in (
                 "officeOff",
                 "inTownHallMeeting",
+                "activeMeetingPresetId",
                 "activeRoomFilter",
                 "summonedInCeoOfficeIds",
                 "summonedWithCeoId",
@@ -5436,6 +5456,9 @@ def update_world_state(patch, bump_chat=False):
                 "ceoPos",
                 "lastToast",
                 "lastCoordinationEvent",
+                "recentCoordinationEvents",
+                "busyAgentIds",
+                "liveStepStatus",
             ):
                 st[k] = v
             elif k == "agentWorkStates" and isinstance(v, dict):
@@ -7147,6 +7170,7 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 "world": world,
                 "model_health": load_model_health_cache(),
                 "server_clock": get_server_office_clock_state(),
+                "token_budget": check_daily_token_budget(),
             }
             if include_chat or int(world.get("chatVersion") or 1) > client_chat_ver:
                 resp["histories"] = load_chat_histories()
@@ -10755,7 +10779,19 @@ def _run_gm_autopilot_background_loop():
                 cfg = load_autopilot_config()
                 if cfg.get("enabled"):
                     world = load_world_state()
-                    if not world.get("officeOff") and not check_daily_token_budget().get("exceeded"):
+                    budget_info = check_daily_token_budget()
+                    if not world.get("officeOff") and budget_info.get("exceeded"):
+                        used_m = round((budget_info.get("usedTodayTokens") or 0) / 1_000_000, 2)
+                        cap_m = round((budget_info.get("dailyTokenBudget") or 0) / 1_000_000, 2)
+                        try:
+                            notify_telegram_alert(
+                                "daily_budget_exceeded",
+                                f"⚠️ *Batas Token Harian Tercapai ({used_m}M / {cap_m}M)*\nAutopilot & Otonomi Departemen dijeda otomatis untuk melindungi kuota.\nBuka *Setup → Token Saver* jika ingin menaikkan batas.",
+                                cooldown_sec=21600,
+                            )
+                        except Exception:
+                            pass
+                    elif not world.get("officeOff"):
                         # 1. Auto-resume any idle TODO / IN_PROGRESS tasks immediately (CEO tasks get top priority!)
                         if cfg.get("autoExecutePending", True):
                             tb_chk = load_taskboard()
@@ -11005,10 +11041,12 @@ def build_executive_daily_report_text():
     ) or "• Belum ada task selesai terbaru."
 
     u_sum = usage.get("summary") or {}
-    tot_tok = int(u_sum.get("totalTokens") or 0)
+    tot_in = int(u_sum.get("totalInputTokens") or 0)
+    tot_out = int(u_sum.get("outputTokens") or 0)
+    tot_tok = tot_in + tot_out
     cached_tok = int(u_sum.get("cachedTokens") or 0)
-    calls = int(u_sum.get("totalCalls") or 0)
-    hit_pct = float(u_sum.get("cacheHitRatePct") or 0)
+    calls = int(u_sum.get("totalRequests") or 0)
+    hit_pct = float(u_sum.get("cacheHitPct") or 0)
     bad_models = [k for k, v in mh.items() if isinstance(v, dict) and v.get("ok") is False]
 
     return (

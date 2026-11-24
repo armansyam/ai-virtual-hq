@@ -272,18 +272,40 @@
       </div>
     </div>
 
-    <!-- Auto-Hiding Subtle Notification Toast (Never Stays Blocking 3D) -->
-    <div id="live-toast" class="opacity-0 absolute top-14 left-3 z-20 px-3 py-1.5 rounded-lg bg-[#13131a]/90 backdrop-blur-md border border-white/10 shadow-lg text-[11px] flex items-center gap-2 max-w-sm pointer-events-none transition-opacity duration-300">
+    <!-- Auto-Hiding Subtle Notification Toast (Far Left, Never Collides with Center Alert Stack) -->
+    <div id="live-toast" class="opacity-0 absolute top-12 left-3 z-20 px-3 py-1.5 rounded-lg bg-[#13131a]/92 backdrop-blur-md border border-white/10 shadow-lg text-[11px] flex items-center gap-2 max-w-xs pointer-events-none transition-opacity duration-300">
       <span class="w-1.5 h-1.5 rounded-full bg-[#C9A227] shrink-0"></span>
       <span id="live-toast-text" class="text-slate-200 font-medium truncate">Siap.</span>
     </div>
 
-    <!-- Model Health Alert Banner (Visible ONLY when 1+ staff have OFF / Quota / Disconnected Model) -->
-    <div id="model-health-alert-banner" class="hidden absolute top-14 right-3 z-25 px-3 py-2 rounded-xl bg-rose-950/92 backdrop-blur-md border border-rose-500/50 shadow-xl text-[11px] flex items-center gap-2.5 max-w-lg pointer-events-auto">
-      <span class="w-2 h-2 rounded-full bg-rose-400 animate-pulse shrink-0"></span>
-      <span id="model-health-alert-text" class="text-rose-100 font-medium leading-snug"></span>
-      <button onclick="switchView('table')" class="px-2 py-0.5 rounded-md bg-rose-500/25 hover:bg-rose-500/40 text-rose-100 border border-rose-400/40 font-semibold shrink-0 cursor-pointer">Lihat Tim</button>
-      <button onclick="probeAllAgentModelsLive(true)" class="px-2 py-0.5 rounded-md bg-white/10 hover:bg-white/20 text-white font-semibold shrink-0 cursor-pointer" title="Ping ulang semua model unik">🩺 Cek</button>
+    <!-- Unified Anti-Overlap Center HUD Alert Stack (Office OFF / Daily Budget Cap / Model Health) -->
+    <div id="hud-alert-stack" class="absolute top-12 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-1.5 pointer-events-none max-w-[calc(100vw-24px)]">
+      <!-- 1. Office OFF / Break / Closed Pill -->
+      <div id="office-off-banner" class="hidden pointer-events-auto px-3 py-1.5 rounded-full bg-[#13131e]/92 border border-indigo-400/35 shadow-lg flex items-center gap-2.5 backdrop-blur-md whitespace-nowrap max-w-full">
+        <span id="office-off-banner-dot" class="w-2 h-2 rounded-full bg-indigo-400 shrink-0"></span>
+        <span id="office-off-banner-title" class="text-[11px] font-semibold text-indigo-100">Kantor OFF</span>
+        <span id="office-off-banner-detail" class="text-[10.5px] text-slate-400 hidden sm:inline truncate max-w-[240px]">· Staf istirahat</span>
+        <button id="btn-banner-wake-all" onclick="wakeAllStaffToWork()" class="px-2.5 py-0.5 rounded-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-[10.5px] cursor-pointer shrink-0">
+          Aktifkan
+        </button>
+      </div>
+
+      <!-- 2. Daily Token Budget Cap Exceeded Pill (Prevents Silent Autopilot Freeze) -->
+      <div id="token-budget-alert-banner" class="hidden pointer-events-auto px-3 py-1.5 rounded-full bg-amber-950/92 border border-amber-400/45 shadow-lg flex items-center gap-2 backdrop-blur-md whitespace-nowrap max-w-full text-[11px]">
+        <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0"></span>
+        <span id="token-budget-alert-text" class="text-amber-100 font-semibold truncate max-w-[300px]">Batas Token Harian Tercapai · Autopilot Dijeda</span>
+        <button onclick="openSettingsModal('TOKENSAVER')" class="px-2 py-0.5 rounded-full bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-[10px] cursor-pointer shrink-0">
+          ⚡ Atur Batas
+        </button>
+      </div>
+
+      <!-- 3. Model Health Alert Banner (Visible ONLY when 1+ staff have OFF / Quota / Disconnected Model) -->
+      <div id="model-health-alert-banner" class="hidden pointer-events-auto px-3 py-1.5 rounded-xl bg-rose-950/92 backdrop-blur-md border border-rose-500/50 shadow-xl text-[11px] flex items-center gap-2 max-w-lg">
+        <span class="w-2 h-2 rounded-full bg-rose-400 animate-pulse shrink-0"></span>
+        <span id="model-health-alert-text" class="text-rose-100 font-medium leading-snug"></span>
+        <button onclick="switchView('table')" class="px-2 py-0.5 rounded-md bg-rose-500/25 hover:bg-rose-500/40 text-rose-100 border border-rose-400/40 font-semibold shrink-0 cursor-pointer">Lihat Tim</button>
+        <button onclick="probeAllAssignedModelsLive(true)" class="px-2 py-0.5 rounded-md bg-white/10 hover:bg-white/20 text-white font-semibold shrink-0 cursor-pointer" title="Ping ulang semua model unik">🩺 Cek</button>
+      </div>
     </div>
 
     <!-- WebGL 3D Canvas Container -->
@@ -317,9 +339,12 @@
       </button>
     </div>
 
-    <!-- Clean Minimal Bottom Control Dock (Scroll-Safe on Narrow Screens) -->
-    <div class="absolute bottom-2.5 left-2.5 right-2.5 z-30 flex items-center justify-center pointer-events-none">
-      <div id="interaction-feed-text" class="hidden"></div>
+    <!-- Clean Minimal Bottom Control Dock + Live Step Activity Pill -->
+    <div class="absolute bottom-2.5 left-2.5 right-2.5 z-30 flex flex-col items-center justify-center gap-1.5 pointer-events-none">
+      <div id="live-step-status-pill" class="hidden px-3 py-1 rounded-full bg-[#13131a]/88 backdrop-blur-md border border-emerald-500/30 shadow-lg text-[10.5px] text-emerald-200 flex items-center gap-2 max-w-[90vw] sm:max-w-lg">
+        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+        <span id="interaction-feed-text" class="truncate font-medium"></span>
+      </div>
       <div class="flex items-center gap-1 px-2 py-1 rounded-xl bg-[#13131a]/88 backdrop-blur-md border border-white/10 shadow-lg text-xs pointer-events-auto max-w-full overflow-x-auto no-scrollbar whitespace-nowrap">
         <div class="flex items-center bg-black/35 rounded-lg p-0.5">
           <button id="mode-watcher" onclick="setControlMode('watcher')" class="px-2 py-0.5 rounded-md text-slate-400 hover:text-white text-[10.5px] transition cursor-pointer">Watcher</button>
@@ -351,16 +376,6 @@
         </button>
       </div>
       <div id="hq-brand-signature" class="hidden"></div>
-    </div>
-
-    <!-- Compact Single-Line Status Pill when Office is OFF / Break / Closed -->
-    <div id="office-off-banner" class="hidden absolute top-14 left-1/2 -translate-x-1/2 z-30 px-3 py-1.5 rounded-full bg-[#13131e]/92 border border-indigo-400/35 shadow-lg flex items-center gap-2.5 backdrop-blur-md whitespace-nowrap max-w-[calc(100vw-24px)]">
-      <span id="office-off-banner-dot" class="w-2 h-2 rounded-full bg-indigo-400 shrink-0"></span>
-      <span id="office-off-banner-title" class="text-[11px] font-semibold text-indigo-100">Kantor OFF</span>
-      <span id="office-off-banner-detail" class="text-[10.5px] text-slate-400 hidden sm:inline truncate max-w-[260px]">· Staf istirahat</span>
-      <button id="btn-banner-wake-all" onclick="wakeAllStaffToWork()" class="px-2.5 py-0.5 rounded-full bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-[10.5px] cursor-pointer shrink-0">
-        Aktifkan
-      </button>
     </div>
 
     <!-- Compact Re-Open Meeting Chat Pill -->
@@ -2321,12 +2336,14 @@
                 </div>
               </div>
               <select id="ts-daily-budget-select" onchange="saveTokenSaverToggle('dailyTokenBudget', Number(this.value))" class="px-2.5 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-amber-200 font-mono text-[11px] cursor-pointer shrink-0">
-                <option value="0">Unlimited (Tanpa Batas)</option>
+                <option value="0">Unlimited (Tanpa Batas · Cocok Langganan)</option>
                 <option value="250000">250K tokens / hari</option>
                 <option value="500000">500K tokens / hari</option>
                 <option value="1000000">1M tokens / hari</option>
                 <option value="2000000">2M tokens / hari</option>
                 <option value="5000000">5M tokens / hari</option>
+                <option value="10000000">10M tokens / hari (Rekomendasi 35 Staf)</option>
+                <option value="20000000">20M tokens / hari (Aktif Penuh)</option>
               </select>
             </div>
 
@@ -6485,24 +6502,51 @@
           enqueueRealCoordinationEvents(world, isInitialLoad);
 
           // 4. Show real-time multi-step tool/thinking status while agents are working
-          if (typeof world.liveStepStatus === "string" && world.liveStepStatus.trim()) {
-            const feedEl = document.getElementById("interaction-feed-text");
-            if (feedEl && !interactionBusy) feedEl.textContent = world.liveStepStatus.trim();
-            const typingEl = document.querySelector("#chat-messages-box .animate-pulse");
-            if (typingEl) typingEl.textContent = world.liveStepStatus.trim();
-          }
+          updateLiveStepStatusPillUI(world);
 
           renderSidebarAndTable();
         } else if (incomingChatVer > LOCAL_CHAT_VERSION) {
           LOCAL_CHAT_VERSION = incomingChatVer;
           enqueueRealCoordinationEvents(world, false);
+          updateLiveStepStatusPillUI(world);
           renderSidebarAndTable();
         } else {
           // Even when version didn't bump, safely drain any queued real handoffs once meeting/busy finishes
           enqueueRealCoordinationEvents(world, false);
+          updateLiveStepStatusPillUI(world);
         }
       } finally {
         IS_APPLYING_REMOTE_WORLD = false;
+      }
+    }
+
+    function updateLiveStepStatusPillUI(world) {
+      const pill = document.getElementById("live-step-status-pill");
+      const feedEl = document.getElementById("interaction-feed-text");
+      const hasBusy = Array.isArray(world && world.busyAgentIds) && world.busyAgentIds.length > 0;
+      const stepTxt = (world && typeof world.liveStepStatus === "string") ? world.liveStepStatus.trim() : "";
+      if (stepTxt) {
+        if (feedEl && !interactionBusy) feedEl.textContent = stepTxt;
+        const typingEl = document.querySelector("#chat-messages-box .animate-pulse");
+        if (typingEl) typingEl.textContent = stepTxt;
+      }
+      if (pill) {
+        const showPill = Boolean(!OFFICE_OFF_MODE && (interactionBusy || (hasBusy && (stepTxt || (feedEl && feedEl.textContent.trim())))));
+        pill.classList.toggle("hidden", !showPill);
+      }
+    }
+
+    function updateTokenBudgetHudBanner(budget) {
+      const ban = document.getElementById("token-budget-alert-banner");
+      const txt = document.getElementById("token-budget-alert-text");
+      if (!ban) return;
+      if (budget && budget.exceeded && Number(budget.dailyTokenBudget || 0) > 0) {
+        const usedM = (Number(budget.usedTodayTokens || 0) / 1000000).toFixed(2);
+        const capM = (Number(budget.dailyTokenBudget || 0) / 1000000).toFixed(2);
+        if (txt) txt.textContent = `Batas Token Harian Tercapai (${usedM}M / ${capM}M) · Autopilot Dijeda`;
+        ban.classList.remove("hidden");
+      } else {
+        ban.classList.add("hidden");
       }
     }
 
@@ -6515,6 +6559,9 @@
         if (data && data.ok) {
           if (data.server_clock && typeof syncServerClockFromPayload === "function") {
             syncServerClockFromPayload(data.server_clock);
+          }
+          if (data.token_budget) {
+            updateTokenBudgetHudBanner(data.token_budget);
           }
           if (data.world) {
             applyWorldStateSnapshot(data.world, data, isInitialLoad);
@@ -8569,6 +8616,9 @@
       const budPill = document.getElementById("ts-budget-pill");
       const budWrap = document.getElementById("ts-budget-bar-wrap");
       const budFill = document.getElementById("ts-budget-bar-fill");
+      if (ts.budget && typeof updateTokenBudgetHudBanner === "function") {
+        updateTokenBudgetHudBanner(ts.budget);
+      }
       if (ts.budget && budPill) {
         const b = ts.budget;
         if (b.dailyTokenBudget > 0) {
