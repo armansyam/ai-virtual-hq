@@ -1776,36 +1776,63 @@ _CLAUDE_STATUS_CACHE = {"ts": 0, "data": None}
 _CLAUDE_LOGIN_PROC = {"proc": None}
 
 LUXVITE_MASTER_CONTEXT = """
-KONTEKS BISNIS & ARSITEKTUR PRODUKSI FAKTUAL LUXVITE (https://luxvite.id | Instagram: @luxvite.id | Sinkron v1.1.0 — 22 Nov 2026):
-- Produk: Platform SaaS Undangan Digital Editorial & Online Receptionist (Next.js + PostgreSQL + Prisma, Production VPS Cluster).
-- Tagline: "Your story, beautifully invited."
-- Mode Acara (EventType): tepat 3 Mode Struktural Abadi (WEDDING, PERSONAL, EVENT) + kolom subEvent dinamis (preset maupun tulis sendiri seperti Ulang Tahun, Khitanan, Aqiqah, Wisuda, Tamatan Ngaji, Corporate, Grand Opening, Reuni, Gathering, dll.).
-- Katalog Produksi: tepat 81 tema master fisik di themes/{wedding,personal,event}/{minimalist,modern,traditional}/ (34 WEDDING, 37 PERSONAL, 10 EVENT; 23 Minimalist, 33 Modern, 25 Traditional) + 3 blueprint mandiri di themes/_blueprints/{wedding,personal,event}/. Setiap tema berdiri sendiri 100% (tanpa parentTheme) dengan Palet Warna Terkunci per Tema (Theme-Locked Palette — klien TIDAK mengganti palet warna di Studio).
-- 2 Jalur Editor Tema Admin Resmi: (1) Editor Master (/admin/master-editor?id=<id>) untuk tema handcrafted tanpa menimpa piring draf klien, (2) Theme Builder Unlimited 3.0 (/admin/theme-builder?id=<id> atau Salin ke Builder ?from=<id>).
-- Slot Media (11 MediaSlot): mode WEDDING memakai GROOM_PHOTO & BRIDE_PHOTO, mode PERSONAL memakai PROFILE_PHOTO, mode EVENT memakai EVENT_PHOTO (ditambah LANDING_COVER, LANDING_COVER_DESKTOP, HOME_PHOTO, DESKTOP_SIDEBAR, GLOBAL_FIXED_BG, GALLERY, CLOSING_COVER).
-- Autentikasi Klien & Mitra: 100% mandiri berbasis Email + Kata Sandi (bcrypt) + OTP 6-digit SMTP (/api/auth/otp/request, /api/auth/register, /api/auth/reset-password dengan pencabutan JWT lama via pwdTag) serta Direct WO Client Provisioning + Magic Link 48 Jam (/auth/set-password). Google OAuth & kolom legacy users.googleId/avatarUrl serta invitations.liveStreamUrl telah dihapus permanen dari kode dan database.
-- Model Mitra WO (Zero-Debt / No Payout): Mitra WO mendaftarkan akun klien langsung dari /partner dan akun klien otomatis mendapat Potongan Harga Khusus Mitra (%) langsung saat checkout (anti-stacking dengan kupon publik). Luxvite TIDAK lagi mencatat utang komisi atau melakukan transfer payout; Kupon Promo berdiri sendiri khusus untuk kampanye publik Luxvite.
-- Onboarding & Draf Gratis Dinamis: klien baru dapat mencoba Draf Gratis (POST /api/client/invitations/free-draft, maks. 1 per akun, ber-watermark) sebelum bayar; masa retensi (retention_free_draft_days, bawaan 14 hari) dan batas foto (free_draft_max_photos, bawaan 3 foto) 100% dinamis dari Admin Settings; pelunasan order otomatis mengaktifkan draf tersebut.
-- Ketahanan Produksi v1.1.0: Rate limit resepsionis sadar Wi-Fi gedung (300/menit/IP + 300/menit/undangan), invalidasi cache L1 lintas worker PM2 (PG LISTEN/NOTIFY cache_invalidate), React Error Boundaries (app/error.tsx, app/global-error.tsx, app/not-found.tsx), pelacakan error pada 100% rute API, urutan aman arsip NAS sebelum purgeGuestMemories + transaksi atomik, dan email peringatan otomatis ke SUPER_ADMIN bila cron backup/cleanup gagal.
-- Paket Harga (Sekali bayar, aktif 1 tahun — dapat diatur dinamis di Admin Settings):
-  1) Serenade (Rp99.000): Seluruh 81 tema sesuai mode acara, link WA personal tanpa batas, RSVP & doa, galeri & musik, subdomain namakamu.luxvite.id.
-  2) Symphony (Rp149.000): Fitur Serenade + Sistem Resepsionis QR Check-in (PIN 4-digit) + Guest Camera Analog (5 filter film, 500 foto, tayang live di venue).
-  3) Eternity (Rp249.000 - Terpopuler): Fitur Symphony + Custom Domain pribadi (.com/.id via Caddy Auto-SSL & proxy.ts) + Guest Camera 1.000 foto (ZIP) + Pendampingan prioritas.
-- Integrasi MCP Resmi (2 Lapisan):
-  1) Remote MCP Server Native di VPS: POST https://luxvite.id/api/mcp (Streamable HTTP JSON-RPC 2.0 stateless, khusus domain apex, Bearer API Key SHA-256 per departemen dikelola di Tab Utama Admin /admin?tab=mcp). Menyediakan 6 scope (docs:read, catalog:read, support:read, ops:read, finance:read, ops:write opt-in), 10 tools (termasuk laporan keuangan & Anti-Rugi live, KPI non-finansial, audit 81 tema DB vs disk, pencarian undangan, cek DNS, health/logs) + 19 MCP Resources dokumentasi resmi (luxvite://docs/index, schema, api, security, SOP).
-  2) Pendamping Lokal: luxvite-mcp (stdio Python) untuk audit file master HTML lokal & status kantor AI.
-- Aturan Akurasi Data (Anti-Halusinasi):
-  * Selalu baca data live dari Remote MCP Server / API produksi pada blok DATA REAL-TIME di bawah sebelum menyebut angka omzet, jumlah order, jumlah tema live, atau status server. JANGAN PERNAH mengarang omzet, komisi cair, atau klaim fitur yang tidak ada (misal ganti palet warna di Studio klien).
-- Struktur Organisasi HQ (35 Karyawan AI dalam 6 Departemen):
-  * CEO / Founder: User yang sedang berbicara denganmu.
-  * GM / COO: Raka (@raka_ops - Overview & Akuntabilitas 6 Departemen; scope MCP: docs/catalog/support/ops/finance:read).
-  * Dept 1 (Ruang 1 - Social Media & Content · 7 Agen): Manajer Senna + 6 Staf (Nadia Riset, Arka Reels, Cleo Carousel & Canva MCP, Sora Caption/Bio, Maya Publisher IG, Kiki Community & DM Engagement; scope MCP: docs/catalog:read).
-  * Dept 2 (Ruang 2 - Theme Product & Builder Lab · 7 Agen): Manajer Bima (@bima_creative) + 6 Staf (Elena Riset Tema Internet, Kael Arsitek :root & 3 Blueprint, Vino Master HTML & Theme Builder 3.0, Damar Visual & Thumbnail Retina, Zaki QA Tester 375px/1440px, Bela Kurator Demo 3 Mode & Portfolio; scope MCP: docs/catalog/ops:read).
-  * Dept 3 (Ruang 3 - Growth, Ads, B2B Affiliate & SEO · 7 Agen): Manajer Aldo + 6 Staf (Tara Funnel & Draf Gratis, Laras SEO Web, Gita Kurator Musik & Kutipan Doa/WA 3 Mode + subEvent, Rendy Outreach Mitra WO/MUA/Fotografer, Bagas Meta/TikTok/Google Ads, Hana Analytics & Retention).
-  * Dept 4 (Ruang 4 - Client Ops & CS · 3 Agen): Manajer Putri (@putri_cs - Remote Dashboard & Custom Domain) + 2 Staf (Dinda CS Mempelai & Draf Gratis, Fajar DNS & QR Hari-H; scope MCP: docs/catalog/support:read).
-  * Dept 5 (Ruang 4 - Engineering, Coding, Testing & Server · 6 Agen): Manajer Arya (Head of Engineering & Full-Stack) + 5 Staf (Rian Backend & Database; Niko Security & Bug-Fix; Kevin Frontend UI/UX; Dika Automated Testing & CI/CD; Hermes DevOps Server, Remote MCP & Cloudflare).
-  * Dept 6 (Ruang 4 - Finance, Cashflow & Unit Economics · 4 Agen): Manajer Tika (Head of Finance & Profitability) + 3 Staf (Nanda Analis Unit Economics, Harga, Diskon, Margin Mitra & BEP; Reza Pembukuan OPEX VPS/Domain/R2/SMTP/Ads & PPh Final 0.5%; Sinta Kasir, Rekonsiliasi Midtrans/Transfer Manual & Audit Transaksi Mitra Reseller Zero-Debt; scope MCP: docs/finance/ops:read).
+FAKTA SISTEM LUXVITE (sumber: kode produksi v1.1.0 + docs Luxenary-Invite; angka yang bisa berubah ada di blok FAKTA LIVE):
+- Produk: SaaS undangan digital & resepsionis online di https://luxvite.id (Instagram @luxvite.id). Tagline: "Your story, beautifully invited."
+- 3 mode acara: WEDDING, PERSONAL (ulang tahun, khitanan, aqiqah, wisuda, syukuran, dll.), EVENT (corporate, seminar, reuni, grand opening, dll.) + subEvent bebas.
+- Tema: 81 file master fisik di repo (34 wedding, 37 personal, 10 event), TETAPI yang dijual ke klien hanya tema AKTIF di katalog (jumlah di FAKTA LIVE). Jangan menyebut "81 tema" sebagai katalog yang bisa dipilih klien.
+- Palet warna terkunci per tema; klien tidak mengganti palet di Studio. Tema baru dari tim masuk sebagai DRAF (tab Draft Themes admin, nonaktif) dan baru tampil ke klien setelah admin mengaktifkannya.
+- Alur klien: daftar Email + Kata Sandi + OTP 6 digit (tanpa Google login) → Draf Gratis (1 per akun, ber-watermark, masa & batas foto di FAKTA LIVE) → bayar paket → publish. Masa aktif undangan 1 tahun.
+- Pembayaran: mode ditentukan admin (GATEWAY = Midtrans QRIS/Snap, MANUAL = transfer + bukti). Klien tidak memilih saluran.
+- Mitra WO (/partner): model Zero-Debt — klien yang didaftarkan mitra langsung dapat potongan harga saat checkout. TIDAK ADA komisi, utang mitra, atau payout. Tidak ada tim yang membayarkan uang ke mitra atau iklan.
+- Finance hanya menganalisis kesehatan keuangan (pendapatan, pengeluaran pasti, laba/rugi, BEP); tidak memegang uang dan tidak butuh ACC untuk analisis.
+- Remote MCP (https://luxvite.id/api/mcp): 11 tools (termasuk luxvite_create_draft_theme untuk kirim draf tema) + 19 resource dokumentasi; key per departemen dengan scope terbatas.
+- Aturan data: angka omzet, order, pendaftar, jumlah tema aktif, harga hanya dari FAKTA LIVE / tool MCP. Jangan mengarang data, fitur, atau testimoni.
 """
+
+_SYSTEM_FACTS_CACHE = {"ts": 0, "text": "", "themes": []}
+
+
+def build_live_system_facts_block(force=False):
+    now = time.time()
+    if not force and _SYSTEM_FACTS_CACHE["text"] and now - _SYSTEM_FACTS_CACHE["ts"] < 600:
+        return _SYSTEM_FACTS_CACHE["text"]
+    lines = [f"FAKTA LIVE PRODUKSI (diambil {time.strftime('%d %b %Y %H:%M')} WITA):"]
+    try:
+        req = urllib.request.Request("https://luxvite.id/api/public/themes", headers={"User-Agent": "LuxviteHQ-Live/1.1"})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            themes = json.loads(resp.read().decode("utf-8"))
+        if isinstance(themes, list):
+            by_mode = {}
+            for t in themes:
+                by_mode[t.get("eventType") or "?"] = by_mode.get(t.get("eventType") or "?", 0) + 1
+            _SYSTEM_FACTS_CACHE["themes"] = [f"{t.get('id')} ({t.get('eventType')}, {t.get('category')})" for t in themes]
+            split = ", ".join(f"{k} {v}" for k, v in sorted(by_mode.items()))
+            lines.append(f"- Tema aktif yang bisa dipilih klien: {len(themes)} ({split}).")
+    except Exception as e:
+        lines.append(f"- Jumlah tema aktif: gagal dibaca ({e}). Jangan menyebut angka tema.")
+    res = call_remote_mcp_tool("luxvite_get_packages_and_settings", {}, room="")
+    data = res.get("result") if isinstance(res, dict) and res.get("ok") else None
+    if isinstance(data, dict):
+        for pk in data.get("packages") or []:
+            caps = ", ".join(pk.get("capabilities") or [])
+            badge = f" [{pk['badge']}]" if pk.get("badge") else ""
+            lines.append(f"- Paket {pk.get('name')}: Rp{int(pk.get('price') or 0):,}".replace(",", ".") + f"{badge} — fitur: {caps or '-'}.")
+        fd = data.get("freeDraft") or {}
+        lines.append(f"- Draf Gratis: aktif {fd.get('retentionDays')} hari, maks. {fd.get('maxPhotos')} foto.")
+        ret = data.get("retention") or {}
+        lines.append(f"- Retensi: galeri foto tamu {ret.get('galleryRetentionDays')} hari, arsip undangan {ret.get('archiveRetentionDays')} hari.")
+        lines.append(f"- Mode pembayaran: {data.get('paymentMode')}. Mode acara dibuka: {', '.join(data.get('enabledEventTypes') or [])}. Promo publik: {'aktif' if data.get('promoEnabled') else 'nonaktif'}.")
+        ad = data.get("addons") or {}
+        if ad:
+            lines.append(f"- Add-on: perpanjangan galeri Rp{int(ad.get('galleryExtensionPricePerMonth') or 0):,}/bulan".replace(",", ".")
+                         + (f"; top-up {ad.get('memoriesTopupPhotos')} foto tamu Rp{int(ad.get('memoriesTopupPrice') or 0):,}".replace(",", ".") if ad.get("memoriesTopupEnabled") else "") + ".")
+        lines.append(f"- Kontak support: {data.get('supportEmail')} / WA {data.get('supportWhatsapp')}.")
+    else:
+        err = (res or {}).get("error") if isinstance(res, dict) else res
+        lines.append(f"- Harga paket & pengaturan: gagal dibaca dari MCP ({err}). Jangan menyebut harga atau masa Draf Gratis.")
+    text = "\n".join(lines)
+    _SYSTEM_FACTS_CACHE.update(ts=now, text=text)
+    return text
 
 
 _LIVE_CACHE = {"ts": 0, "data": None}
@@ -2032,6 +2059,7 @@ def call_verified_agy_cli(model_display_or_id, system_prompt, history_messages, 
     now_ts = time.time()
     # Run in neutral temp cwd so agy never stalls scanning workspace files or waiting on local tool prompts
     safe_cwd = tempfile.gettempdir() if hasattr(tempfile, "gettempdir") else "/tmp"
+    last_cli_err = "tidak ada model yang dicoba"
 
     for idx_try, try_model in enumerate(fallback_chain):
         existing_sess = _AGY_CLI_SESSIONS.get(session_key) if can_reuse else None
@@ -2075,8 +2103,7 @@ def call_verified_agy_cli(model_display_or_id, system_prompt, history_messages, 
                     )
                 out = (proc.stdout or "").strip()
                 err = (proc.stderr or "").strip()
-                if err:
-                    last_cli_err = err[:160]
+                last_cli_err = f"exit {proc.returncode}: " + ((err or out)[-240:] or "tanpa output")
                 if "Authentication required" in out or "Authentication required" in err:
                     AGY_AUTH_SESSION["verified"] = False
                     raise RuntimeError("Sesi Antigravity CLI perlu login ulang di ⚙️ Pengaturan AI & Model.")
@@ -2130,7 +2157,7 @@ def call_verified_agy_cli(model_display_or_id, system_prompt, history_messages, 
                     break
                 raise RuntimeError(f"Timeout: Model Antigravity ({try_model}) terlalu lama merespons. Coba ganti ke Gemini 3.8 Flash (High) atau koneksi API Router.")
 
-    raise RuntimeError(f"Antigravity CLI ({agy_model}) gagal merespons.")
+    raise RuntimeError(f"Antigravity CLI ({agy_model}) gagal merespons ({last_cli_err}).")
 
 
 def find_claude_cli_bin():
@@ -2882,6 +2909,9 @@ def build_company_context_block(profile=None):
         lines.append(f"- Tagline: {prof['tagline']}")
     if prof.get("businessBrief"):
         lines.append(f"- Brief Bisnis & SOP: {prof['businessBrief']}")
+    if "luxvite" in (prof.get("website") or "").lower():
+        lines.append(LUXVITE_MASTER_CONTEXT.strip())
+        lines.append(build_live_system_facts_block())
     return "\n".join(lines)
 
 
@@ -3036,10 +3066,9 @@ def ensure_obsidian_vault_seeded(force_sync=False):
         is_luxvite = "luxvite" in comp_name.lower() or "luxvite" in website.lower()
         core_truths = (
             "- Produk: Platform SaaS Undangan Digital Editorial & Resepsionis Online (`https://luxvite.id` · `@luxvite.id`).\n"
-            "- Katalog Produksi: 81 Tema Master Fisik (3 Mode Struktural: `WEDDING`, `PERSONAL`, `EVENT` + `subEvent` dinamis) dengan Palet Warna Terkunci per Tema (*Zero-Hardcode* `:root`).\n"
-            "- Paket Harga: **Serenade Rp99.000**, **Symphony Rp149.000** (QR Check-in + Guest Camera 500 foto), **Eternity Rp249.000** (Custom Domain + 1.000 foto).\n"
-            "- Model Mitra WO (*Zero-Debt*): Potongan langsung klien di `/partner` tanpa utang komisi/payout; anti-stacking dengan kupon publik.\n"
-            "- Aset Visual & Mockup: **WAJIB** menggunakan screenshot UI nyata & fakta fitur asli produksi (dilarang mengarang mockup/angka fiktif)."
+            "- Katalog: hanya tema aktif yang bisa dipilih klien; jumlah, harga paket, dan masa Draf Gratis selalu dibaca dari blok FAKTA LIVE (3 mode: `WEDDING`, `PERSONAL`, `EVENT` + `subEvent` bebas; palet terkunci per tema).\n"
+            "- Model Mitra WO (*Zero-Debt*): potongan langsung klien di `/partner`; tidak ada komisi, utang, atau payout.\n"
+            "- Aset Visual: isi layar wajib screenshot UI nyata produksi, ditampilkan dalam bingkai perangkat; dilarang mengarang fitur, angka, atau testimoni."
             if is_luxvite else
             f"- Nama Perusahaan: **{comp_name}** ({industry})\n"
             f"- Website: `{website}`\n"
@@ -5010,17 +5039,24 @@ def build_dynamic_mcp_context_with_trace(user_prompt="", room="", agent_id=None)
         str(room or "").strip().upper(), str(room or "").strip().upper()
     )
     if room_key == "SOCIAL":
+        build_live_system_facts_block()
         assets = sorted(os.listdir(os.path.join(UPLOADS_DIR, "assets"))) if os.path.isdir(os.path.join(UPLOADS_DIR, "assets")) else []
         lines.append(
             "HASIL KERJA SOCIAL WAJIB BERUPA KONTEN JADI (bukan rencana). Dua alat produksi:\n"
             "1) Carousel/single: sistem merender slide jadi gambar PNG 1080x1350 ke antrean Siap Posting CEO. Format (JSON valid, satu tag per posting):\n"
             '[[POST_PACKAGE:{"title":"Judul internal","platform":"instagram|tiktok|threads","format":"carousel|single",'
-            '"tone":"dark|light","slides":[{"headline":"maks 90 karakter","body":"maks 420 karakter","image":"nama file aset opsional"}],'
+            '"tone":"dark|light","slides":[{"layout":"cover|device|text|cta","headline":"maks 90 karakter","body":"maks 420 karakter (maks 200 bila ada mockup)",'
+            '"theme":"id tema aktif (opsional)","device":"auto|phone|laptop","image":"nama file aset opsional","image2":"aset kedua opsional","button":"teks tombol slide cta"}],'
             '"caption":"caption final siap tempel","hashtags":["luxvite","undangandigital"],"cta":"ajakan + link","postTime":"Sel 19:00 WITA"}]]\n'
             "2) Reels video: sistem merekam demo tema asli di luxvite.id dan menyusun video 1080x1920 (laptop + ponsel + musik berlisensi), ±2 menit:\n"
             '[[REEL_REQUEST:{"theme":"id-tema-aktif","title":"Nama Tema","subtitle":"satu kalimat rasa tema, tanpa harga","caption":"caption final tanpa harga",'
             '"hashtags":["luxvite","undangandigital","temaundangan"],"postTime":"Kam 19:00 WITA"}]]\n'
+            "Desain carousel: screenshot otomatis dibingkai mockup perangkat. Field theme memakai thumbnail asli tema itu dari luxvite.id "
+            "(device auto = laptop + HP berdampingan, phone = HP saja, laptop = laptop saja). Field image/image2 memakai aset UI asli; gambar tegak jadi HP, mendatar jadi laptop. "
+            "Variasikan layout: slide 1 cover dengan mockup tema, slide tengah device/text bergantian, slide terakhir cta dengan tombol. "
+            "Maksimal 2 slide text berturut-turut; carousel tanpa satu pun mockup tidak layak posting.\n"
             "Aset gambar UI asli untuk field image: " + (", ".join(assets) or "(belum ada)") + ". "
+            "Id tema aktif untuk field theme / REEL_REQUEST: " + (", ".join(_SYSTEM_FACTS_CACHE.get("themes") or []) or "(gagal dibaca, jangan pakai field theme)") + ". "
             "Semua angka dan fitur wajib sesuai data live luxvite.id."
         )
     if room_key in ("GROWTH", "ADMIN", "ENGINEERING", "FINANCE", "THEMES"):
@@ -7424,7 +7460,13 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             return
 
         if clean_path == "/api/targets":
-            self._send_json(200, {"ok": True, "progress": fetch_business_progress(force="refresh=1" in self.path)})
+            self._send_json(200, {
+                "ok": True,
+                "progress": fetch_business_progress(force="refresh=1" in self.path),
+                "plan": load_target_plan(),
+                "pace": target_pace_status(),
+                "meetingRunning": _AUTO_MEETING_LOCK.locked(),
+            })
             return
 
         if clean_path == "/api/content-queue":
@@ -7899,6 +7941,19 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 "deliverables": load_agent_deliverables(),
                 "interdept_logs": load_interdept_logs()
             })
+            return
+
+        if clean_path == "/api/target-meeting":
+            if _AUTO_MEETING_LOCK.locked():
+                self._send_json(409, {"ok": False, "error": "Rapat lain sedang berlangsung, coba lagi beberapa menit lagi."})
+                return
+            if not (load_business_targets().get("targets") or {}):
+                self._send_json(400, {"ok": False, "error": "Isi target bisnis dulu di Ringkasan CEO."})
+                return
+            kind = str(body.get("kind") or "bulanan").strip().lower()
+            kind = kind if kind in ("bulanan", "mingguan", "darurat") else "bulanan"
+            threading.Thread(target=run_target_meeting, args=(kind, "dipanggil CEO"), daemon=True).start()
+            self._send_json(200, {"ok": True, "started": kind})
             return
 
         if clean_path == "/api/social/week-plan":
@@ -8857,9 +8912,10 @@ CONTENT_QUEUE_LOCK = threading.Lock()
 SLIDE_W, SLIDE_H = 1080, 1350
 _BRAND = {
     "gold": (201, 162, 39),
-    "dark": {"bg": (22, 20, 18), "text": (245, 242, 235), "muted": (168, 162, 154), "line": (60, 56, 52)},
-    "light": {"bg": (250, 246, 240), "text": (32, 28, 24), "muted": (115, 108, 99), "line": (222, 214, 202)},
+    "dark": {"bg": (22, 20, 18), "bg2": (44, 36, 28), "glow": 70, "text": (245, 242, 235), "muted": (168, 162, 154), "line": (60, 56, 52)},
+    "light": {"bg": (250, 246, 240), "bg2": (236, 225, 208), "glow": 60, "text": (32, 28, 24), "muted": (115, 108, 99), "line": (222, 214, 202)},
 }
+_DEVICE = {"body": (16, 16, 18), "edge": (74, 72, 70), "base": (196, 194, 190), "base_edge": (150, 147, 142)}
 _FONT_CANDIDATES = {
     "serif": ["/System/Library/Fonts/Supplemental/Georgia.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"],
     "serif_bold": ["/System/Library/Fonts/Supplemental/Georgia Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"],
@@ -8909,52 +8965,247 @@ def _wrap_text(draw, text, font, max_w):
     return lines
 
 
-def _render_slide(slide, idx, total, tone, out_path):
-    from PIL import Image, ImageDraw
+SLIDE_LAYOUTS = ("cover", "device", "text", "cta")
+_THEME_ID_RE = re.compile(r"^[a-z0-9-]{2,60}$")
+
+
+def _theme_shot(theme_id, kind):
+    """Thumbnail asli tema dari luxvite.id/demo/<id>/thumbnail_<mobile|desktop>.webp, disimpan sebagai cache lokal."""
+    if not _THEME_ID_RE.match(theme_id or "") or kind not in ("mobile", "desktop"):
+        return ""
+    cache_dir = os.path.join(CONTENT_QUEUE_DIR, "_theme-shots")
+    path = os.path.join(cache_dir, f"{theme_id}-{kind}.webp")
+    if os.path.isfile(path) and os.path.getsize(path) > 0:
+        return path
+    os.makedirs(cache_dir, exist_ok=True)
+    url = f"https://luxvite.id/demo/{theme_id}/thumbnail_{kind}.webp"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "LuxviteHQ-Content/1.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = resp.read()
+    except (urllib.error.URLError, OSError):
+        return ""
+    if not data.startswith(b"RIFF"):
+        return ""
+    with open(path, "wb") as f:
+        f.write(data)
+    return path
+
+
+def _slide_screens(slide):
+    """Daftar (path gambar, 'phone'|'laptop') yang akan dibingkai perangkat pada slide."""
+    screens = []
+    theme_id = str(slide.get("theme") or "").strip().lower()
+    device = str(slide.get("device") or "auto").strip().lower()
+    if theme_id:
+        if device in ("auto", "duo", "laptop"):
+            screens.append((_theme_shot(theme_id, "desktop"), "laptop"))
+        if device in ("auto", "duo", "phone"):
+            screens.append((_theme_shot(theme_id, "mobile"), "phone"))
+    for key in ("image", "image2"):
+        name = str(slide.get(key) or "").strip()
+        if not name:
+            continue
+        path = os.path.join(UPLOADS_DIR, "assets", os.path.basename(name))
+        if os.path.isfile(path):
+            from PIL import Image
+            with Image.open(path) as im:
+                kind = "phone" if im.height > im.width else "laptop"
+            if device in ("phone", "laptop") and not theme_id:
+                kind = device
+            screens.append((path, kind))
+    screens = [(p, k) for p, k in screens if p]
+    screens.sort(key=lambda sc: 0 if sc[1] == "laptop" else 1)
+    return screens[:2]
+
+
+def _slide_background(tone):
+    from PIL import Image, ImageDraw, ImageFilter
     pal = _BRAND[tone]
-    img = Image.new("RGB", (SLIDE_W, SLIDE_H), pal["bg"])
+    top, bottom = pal["bg"], pal["bg2"]
+    grad = Image.new("RGB", (1, SLIDE_H))
+    for yy in range(SLIDE_H):
+        t = yy / (SLIDE_H - 1)
+        grad.putpixel((0, yy), tuple(int(top[c] + (bottom[c] - top[c]) * t) for c in range(3)))
+    img = grad.resize((SLIDE_W, SLIDE_H)).convert("RGBA")
+    glow = Image.new("RGBA", (SLIDE_W, SLIDE_H), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(glow)
+    gd.ellipse([SLIDE_W - 520, -360, SLIDE_W + 360, 420], fill=_BRAND["gold"] + (pal["glow"],))
+    gd.ellipse([-420, SLIDE_H - 380, 380, SLIDE_H + 320], fill=_BRAND["gold"] + (pal["glow"] // 2,))
+    return Image.alpha_composite(img, glow.filter(ImageFilter.GaussianBlur(140)))
+
+
+def _drop_shadow(canvas, box, radius, offset=26, blur=34, alpha=150):
+    from PIL import Image, ImageDraw, ImageFilter
+    layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    x0, y0, x1, y1 = box
+    ImageDraw.Draw(layer).rounded_rectangle([x0, y0 + offset, x1, y1 + offset], radius=radius, fill=(0, 0, 0, alpha))
+    canvas.alpha_composite(layer.filter(ImageFilter.GaussianBlur(blur)))
+
+
+def _paste_screen(canvas, shot_path, box, radius):
+    from PIL import Image, ImageDraw, ImageOps
+    x0, y0, x1, y1 = [int(v) for v in box]
+    with Image.open(shot_path) as raw:
+        shot = ImageOps.fit(raw.convert("RGB"), (x1 - x0, y1 - y0), method=Image.LANCZOS, centering=(0.5, 0.0))
+    mask = Image.new("L", shot.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, shot.width - 1, shot.height - 1], radius=radius, fill=255)
+    canvas.paste(shot, (x0, y0), mask)
+
+
+def _draw_phone(canvas, shot_path, x, y, w):
+    from PIL import ImageDraw
+    h = int(w * 2.05)
+    r = int(w * 0.16)
+    _drop_shadow(canvas, (x, y, x + w, y + h), r)
+    d = ImageDraw.Draw(canvas)
+    d.rounded_rectangle([x, y, x + w, y + h], radius=r, fill=_DEVICE["body"], outline=_DEVICE["edge"], width=3)
+    bz = max(8, int(w * 0.035))
+    _paste_screen(canvas, shot_path, (x + bz, y + bz, x + w - bz, y + h - bz), r - bz)
+    iw, ih = int(w * 0.30), int(w * 0.085)
+    d.rounded_rectangle([x + (w - iw) // 2, y + bz + int(w * 0.03), x + (w + iw) // 2, y + bz + int(w * 0.03) + ih], radius=ih // 2, fill=_DEVICE["body"])
+    return h
+
+
+def _draw_laptop(canvas, shot_path, x, y, w):
+    from PIL import ImageDraw
+    lid_h = int(w * 0.655)
+    r = int(w * 0.03)
+    base_h = max(14, int(w * 0.035))
+    over = int(w * 0.07)
+    _drop_shadow(canvas, (x - over, y, x + w + over, y + lid_h + base_h), r, offset=30, blur=40)
+    d = ImageDraw.Draw(canvas)
+    d.rounded_rectangle([x, y, x + w, y + lid_h], radius=r, fill=_DEVICE["body"], outline=_DEVICE["edge"], width=3)
+    side, top = int(w * 0.025), int(w * 0.035)
+    _paste_screen(canvas, shot_path, (x + side, y + top, x + w - side, y + lid_h - int(w * 0.02)), 4)
+    d.ellipse([x + w // 2 - 4, y + top // 2 - 4, x + w // 2 + 4, y + top // 2 + 4], fill=_DEVICE["edge"])
+    d.rounded_rectangle([x - over, y + lid_h, x + w + over, y + lid_h + base_h], radius=base_h // 2, fill=_DEVICE["base"])
+    d.rectangle([x - over + 6, y + lid_h, x + w + over - 6, y + lid_h + 3], fill=_DEVICE["base_edge"])
+    notch = int(w * 0.16)
+    d.rounded_rectangle([x + (w - notch) // 2, y + lid_h, x + (w + notch) // 2, y + lid_h + base_h // 2], radius=base_h // 4, fill=_DEVICE["base_edge"])
+    return lid_h + base_h
+
+
+def _place_devices(canvas, screens, box):
+    x0, y0, x1, y1 = box
+    bw, bh = x1 - x0, y1 - y0
+    kinds = [k for _, k in screens]
+    if kinds == ["phone"]:
+        h = bh
+        w = min(int(h / 2.05), int(bw * 0.6))
+        _draw_phone(canvas, screens[0][0], x0 + (bw - w) // 2, y0 + (bh - int(w * 2.05)) // 2, w)
+    elif kinds == ["laptop"]:
+        w = min(int(bw * 0.86), int(bh / 0.69))
+        _draw_laptop(canvas, screens[0][0], x0 + (bw - w) // 2, y0 + (bh - int(w * 0.69)) // 2, w)
+    elif kinds == ["laptop", "phone"]:
+        w = min(int(bw * 0.78), int(bh / 0.80))
+        lh = int(w * 0.69)
+        lx = x0 + int(bw * 0.02)
+        ly = y0 + max(0, (bh - int(lh * 1.16)) // 2)
+        _draw_laptop(canvas, screens[0][0], lx, ly, w)
+        pw = int(lh * 0.98 / 2.05)
+        _draw_phone(canvas, screens[1][0], x1 - pw - int(bw * 0.02), ly + int(lh * 0.16), pw)
+    elif kinds == ["phone", "phone"]:
+        w = min(int(bh / 2.05), int(bw * 0.4))
+        gap = int(w * 0.18)
+        sx = x0 + (bw - (2 * w + gap)) // 2
+        _draw_phone(canvas, screens[0][0], sx, y0 + int(bh * 0.04), w)
+        _draw_phone(canvas, screens[1][0], sx + w + gap, y0, w)
+    else:
+        w = min(int(bw * 0.48), int(bh / 0.69))
+        for i, (path, _) in enumerate(screens):
+            _draw_laptop(canvas, path, x0 + i * (bw - w), y0 + i * int(bh * 0.3), w)
+
+
+def _render_slide(slide, idx, total, tone, out_path):
+    from PIL import ImageDraw
+    pal = _BRAND[tone]
+    screens = _slide_screens(slide)
+    layout = str(slide.get("layout") or "").strip().lower()
+    if layout not in SLIDE_LAYOUTS:
+        if idx == 1:
+            layout = "cover"
+        elif screens:
+            layout = "device"
+        elif idx == total and total > 1:
+            layout = "cta"
+        else:
+            layout = "text"
+    img = _slide_background(tone)
     draw = ImageDraw.Draw(img)
     margin = 84
+    content_w = SLIDE_W - 2 * margin
     tag_font = _slide_font("sans_bold", 22)
     draw.text((margin, 72), "LUXVITE INVITATION", fill=_BRAND["gold"], font=tag_font)
     draw.text((SLIDE_W - margin, 72), f"{idx:02d} / {total:02d}", fill=pal["muted"], font=tag_font, anchor="ra")
     draw.line([(margin, 118), (SLIDE_W - margin, 118)], fill=pal["line"], width=2)
+    footer_y = SLIDE_H - 115
 
-    y = 190
-    image_name = str(slide.get("image") or "").strip()
-    asset_path = os.path.join(UPLOADS_DIR, "assets", os.path.basename(image_name)) if image_name else ""
-    if asset_path and os.path.isfile(asset_path):
-        shot = Image.open(asset_path).convert("RGB")
-        box_w, box_h = SLIDE_W - 2 * margin, 520
-        shot.thumbnail((box_w, box_h))
-        img.paste(shot, ((SLIDE_W - shot.width) // 2, y))
-        y += shot.height + 48
-
-    has_image = y > 190
-    head_font = _slide_font("serif_bold", 52 if has_image else 72)
-    body_font = _slide_font("sans", 34 if has_image else 38)
-    head_lines = _wrap_text(draw, slide.get("headline"), head_font, SLIDE_W - 2 * margin)[:5]
-    body_lines = _wrap_text(draw, slide.get("body"), body_font, SLIDE_W - 2 * margin)[:12]
-    head_lh, body_lh = int(head_font.size * 1.22), int(body_font.size * 1.45)
-    if not has_image:
-        # Slide teks saja: blok teks di tengah area konten agar tidak menyisakan ruang kosong di bawah.
+    if layout in ("cover", "device") and screens:
+        cover = layout == "cover"
+        head_font = _slide_font("serif_bold", 70 if cover else 54)
+        body_font = _slide_font("sans", 32 if cover else 31)
+        head_lines = _wrap_text(draw, slide.get("headline"), head_font, content_w)[:3]
+        body_lines = _wrap_text(draw, slide.get("body"), body_font, content_w)[:3 if cover else 4]
+        y = 168
+        if cover:
+            draw.line([(margin, y), (margin + 72, y)], fill=_BRAND["gold"], width=4)
+            y += 34
+        for line in head_lines:
+            draw.text((margin, y), line, fill=pal["text"], font=head_font)
+            y += int(head_font.size * 1.18)
+        y += 18
+        for line in body_lines:
+            draw.text((margin, y), line, fill=pal["muted"], font=body_font)
+            y += int(body_font.size * 1.42)
+        _place_devices(img, screens, (margin - 24, y + 44, SLIDE_W - margin + 24, footer_y - 40))
+        draw = ImageDraw.Draw(img)
+    elif layout == "cta":
+        head_font = _slide_font("serif_bold", 74)
+        body_font = _slide_font("sans", 36)
+        head_lines = _wrap_text(draw, slide.get("headline"), head_font, content_w)[:4]
+        body_lines = _wrap_text(draw, slide.get("body"), body_font, content_w)[:6]
+        head_lh, body_lh = int(head_font.size * 1.2), int(body_font.size * 1.45)
+        btn_h = 96
+        block_h = len(head_lines) * head_lh + 40 + len(body_lines) * body_lh + 70 + btn_h
+        y = max(170, 118 + (footer_y - 118 - block_h) // 2)
+        for line in head_lines:
+            draw.text((SLIDE_W // 2, y), line, fill=pal["text"], font=head_font, anchor="ma")
+            y += head_lh
+        y += 40
+        for line in body_lines:
+            draw.text((SLIDE_W // 2, y), line, fill=pal["muted"], font=body_font, anchor="ma")
+            y += body_lh
+        y += 70
+        btn_font = _slide_font("sans_bold", 34)
+        label = str(slide.get("button") or "luxvite.id").strip()[:28]
+        bw = int(draw.textlength(label, font=btn_font)) + 120
+        draw.rounded_rectangle([(SLIDE_W - bw) // 2, y, (SLIDE_W + bw) // 2, y + btn_h], radius=btn_h // 2, fill=_BRAND["gold"])
+        draw.text((SLIDE_W // 2, y + btn_h // 2), label, fill=_BRAND["dark"]["bg"], font=btn_font, anchor="mm")
+    else:
+        big = layout == "cover"
+        head_font = _slide_font("serif_bold", 84 if big else 72)
+        body_font = _slide_font("sans", 38)
+        head_lines = _wrap_text(draw, slide.get("headline"), head_font, content_w)[:5]
+        body_lines = _wrap_text(draw, slide.get("body"), body_font, content_w)[:12]
+        head_lh, body_lh = int(head_font.size * 1.2), int(body_font.size * 1.45)
         block_h = len(head_lines) * head_lh + 36 + len(body_lines) * body_lh
-        y = max(190, 118 + (SLIDE_H - 115 - 118 - block_h) // 2)
+        y = max(190, 118 + (footer_y - 118 - block_h) // 2)
         draw.line([(margin, y - 36), (margin + 72, y - 36)], fill=_BRAND["gold"], width=4)
-    for line in head_lines:
-        draw.text((margin, y), line, fill=pal["text"], font=head_font)
-        y += head_lh
-    y += 36
-    for line in body_lines:
-        if y > SLIDE_H - 190:
-            break
-        draw.text((margin, y), line, fill=pal["muted"], font=body_font)
-        y += body_lh
+        for line in head_lines:
+            draw.text((margin, y), line, fill=pal["text"], font=head_font)
+            y += head_lh
+        y += 36
+        for line in body_lines:
+            if y > footer_y - 75:
+                break
+            draw.text((margin, y), line, fill=pal["muted"], font=body_font)
+            y += body_lh
 
-    draw.line([(margin, SLIDE_H - 115), (SLIDE_W - margin, SLIDE_H - 115)], fill=pal["line"], width=2)
+    draw.line([(margin, footer_y), (SLIDE_W - margin, footer_y)], fill=pal["line"], width=2)
     draw.text((margin, SLIDE_H - 82), "Your story, beautifully invited.", fill=pal["muted"], font=_slide_font("serif", 24))
     draw.text((SLIDE_W - margin, SLIDE_H - 80), "luxvite.id →", fill=_BRAND["gold"], font=_slide_font("sans_bold", 22), anchor="ra")
-    img.save(out_path, "PNG", optimize=True)
+    img.convert("RGB").save(out_path, "PNG", optimize=True)
 
 
 def save_post_package(pkg, room="SOCIAL", agent_name=""):
@@ -8983,6 +9234,12 @@ def save_post_package(pkg, room="SOCIAL", agent_name=""):
             errors.append(f"slide {i} wajib punya headline")
         elif len(str(sl.get("headline"))) > 90 or len(str(sl.get("body") or "")) > 420:
             errors.append(f"slide {i}: headline maks 90 dan body maks 420 karakter")
+        elif str(sl.get("layout") or "").strip().lower() not in ("",) + SLIDE_LAYOUTS:
+            errors.append(f"slide {i}: layout harus salah satu dari {', '.join(SLIDE_LAYOUTS)}")
+        elif (sl.get("theme") or sl.get("image")) and not _slide_screens(sl):
+            errors.append(f"slide {i}: tema '{sl.get('theme') or ''}' / gambar '{sl.get('image') or ''}' tidak ditemukan (pakai id tema aktif atau nama file aset)")
+        elif _slide_screens(sl) and len(str(sl.get("body") or "")) > 200:
+            errors.append(f"slide {i}: slide dengan mockup perangkat maks body 200 karakter")
     if errors:
         return {"ok": False, "error": "; ".join(errors)}
 
@@ -10341,7 +10598,8 @@ def run_gm_autopilot_cycle(manual=False):
             f"Fokus dari CEO: {cfg.get('focusAreas')}\n\n"
             "ATURAN WEWENANG (WAJIB DIPATUHI):\n"
             "1. INTERNAL_SAFE (BOLEH langsung didelegasikan & dikerjakan mandiri): riset tren, audit kesehatan platform, membuat draf konten/skrip lokal, rekap keuangan/OPEX, menyusun SOP/rencana internal, merancang tema baru & mendorongnya masuk ke LIST DRAFT SERVER (`luxvite_create_draft_theme`, status Draft non-aktif sehingga aman untuk direview CEO di Admin), atau mengeksekusi tugas PENDING internal di Taskboard.\n"
-            "2. NEEDS_CEO_APPROVAL (DILARANG dieksekusi langsung — wajib usulkan ke CEO): mengubah konfigurasi/aktivasi produksi live di luar Draft, pengeluaran uang/pembayaran, rekrut/pecat staf, atau install skill baru.\n"
+            "2. NEEDS_CEO_APPROVAL (DILARANG dieksekusi langsung — wajib usulkan ke CEO): mengubah konfigurasi/aktivasi produksi live di luar Draft, mengubah harga jual, rekrut/pecat staf, atau install skill baru. "
+            "Pekerjaan Dept Finance (menghitung pendapatan, pengeluaran bulanan, laba/rugi, kesehatan keuangan, simulasi) SELALU INTERNAL_SAFE: tidak ada tim yang memegang atau membayarkan uang.\n"
             "3. Jika tidak ada pekerjaan mendesak dan semua sudah berjalan baik hari ini, pilih ALL_CLEAR agar hemat token.\n\n"
             "BALAS HANYA DENGAN JSON VALID (tanpa teks tambahan di luar JSON):\n"
             "{\n"
@@ -10694,7 +10952,7 @@ DEPT_SQUADS = {
         "staff": [
             {"id": 32, "name": "Nanda", "role": "Staf Unit Economics, Harga, Diskon, Margin Mitra & BEP", "kw": ["unit", "economics", "bep", "margin", "harga", "diskon"]},
             {"id": 33, "name": "Reza", "role": "Staf Pengendalian OPEX (VPS, Domain, R2, Ads) & PPh 0,5%", "kw": ["opex", "biaya", "pph", "vps", "tutup buku", "anggaran"]},
-            {"id": 34, "name": "Sinta", "role": "Staf Kasir, Rekonsiliasi Midtrans/Transfer & Payout Mitra", "kw": ["rekonsiliasi", "kas", "midtrans", "order", "transaksi"]},
+            {"id": 34, "name": "Sinta", "role": "Staf Rekonsiliasi Pendapatan (Midtrans/Transfer) & Arus Kas", "kw": ["rekonsiliasi", "kas", "midtrans", "order", "transaksi"]},
         ],
     },
     "ADMIN": {
@@ -10727,6 +10985,19 @@ def _pick_squad_members(dept, task_text, manager_id=None, max_staff=2):
 
 
 MAX_TASK_FAILURES = 2
+# Saat CLI model AI tidak merespons untuk semua model cadangan, kesalahannya ada di penyedia, bukan di tugas:
+# tugas tidak dihitung gagal dan autopilot berhenti memulai pekerjaan baru selama MODEL_OUTAGE_PAUSE_SEC.
+MODEL_OUTAGE_PAUSE_SEC = 600
+_MODEL_OUTAGE = {"until": 0.0, "reason": ""}
+
+
+def _note_model_outage(err):
+    msg = str(err)
+    if not (("Antigravity CLI (" in msg and "gagal merespons" in msg) or "Timeout: Model Antigravity" in msg):
+        return False
+    _MODEL_OUTAGE["until"] = time.time() + MODEL_OUTAGE_PAUSE_SEC
+    _MODEL_OUTAGE["reason"] = msg[:200]
+    return True
 MAX_REVISION_ROUNDS = 2
 
 
@@ -11279,9 +11550,16 @@ def _execute_single_department_project(item, idx=1, total=1):
         now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
         print(f"[dept-project] {dept} '{title[:60]}' gagal: {err!r}", flush=True)
         gave_up = False
+        outage = _note_model_outage(err)
         with TASKBOARD_LOCK:
             tb = load_taskboard()
             for t in tb:
+                if t.get("id") == tid and outage:
+                    t["status"] = "TODO"
+                    t["detail"] = (f"Model AI tidak merespons ({str(err)[:120]}). Tidak dihitung gagal; dicoba lagi otomatis "
+                                   f"setelah {time.strftime('%H:%M', time.localtime(_MODEL_OUTAGE['until']))}.")
+                    t["updatedAt"] = now_str
+                    break
                 if t.get("id") == tid:
                     # Auto-resume menjalankan ulang TODO/IN_PROGRESS tanpa batas; setelah MAX_TASK_FAILURES kali gagal,
                     # tugas berhenti sebagai GAGAL dan menunggu CEO, agar error yang sama tidak membakar kuota model berulang kali.
@@ -11422,13 +11700,14 @@ def finish_meeting_and_execute_tasks(body):
         "(mis. konten 7 hari), WAJIB buat 1 task per hari dengan field dueDate (YYYY-MM-DD) dan sebut hari itu di title, jangan diringkas jadi satu task. "
         f"Hari ini {time.strftime('%Y-%m-%d (%A)')}.\n"
         "2. Tetapkan dept (SOCIAL|THEMES|GROWTH|ADMIN|ENGINEERING|FINANCE) dan agentId/agentName yang tepat dari daftar peserta.\n"
-        "3. riskLevel: 'INTERNAL_SAFE' untuk kerja internal (riset, audit, draf konten lokal, SOP, kode internal, rekap keuangan, serta buat & dorong tema baru ke List Draft server via luxvite_create_draft_theme); "
-        "'NEEDS_CEO_APPROVAL' HANYA untuk ubah/aktifkan produksi live di luar Draft atau transaksi bayar.\n"
+        "3. riskLevel: 'INTERNAL_SAFE' untuk kerja internal (riset, audit, konten & file hasil, SOP, seluruh pekerjaan Dept Finance seperti menghitung pendapatan, "
+        "pengeluaran, laba/rugi dan kesehatan keuangan, serta draf tema baru); 'NEEDS_CEO_APPROVAL' HANYA untuk mengaktifkan/mengubah produksi live di luar Draft "
+        "atau mengubah harga jual. Tim tidak pernah memegang, membayarkan, atau mentransfer uang.\n"
         "4. BALAS HANYA DENGAN JSON VALID (tanpa markdown berlebih):\n"
         "{\n"
         '  "meetingSummary": "Ringkasan padat 1-2 kalimat keputusan rapat",\n'
         '  "actionItems": [\n'
-        '    {"title": "Judul tugas singkat", "dept": "SOCIAL", "agentId": 17, "agentName": "⭐ Senna", "agentRole": "Manajer Social", "instruction": "Brief detail tugas yang harus dikerjakan", "priority": "HIGH", "riskLevel": "INTERNAL_SAFE", "dueDate": "YYYY-MM-DD atau kosong"}\n'
+        '    {"title": "Judul tugas singkat", "dept": "SOCIAL", "agentId": 17, "agentName": "⭐ Senna", "agentRole": "Manajer Social", "instruction": "Brief detail tugas yang harus dikerjakan", "priority": "HIGH", "riskLevel": "INTERNAL_SAFE", "dueDate": "YYYY-MM-DD atau kosong", "requestedBy": "DEPT peminta bila tugas ini permintaan departemen lain, atau kosong"}\n'
         "  ]\n"
         "}"
     )
@@ -11495,6 +11774,10 @@ def finish_meeting_and_execute_tasks(body):
         due = due if re.fullmatch(r"\d{4}-\d{2}-\d{2}", due) else ""
         if due:
             instr = f"{instr}\n\nTANGGAL TAYANG/TENGGAT: {due}. Hasil wajib menyebut tanggal ini (mis. postTime untuk konten)."
+        requested_by = str(raw_item.get("requestedBy") or "").strip().upper()
+        requested_by = requested_by if requested_by in dept_defaults and requested_by != dept else ""
+        if requested_by:
+            instr = f"PERMINTAAN DARI DEPT {requested_by}: hasil tugas ini dipakai tim {requested_by}; serahkan output yang bisa langsung mereka pakai.\n{instr}"
         prio = str(raw_item.get("priority") or "HIGH").strip().upper()
         if prio not in ("HIGH", "MEDIUM", "LOW"):
             prio = "HIGH"
@@ -11512,11 +11795,15 @@ def finish_meeting_and_execute_tasks(body):
             "taskType": "meeting_action_item",
             "priority": prio,
             "status": "IN_PROGRESS" if is_safe else "PENDING_APPROVAL",
-            "detail": (f"Auto-eksekusi pasca-rapat oleh {aname} dimulai {now_str}." if is_safe else f"Menunggu ACC CEO sebelum dieksekusi ({aname})."),
+            "detail": (
+                (f"Diminta oleh Dept {requested_by}. " if requested_by else "")
+                + (f"Auto-eksekusi pasca-rapat oleh {aname} dimulai {now_str}." if is_safe else f"Menunggu ACC CEO sebelum dieksekusi ({aname}).")
+            ),
             "instruction": instr,
             "artifactFile": "",
             "updatedAt": now_str,
             "dueDate": due,
+            "requestedBy": requested_by,
         }
         tb.insert(0, task_obj)
         created_tasks.append(task_obj)
@@ -11591,7 +11878,7 @@ _AUTO_DEPT_ROTATION = ["SOCIAL", "THEMES", "GROWTH", "ENGINEERING", "FINANCE", "
 BUSINESS_TARGETS_FILE = os.path.join(CONFIG_DIR, "business_targets.json")
 BUSINESS_TARGET_METRICS = (
     ("newSignups7d", "Pendaftar baru (7 hari terakhir)"),
-    ("paidOrdersMonth", "Order lunas (bulan ini)"),
+    ("paidOrdersMonth", "Pelanggan / order lunas (bulan ini)"),
     ("revenueMonth", "Omzet bulan ini (Rp)"),
 )
 _BUSINESS_PROGRESS_CACHE = {"ts": 0.0, "data": None}
@@ -11819,7 +12106,7 @@ def run_auto_coordination_meeting():
                 f"Pakai aturan prioritas GM berikut:\n{playbook[:1400]}"
             )
             prompt = (
-                f"{targets_block}\n\nTUGAS SELESAI TIMMU:\n" + ("\n".join(f"- {x}" for x in done) or "- Belum ada")
+                f"{targets_block}\n{target_plan_context(dept)}\n\nTUGAS SELESAI TIMMU:\n" + ("\n".join(f"- {x}" for x in done) or "- Belum ada")
                 + "\n\nTUGAS TIMMU YANG MASIH REVISI/GAGAL:\n" + ("\n".join(f"- {x}" for x in revisi) or "- Tidak ada")
             )
             text, _ = run_agent_llm_unified(mid, ep, key, sys_p, [], prompt, live_mcp_ctx="", agent_id=int(mgr["id"]), room=dept, agent_name=f"{mgr['name']} (Rapat)")
@@ -11836,7 +12123,7 @@ def run_auto_coordination_meeting():
             "sender": "👑 Raka (GM)",
             "text": (
                 f"Agenda rapat koordinasi otomatis {time.strftime('%H:%M')} WITA. Pilih tugas yang paling menggerakkan target, "
-                f"masing-masing dengan output jadi.\n{targets_block}\n\nPLAYBOOK STRATEGI GM:\n{playbook}"
+                f"masing-masing dengan output jadi.\n{targets_block}\n{target_plan_context()}\n\nPLAYBOOK STRATEGI GM:\n{playbook}"
                 + (f"\n\nSocial sudah menjadwalkan Rencana Konten 7 Hari: {week_res.get('summary')}" if week_res and week_res.get("ok") else "")
             ),
         }] + [{"sender": f"{mgr['name']} ({dept})", "text": text[:900]} for dept, mgr, text in proposals if text]
@@ -11853,6 +12140,201 @@ def run_auto_coordination_meeting():
         return {"ok": False, "error": str(mtg_err)}
     finally:
         set_agents_busy([int(DEPT_SQUADS[d]["manager"]["id"]) for d in DEPT_SQUADS], False)
+        update_world_state({"liveStepStatus": ""})
+        _AUTO_MEETING_LOCK.release()
+
+
+# ===== Ekosistem target: rapat diskusi 2 putaran, rencana bulanan/mingguan, pemantau laju & rapat darurat =====
+TARGET_PLAN_FILE = os.path.join(CONFIG_DIR, "target_plan.json")
+
+
+def load_target_plan():
+    try:
+        with open(TARGET_PLAN_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        return {}
+
+
+def _save_target_plan(data):
+    tmp = TARGET_PLAN_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, TARGET_PLAN_FILE)
+
+
+def target_plan_context(dept=""):
+    """Ringkasan rencana bulan ini + target mingguan departemen, untuk rapat harian dan perencanaan mandiri."""
+    plan = load_target_plan()
+    if not plan.get("summary"):
+        return ""
+    lines = [f"RENCANA BULAN INI (hasil rapat target {plan.get('createdAt', '')}): {plan['summary']}"]
+    weekly = plan.get("weeklyTargets") or {}
+    if dept and weekly.get(dept):
+        lines.append(f"TARGET MINGGU INI UNTUK TIM {dept}: {weekly[dept]}")
+    elif weekly:
+        lines.append("TARGET MINGGUAN PER DEPT: " + "; ".join(f"{k}: {v}" for k, v in weekly.items()))
+    return "\n".join(lines)
+
+
+def target_pace_status():
+    """Bandingkan angka live dengan laju yang dibutuhkan. Tertinggal = aktual < 60% dari yang semestinya pada titik bulan ini."""
+    prog = fetch_business_progress()
+    now = datetime.now()
+    days_in_month = (datetime(now.year + (now.month == 12), now.month % 12 + 1, 1) - datetime(now.year, now.month, 1)).days
+    frac = ((now.day - 1) + now.hour / 24) / days_in_month
+    behind = []
+    for m in prog["metrics"]:
+        if not m.get("target") or m.get("actual") is None:
+            continue
+        expected = m["target"] if m["key"] == "newSignups7d" else m["target"] * frac
+        if (m["key"] == "newSignups7d" or frac >= 0.15) and expected > 0 and m["actual"] < 0.6 * expected:
+            behind.append(f"{m['label']}: aktual {m['actual']:,} vs semestinya ±{round(expected):,} (target {m['target']:,})")
+    return {"behind": behind, "monthFraction": round(frac, 2)}
+
+
+def target_meeting_due(cfg):
+    """Mengembalikan (jenis, alasan) rapat target yang jatuh tempo, atau (None, '')."""
+    if not cfg.get("autoMeeting", True):
+        return None, ""
+    targets = load_business_targets()
+    if not (targets.get("targets") or {}):
+        return None, ""
+    plan = load_target_plan()
+    month = time.strftime("%Y-%m")
+    if plan.get("month") != month:
+        return "bulanan", f"rencana bulan {month} belum ada"
+    if str(targets.get("updatedAt") or "") > str(plan.get("targetsUpdatedAt") or ""):
+        return "bulanan", "target diubah CEO"
+    week = time.strftime("%G-W%V")
+    if plan.get("weekKey") != week:
+        return "mingguan", f"awal minggu {week}"
+    last_esc = float(plan.get("lastEscalationTs") or plan.get("createdTs") or 0)
+    if time.time() - last_esc >= 24 * 3600:
+        pace = target_pace_status()
+        if pace["behind"]:
+            return "darurat", "target tertinggal: " + "; ".join(pace["behind"])
+    return None, ""
+
+
+def _week_review_text():
+    tb = load_taskboard()
+    q = load_content_queue()
+    cutoff = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+    lines = ["TINJAUAN 7 HARI TERAKHIR:"]
+    for d in DEPT_SQUADS:
+        done = sum(1 for t in tb if str(t.get("dept") or "").upper() == d and t.get("status") == "DONE" and str(t.get("updatedAt") or "") >= cutoff)
+        rev = sum(1 for t in tb if str(t.get("dept") or "").upper() == d and t.get("status") in ("REVISI", "GAGAL"))
+        outs = [x for x in q if str(x.get("dept") or "").upper() == d and str(x.get("createdAt") or "") >= cutoff]
+        used = sum(1 for x in outs if x.get("status") in ("POSTED", "DIPAKAI"))
+        rejected = sum(1 for x in outs if x.get("status") == "REJECTED")
+        lines.append(f"- {d}: {done} tugas lulus QA, {rev} REVISI/GAGAL, {len(outs)} output ({used} dipakai CEO, {rejected} ditolak)")
+    return "\n".join(lines)
+
+
+def run_target_meeting(kind="bulanan", reason=""):
+    """Rapat target: putaran 1 tiap manajer mengusulkan kontribusi & permintaan ke dept lain, putaran 2 saling menanggapi,
+    lalu GM (playbook strategi) memutuskan rencana + target mingguan per dept, dan notulis membuat tugas bertanggal."""
+    import concurrent.futures
+    if not _AUTO_MEETING_LOCK.acquire(blocking=False):
+        return {"ok": False, "error": "Rapat lain sedang berlangsung."}
+    mgr_ids = [int(DEPT_SQUADS[d]["manager"]["id"]) for d in DEPT_SQUADS]
+    try:
+        with open(AUTO_MEETING_STATE_FILE + ".tmp", "w", encoding="utf-8") as f:
+            json.dump({"lastDate": time.strftime("%Y-%m-%d"), "lastTs": time.time()}, f)
+        os.replace(AUTO_MEETING_STATE_FILE + ".tmp", AUTO_MEETING_STATE_FILE)
+        label = {"bulanan": "Rapat Target Bulanan", "mingguan": "Rapat Mingguan", "darurat": "Rapat Darurat Target"}.get(kind, "Rapat Target")
+        set_agents_busy(mgr_ids + [10], True)
+        update_world_state({"liveStepStatus": f"🗣️ {label}: para manajer berdiskusi ({reason[:60]})"})
+        bump_world_chat_version(toast_msg=f"🗣️ {label} dimulai otomatis — {reason[:90]}")
+        targets_block = build_business_targets_block()
+        playbook = strategy_playbook_text()
+        prev_plan = target_plan_context()
+        review = _week_review_text() if kind in ("mingguan", "darurat") else ""
+        context = f"JENIS RAPAT: {label}. ALASAN: {reason}\n{targets_block}\n{prev_plan}\n{review}".strip()
+
+        def _speak(dept, round_no, transcript=""):
+            mgr = DEPT_SQUADS[dept]["manager"]
+            mid, ep, key = _resolve_agent_model_creds(int(mgr["id"]))
+            if round_no == 1:
+                sys_p = (
+                    f"Kamu {mgr['name']} ({mgr['role']}) di rapat target perusahaan. Usulkan kontribusi timmu untuk mencapai target: "
+                    "maksimal 2 tugas dengan OUTPUT JADI (konten/file/draf, bukan rencana) dan metrik yang dikejar. Bila timmu butuh hasil dari "
+                    "departemen lain, tulis baris 'PERMINTAAN → <DEPT>: <apa yang dibutuhkan dan kapan>'. Maksimal 120 kata."
+                )
+                prompt = context
+            else:
+                sys_p = (
+                    f"Kamu {mgr['name']} ({mgr['role']}). Baca usulan semua manajer. Tanggapi singkat: setujui/koreksi usulan yang terkait timmu, "
+                    "jawab setiap PERMINTAAN yang ditujukan ke timmu (sanggup/tidak + kapan), lalu FINALKAN maksimal 2 tugas timmu. Maksimal 120 kata."
+                )
+                prompt = f"{context}\n\nUSULAN PUTARAN 1:\n{transcript}"
+            text, _ = run_agent_llm_unified(mid, ep, key, sys_p, [], prompt, live_mcp_ctx="", agent_id=int(mgr["id"]), room=dept, agent_name=f"{mgr['name']} ({label})")
+            return dept, mgr, str(text or "").strip()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as pool:
+            round1 = [f.result() for f in [pool.submit(_speak, d, 1) for d in DEPT_SQUADS]]
+            r1_text = "\n".join(f"[{d}] {m['name']}: {t[:700]}" for d, m, t in round1 if t)
+            round2 = [f.result() for f in [pool.submit(_speak, d, 2, r1_text) for d in DEPT_SQUADS]]
+        r2_text = "\n".join(f"[{d}] {m['name']}: {t[:700]}" for d, m, t in round2 if t)
+
+        mid, ep, key = _resolve_agent_model_creds(10)
+        gm_sys = (
+            "Kamu Raka, GM / Chief Strategy. Putuskan rencana dari diskusi para manajer memakai playbook strategi berikut, lalu balas HANYA JSON valid: "
+            '{"summary":"rencana bulan ini 2-3 kalimat: strategi utama dan angka yang dikejar","weeklyTargets":{"SOCIAL":"target minggu ini terukur",'
+            '"THEMES":"...","GROWTH":"...","ADMIN":"...","ENGINEERING":"...","FINANCE":"..."},"decision":"keputusan GM untuk notulis: tugas mana yang dikerjakan duluan"}\n\n'
+            f"PLAYBOOK:\n{playbook}"
+        )
+        gm_raw, _ = run_agent_llm_unified(mid, ep, key, gm_sys, [], f"{context}\n\nPUTARAN 1:\n{r1_text}\n\nPUTARAN 2:\n{r2_text}",
+                                          live_mcp_ctx="", agent_id=10, room="TOWNHALL", agent_name=f"Raka ({label})")
+        gm = _extract_json_block(gm_raw)
+        if not isinstance(gm, dict) or not gm.get("summary"):
+            return {"ok": False, "error": "Keputusan GM tidak terbaca sebagai JSON."}
+
+        plan = load_target_plan()
+        now_ts = time.time()
+        plan.update({
+            "kind": kind,
+            "reason": reason,
+            "createdAt": time.strftime("%Y-%m-%d %H:%M WITA"),
+            "createdTs": now_ts,
+            "weekKey": time.strftime("%G-W%V"),
+            "weeklyTargets": {k: str(v)[:300] for k, v in (gm.get("weeklyTargets") or {}).items() if k in DEPT_SQUADS},
+            "lastEscalationTs": now_ts,
+        })
+        if kind == "bulanan" or not plan.get("summary") or plan.get("month") != time.strftime("%Y-%m"):
+            plan["summary"] = str(gm["summary"])[:800]
+            plan["month"] = time.strftime("%Y-%m")
+            plan["targetsUpdatedAt"] = load_business_targets().get("updatedAt", "")
+        _save_target_plan(plan)
+
+        history = (
+            [{"sender": "👑 Raka (GM)", "text": f"{label}. {reason}\n{targets_block}"}]
+            + [{"sender": f"{m['name']} ({d}) — putaran 1", "text": t[:900]} for d, m, t in round1 if t]
+            + [{"sender": f"{m['name']} ({d}) — putaran 2", "text": t[:900]} for d, m, t in round2 if t]
+            + [{"sender": "👑 Raka (GM) — keputusan", "text": f"{gm['summary']}\n{gm.get('decision', '')}\nTarget mingguan: {json.dumps(plan['weeklyTargets'], ensure_ascii=False)}"}]
+        )
+        participants = [{"id": int(m["id"]), "name": m["name"], "role": m["role"], "room": d} for d, m, _ in round1]
+        res = finish_meeting_and_execute_tasks({"meetingTitle": f"{label} {time.strftime('%d %b %H:%M')}", "history": history, "participants": participants})
+        notulen = (
+            f"# {label} — {time.strftime('%Y-%m-%d %H:%M')} WITA\n\n**Alasan:** {reason}\n\n## Keputusan GM\n{gm['summary']}\n\n{gm.get('decision', '')}\n\n"
+            "## Target mingguan per departemen\n" + "\n".join(f"- **{k}**: {v}" for k, v in plan["weeklyTargets"].items())
+            + "\n\n## Tugas yang dibuat\n" + "\n".join(f"- [{t.get('dept')}] {t.get('title')}" + (f" (diminta {t['requestedBy']})" if t.get("requestedBy") else "") for t in (res.get("createdTasks") or []))
+            + f"\n\n## Diskusi putaran 1\n{r1_text}\n\n## Diskusi putaran 2\n{r2_text}\n"
+        )
+        save_output_file({"title": f"Notulen {label} {time.strftime('%d %b %Y')}", "format": "md",
+                          "purpose": "Keputusan rapat, target mingguan tiap departemen, dan tugas yang dibuat otomatis.", "content": notulen},
+                         room="ADMIN", agent_name="Raka (GM)")
+        if social_week_plan_due():
+            create_social_week_plan()
+        print(f"[target-meeting] {kind}: {len(res.get('createdTasks') or [])} tugas, alasan: {reason[:80]}", flush=True)
+        return {"ok": True, "summary": gm["summary"], "weeklyTargets": plan["weeklyTargets"], "tasks": [t.get("title") for t in (res.get("createdTasks") or [])]}
+    except Exception as tm_err:
+        print(f"[target-meeting] gagal: {tm_err!r}", flush=True)
+        return {"ok": False, "error": str(tm_err)}
+    finally:
+        set_agents_busy(mgr_ids + [10], False)
         update_world_state({"liveStepStatus": ""})
         _AUTO_MEETING_LOCK.release()
 
@@ -11917,6 +12399,7 @@ def run_autonomous_department_self_plan(dept_key):
             f"TUGAS YANG SUDAH SELESAI (JANGAN DIULANG):\n"
             + ("\n".join(f"- {x}" for x in recent_done) if recent_done else "- Belum ada.")
             + f"\n\n{build_business_targets_block()}"
+            + f"\n{target_plan_context(dept)}"
             + f"\n\nMEMORI & ROADMAP DEPARTEMEN:\n{obs_ctx[:2600]}\n\n"
             "Tentukan 1 task lanjutan paling berdampak untuk langsung dieksekusi oleh staf departemenmu sekarang."
         )
@@ -11960,6 +12443,7 @@ def run_autonomous_department_self_plan(dept_key):
         _execute_single_department_project(task_obj, 1, 1)
     except Exception as plan_err:
         print(f"[auto-plan] {dept} gagal merencanakan tugas: {plan_err!r}", flush=True)
+        _note_model_outage(plan_err)
     finally:
         set_agents_busy([aid], False)
         with _AUTO_DEPT_STATE_LOCK:
@@ -11999,6 +12483,8 @@ def _run_gm_autopilot_background_loop():
                             )
                         except Exception:
                             pass
+                    elif not world.get("officeOff") and time.time() < _MODEL_OUTAGE["until"]:
+                        update_world_state({"liveStepStatus": f"Model AI tidak merespons; tim menunggu hingga {time.strftime('%H:%M', time.localtime(_MODEL_OUTAGE['until']))}"})
                     elif not world.get("officeOff"):
                         # 1. Auto-resume any idle TODO / IN_PROGRESS tasks immediately (CEO tasks get top priority!)
                         if cfg.get("autoExecutePending", True):
@@ -12015,9 +12501,14 @@ def _run_gm_autopilot_background_loop():
 
                         # 1b. Rapat koordinasi otomatis (awal hari kerja, dan saat semua tim kosong)
                         meeting_started = False
-                        if not world.get("inTownHallMeeting") and not _AUTO_MEETING_LOCK.locked() and auto_meeting_due(cfg, load_taskboard()):
-                            meeting_started = True
-                            threading.Thread(target=run_auto_coordination_meeting, daemon=True).start()
+                        if not world.get("inTownHallMeeting") and not _AUTO_MEETING_LOCK.locked():
+                            tm_kind, tm_reason = target_meeting_due(cfg)
+                            if tm_kind:
+                                meeting_started = True
+                                threading.Thread(target=run_target_meeting, args=(tm_kind, tm_reason), daemon=True).start()
+                            elif auto_meeting_due(cfg, load_taskboard()):
+                                meeting_started = True
+                                threading.Thread(target=run_auto_coordination_meeting, daemon=True).start()
 
                         # 2. Autonomous Self-Planning Departments: each dept automatically creates & runs its own next task!
                         if cfg.get("autonomousDepts", True) and not world.get("inTownHallMeeting") and not meeting_started and not _AUTO_MEETING_LOCK.locked():

@@ -3353,7 +3353,7 @@
       },
       {
         id: 34, room: "FINANCE", name: "Sinta", shortPill: "Sinta · Kasir & Midtrans",
-        role: "Staf Kasir, Rekonsiliasi Midtrans/Transfer & Payout Mitra", deskLabel: "Gedung B · Dept 6 Keuangan · Meja F4",
+        role: "Staf Rekonsiliasi Pendapatan (Midtrans/Transfer) & Arus Kas", deskLabel: "Gedung B · Dept 6 Keuangan · Meja F4",
         model: "gh/gpt-4o-mini", dotColor: "#fde047", shirtColor: 0xeab308, hairColor: 0x292524,
         pos: { x: 40.5, y: 0, z: 8.6, rotY: Math.PI }, hasDesk: true,
         progressMsg: "Staf Dept 6 Keuangan (Gedung B · melapor ke Mgr Tika). Memverifikasi invoice Midtrans QRIS (MDR 0,7%), bukti transfer manual, pencairan AffiliateCommission WO, & pembukuan kas masuk/keluar.",
@@ -12810,6 +12810,7 @@
 
     // ===== Ringkasan CEO: satu tempat untuk keputusan yang menunggu, target bisnis, kerja berjalan, dan hasil terbaru =====
     var CEO_TARGETS = null;
+    var CEO_PLAN = { plan: {}, pace: {}, running: false };
     var CONTENT_QUEUE = [];
 
     function _ceoAttentionItems() {
@@ -12840,7 +12841,7 @@
         fetchAutopilotStatus(),
         fetch("/api/taskboard").then(r => r.json()).then(d => { if (d && Array.isArray(d.taskboard)) TASKBOARD_ITEMS = d.taskboard; })
           .catch(err => console.warn("Papan tugas gagal dimuat", err)),
-        fetch("/api/targets").then(r => r.json()).then(d => { if (d && d.ok) CEO_TARGETS = d.progress; })
+        fetch("/api/targets").then(r => r.json()).then(d => { if (d && d.ok) { CEO_TARGETS = d.progress; CEO_PLAN = { plan: d.plan || {}, pace: d.pace || {}, running: d.meetingRunning }; } })
           .catch(err => console.warn("Target bisnis gagal dimuat", err)),
         fetch("/api/content-queue").then(r => r.json()).then(d => { if (d && d.ok) CONTENT_QUEUE = d.items || []; })
           .catch(err => console.warn("Antrean konten gagal dimuat", err)),
@@ -12986,8 +12987,24 @@
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">${targetsHtml}</div>
           ${targetErr}
           <div class="flex items-center justify-between gap-2 mt-2">
-            <span class="text-[10.5px] text-slate-500">Tim memakai target ini saat merencanakan tugas sendiri.</span>
+            <span class="text-[10.5px] text-slate-500">Menyimpan target baru otomatis memicu Rapat Target seluruh manajer (saat jam kerja/Lembur).</span>
             <button onclick="ceoSaveTargets()" class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-[#1a1407] font-bold text-[11px] cursor-pointer">Simpan target</button>
+          </div>
+        </section>
+        <section>
+          ${sectionTitle("Rencana tim untuk mencapai target", CEO_PLAN.plan.createdAt ? `rapat terakhir ${escapeHtmlSafe(CEO_PLAN.plan.createdAt)}` : "belum ada rapat target")}
+          <div class="${card} space-y-2">
+            ${CEO_PLAN.plan.summary
+              ? `<div class="text-[11.5px] text-white">${escapeHtmlSafe(CEO_PLAN.plan.summary)}</div>
+                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">${Object.entries(CEO_PLAN.plan.weeklyTargets || {}).map(([d, v]) => `<div class="text-[10.5px] text-slate-300"><span class="font-bold text-amber-300">${escapeHtmlSafe(d)}</span> — ${escapeHtmlSafe(v)}</div>`).join("")}</div>`
+              : `<div class="text-[11px] text-slate-400">Belum ada rencana. Isi target lalu jalankan Rapat Target: semua manajer berdiskusi 2 putaran, GM memutuskan target mingguan tiap departemen, dan tugasnya dibuat otomatis.</div>`}
+            ${(CEO_PLAN.pace.behind || []).length
+              ? `<div class="text-[10.5px] text-rose-300">Tertinggal dari laju target: ${escapeHtmlSafe(CEO_PLAN.pace.behind.join("; "))}. Rapat darurat dipanggil otomatis maksimal sekali sehari.</div>`
+              : ""}
+            <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+              <span class="text-[10.5px] text-slate-500">Otomatis: rapat target tiap awal bulan/saat target diubah, rapat mingguan tiap awal minggu, rapat darurat bila tertinggal.</span>
+              <button id="btn-target-meeting" onclick="ceoStartTargetMeeting()" ${CEO_PLAN.running ? "disabled" : ""} class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-bold text-[11px] cursor-pointer">${CEO_PLAN.running ? "Rapat sedang berlangsung…" : "Rapat target sekarang"}</button>
+            </div>
           </div>
         </section>
         <section class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -12995,6 +13012,22 @@
             ${OFFICE_OFF_MODE && running.length ? `<div class="mt-2 text-[10.5px] text-slate-500">Kantor tutup: tugas lanjut saat jam kerja, atau tekan Aktifkan (Lembur).</div>` : ""}</div>
           <div class="${card}">${sectionTitle("Hasil terbaru (lulus QA)", done.length)}${doneHtml || `<div class="text-[11px] text-slate-400">Belum ada hasil yang lulus QA.</div>`}</div>
         </section>`;
+    }
+
+    async function ceoStartTargetMeeting() {
+      try {
+        const res = await fetch("/api/target-meeting", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "bulanan" }) });
+        const data = await res.json();
+        if (!data.ok) {
+          alert(data.error || "Rapat target gagal dimulai.");
+          return;
+        }
+        updateToast("Rapat Target dimulai: semua manajer berdiskusi, hasilnya muncul di sini ±5-10 menit lagi.");
+        CEO_PLAN.running = true;
+        renderCeoSummary();
+      } catch (err) {
+        updateToast(`Gagal menghubungi server: ${err.message}`);
+      }
     }
 
     async function ceoRequestWeekPlan() {
