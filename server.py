@@ -9703,6 +9703,19 @@ def _run_gm_autopilot_background_loop():
                 if cfg.get("enabled") and not cfg.get("isRunning"):
                     world = load_world_state()
                     if not world.get("officeOff"):
+                        # 1. Auto-resume any idle TODO / IN_PROGRESS tasks immediately without waiting for the 15-min patrol timer!
+                        if cfg.get("autoExecutePending", True):
+                            tb_chk = load_taskboard()
+                            has_runnable = False
+                            with _ACTIVE_TASK_IDS_LOCK:
+                                for _t in tb_chk:
+                                    _tid = str(_t.get("id") or "")
+                                    if _tid and str(_t.get("status") or "").upper() in ("TODO", "IN_PROGRESS") and _tid not in _ACTIVE_RUNNING_TASK_IDS:
+                                        has_runnable = True
+                                        break
+                            if has_runnable:
+                                resume_in_progress_tasks()
+                        # 2. Scheduled GM Autopilot cycle (proactively creates & delegates new initiatives)
                         now_ts = time.time()
                         next_ts = float(cfg.get("nextRunAt") or 0)
                         if next_ts == 0:
