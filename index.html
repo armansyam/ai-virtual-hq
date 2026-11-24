@@ -12797,8 +12797,15 @@
           renderAutopilotBadge();
           renderAutopilotModalBody();
           updateToast(action === "approve" ? "✅ Disetujui! Tim sedang mengeksekusi tugas di 3D." : "✖ Usulan diabaikan.");
+        } else {
+          const msg = (data && data.error) || `Server menjawab HTTP ${res.status}`;
+          updateToast(`Gagal memproses usulan: ${msg}`);
+          alert(`Gagal memproses usulan: ${msg}`);
         }
-      } catch (e) {}
+      } catch (e) {
+        updateToast(`Gagal menghubungi server: ${e.message}. Muat ulang halaman lalu coba lagi.`);
+        alert(`Gagal menghubungi server: ${e.message}. Muat ulang halaman lalu coba lagi.`);
+      }
     }
 
     // ===== Ringkasan CEO: satu tempat untuk keputusan yang menunggu, target bisnis, kerja berjalan, dan hasil terbaru =====
