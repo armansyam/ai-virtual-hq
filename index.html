@@ -663,6 +663,13 @@
         </button>
       </div>
 
+      <div id="chat-meeting-finish-bar" class="px-3.5 py-2 bg-[#141a22] border-t border-emerald-500/25 flex items-center justify-between gap-2 text-[10.5px]">
+        <span class="text-slate-300 truncate">Selesai rapat? Buat Task otomatis &amp; jalankan di tiap dept:</span>
+        <button id="btn-finish-meeting-exec" type="button" onclick="finishMeetingAndExecuteTasks()" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10.5px] cursor-pointer shrink-0 shadow">
+          🚀 Selesai &amp; Kerjakan Task
+        </button>
+      </div>
+
       <div id="chat-attachments-preview" class="hidden px-3 py-2 border-t border-white/10 bg-[#12121a] flex flex-wrap items-center gap-2"></div>
       <div class="p-3 border-t border-white/10 bg-[#15151e] flex items-center gap-2">
         <input id="chat-file-input" type="file" multiple accept="image/*,.txt,.md,.csv,.json,.pdf,.html,.css,.js,.ts,.tsx,.py,.sql,.xml,.log" onchange="handleChatFileInputChange(this.files)" class="hidden" />
@@ -6155,6 +6162,74 @@
         }
       } catch (e) {}
       await syncWorldStateFromServer(true);
+    }
+
+    async function finishMeetingAndExecuteTasks() {
+      const btn = document.getElementById("btn-finish-meeting-exec");
+      const isDeptChat = Boolean(currentDeptChatRoom && !isTownHallChatMode);
+      const isCustomMeeting = Boolean(isTownHallChatMode && currentCustomMeetingPreset && currentCustomMeetingPreset.mode !== "ALL");
+      const historyKey = isCustomMeeting
+        ? `MTG_${currentCustomMeetingPreset.id}`
+        : (isTownHallChatMode ? "TOWNHALL" : (isDeptChat ? `DEPT_${currentDeptChatRoom}` : currentModalAgentId));
+      const hist = agentChatHistories[historyKey] || [];
+      if (hist.length === 0) {
+        updateToast("⚠️ Belum ada percakapan rapat untuk dijadikan task.");
+        return;
+      }
+
+      const meetingTitle = isCustomMeeting
+        ? (currentCustomMeetingPreset.name || "Rapat Khusus")
+        : (isTownHallChatMode ? "Rapat Town Hall Eksekutif" : (isDeptChat ? `Rapat Dept ${currentDeptChatRoom}` : `Diskusi ${agents.find(a => a.id === currentModalAgentId)?.name || "Staf"}`));
+      const deptRoom = isDeptChat ? currentDeptChatRoom : (isTownHallChatMode ? "" : (agents.find(a => a.id === currentModalAgentId)?.room || ""));
+      const participants = isDeptChat
+        ? agents.filter(a => a.room === currentDeptChatRoom).map(a => ({ id: a.id, name: a.name, role: a.role, room: a.room }))
+        : agents.filter(a => [10, 17, 5, 15, 8, 22, 29].includes(a.id) || a.id === currentModalAgentId).map(a => ({ id: a.id, name: a.name, role: a.role, room: a.room }));
+
+      const oldLabel = btn ? btn.textContent : "";
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "⏳ Memecah Task...";
+      }
+
+      try {
+        const res = await fetch("/api/meeting/finish-and-execute", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            meetingTitle,
+            deptRoom,
+            history: hist.slice(-12),
+            participants,
+          })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          if (Array.isArray(data.taskboard)) TASKBOARD_ITEMS = data.taskboard;
+          const tasks = data.createdTasks || [];
+          const lines = tasks.map(t => `- **[${t.status}]** \`${t.dept}\` (${t.agentName}): ${t.title}`).join("\n");
+          agentChatHistories[historyKey].push({
+            sender: "🚀 Sistem Eksekusi Pasca-Rapat (Auto-Task)",
+            isCEO: false,
+            text: `**Notulen Dikunci ke Memory Obsidian:**\n${data.meetingSummary || "-"}\n\n**${tasks.length} Task Otomatis Dibuat (${data.queuedCount || 0} langsung dikerjakan di background):**\n${lines || "- Tidak ada task baru."}\n\n*Rapat dibubarkan — staf terkait sekarang sedang berjalan ke mejanya & mengerjakan tugas secara nyata. Pantau progresnya di Papan Tugas & 3D HQ!*`
+          });
+          renderChatMessages(historyKey);
+          persistChatHistories();
+          renderSidebarAndTable();
+          if (inTownHallMeeting) {
+            toggleTownHallMeeting(false);
+          }
+          updateToast(`🚀 ${tasks.length} task otomatis dibuat & ${data.queuedCount || 0} langsung dikerjakan staf!`);
+        } else {
+          updateToast(`⚠️ ${data.error || "Gagal memproses hasil rapat."}`);
+        }
+      } catch (e) {
+        updateToast(`⚠️ Gagal terhubung ke server: ${e.message}`);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = oldLabel || "🚀 Selesai & Kerjakan Task";
+        }
+      }
     }
 
     function resetCurrentChatThread() {

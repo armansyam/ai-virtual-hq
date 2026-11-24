@@ -10,6 +10,7 @@ import shutil
 import base64
 import hashlib
 import secrets
+import tempfile
 import threading
 import subprocess
 import urllib.request
@@ -1369,7 +1370,7 @@ def get_usage_analytics(range_key="today"):
 def _default_token_saver_config():
     return {
         "promptCaching": True,
-        "cliSessionReuse": True,
+        "cliSessionReuse": False,
         "passiveHealthCheck": True,
         "compressToolOutput": True,
         "compressContext": True,
@@ -1950,8 +1951,12 @@ def call_verified_agy_cli(model_display_or_id, system_prompt, history_messages, 
 
     def _build_full_prompt():
         dyn_block = f"DATA LIVE TERBARU:\n{dynamic_mcp}\n\n" if dynamic_mcp else ""
+        cli_guard = (
+            "ATURAN EKSEKUSI CLI (WAJIB): Jangan panggil tool bawaan terminal/file IDE lokal; "
+            "balas langsung sebagai teks/JSON sesuai peranmu (gunakan tag [[TOOL_CALL:...]] hanya jika perlu tool MCP HQ).\n\n"
+        )
         return (
-            f"{static_sys}\n\n"
+            f"{cli_guard}{static_sys}\n\n"
             + (f"RIWAYAT OBROLAN TERAKHIR (SLIDING WINDOW {len(recent)} PESAN):\n{convo_text}" if convo_text else "")
             + dyn_block
             + (f"{extra_att_block}\n\n" if extra_att_block else "")
@@ -1970,14 +1975,17 @@ def call_verified_agy_cli(model_display_or_id, system_prompt, history_messages, 
     env = os.environ.copy()
     env["BROWSER"] = "/usr/bin/true"
 
+    # Fast, smart fallback chain (max 2 models so total wait never spirals!)
     fallback_chain = [agy_model]
-    if agy_model != "gemini-4-argon-medium":
-        fallback_chain.append("gemini-4-argon-medium")
-    if agy_model != "gemini-3.8-flash-high":
+    if agy_model != "gemini-4-neon-medium":
+        fallback_chain.append("gemini-4-neon-medium")
+    elif agy_model != "gemini-3.8-flash-high":
         fallback_chain.append("gemini-3.8-flash-high")
 
     can_reuse = bool(ts_cfg.get("cliSessionReuse") and session_key and not attachments)
     now_ts = time.time()
+    # Run in neutral temp cwd so agy never stalls scanning workspace files or waiting on local tool prompts
+    safe_cwd = tempfile.gettempdir() if hasattr(tempfile, "gettempdir") else "/tmp"
 
     for idx_try, try_model in enumerate(fallback_chain):
         existing_sess = _AGY_CLI_SESSIONS.get(session_key) if can_reuse else None
@@ -1986,15 +1994,23 @@ def call_verified_agy_cli(model_display_or_id, system_prompt, history_messages, 
             existing_sess
             and existing_sess.get("model") == try_model
             and (now_ts - float(existing_sess.get("ts") or 0)) < 1800
-            and int(existing_sess.get("turns") or 0) < 14
+            and int(existing_sess.get("turns") or 0) < 10
         ):
             use_conv_id = existing_sess.get("id") or ""
 
-        # Try reused conversation first (real cached tokens hit!), auto-fallback to fresh if session expired
+        is_heavy = any(k in try_model for k in ("xhigh", "high", "opus"))
+        step_timeout = 95 if (idx_try == 0 and is_heavy) else (75 if idx_try == 0 else 55)
+
         attempts = [use_conv_id, ""] if use_conv_id else [""]
         for conv_id in attempts:
             prompt_payload = _build_delta_prompt() if conv_id else _build_full_prompt()
-            cmd = [AGY_BIN, f"--model={try_model}", "--disable-slash-commands", "--output-format=json"]
+            cmd = [
+                AGY_BIN,
+                f"--model={try_model}",
+                "--disable-slash-commands",
+                "--output-format=json",
+                f"--print-timeout={max(30, step_timeout - 5)}s",
+            ]
             if conv_id:
                 cmd.append(f"--conversation={conv_id}")
             cmd.append(f"-p={prompt_payload}")
@@ -2004,8 +2020,8 @@ def call_verified_agy_cli(model_display_or_id, system_prompt, history_messages, 
                     stdin=subprocess.DEVNULL,
                     capture_output=True,
                     text=True,
-                    timeout=50 if idx_try == 0 else 40,
-                    cwd=BASE_DIR,
+                    timeout=step_timeout,
+                    cwd=safe_cwd,
                     env=env
                 )
                 out = (proc.stdout or "").strip()
@@ -7607,6 +7623,11 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             })
             return
 
+        if self.path.startswith("/api/meeting/finish-and-execute"):
+            res = finish_meeting_and_execute_tasks(body)
+            self._send_json(200, res)
+            return
+
         if self.path.startswith("/api/townhall-chat"):
             prompt = body.get("prompt", "").strip()
             endpoint = body.get("endpoint", "").strip()
@@ -8863,6 +8884,327 @@ def handle_autopilot_approval_action(approval_id, action):
         return {"ok": True, "action": "approved", "autopilot": load_autopilot_config()}
 
     return {"ok": True, "action": "dismissed", "autopilot": load_autopilot_config()}
+
+
+def _execute_meeting_tasks_background(queued_tasks):
+    """Background daemon worker: executes each post-meeting task by its assigned agent, saves real deliverables, and marks tasks DONE."""
+    if not queued_tasks:
+        return
+
+    def _worker():
+        total = len(queued_tasks)
+        comp_prof = load_company_profile()
+        comp_name = comp_prof.get("companyName") or "AI Virtual HQ"
+        for idx, item in enumerate(queued_tasks, start=1):
+            tid = item["id"]
+            aid = int(item.get("agentId") or 10)
+            aname = str(item.get("agentName") or "Raka").strip()
+            arole = str(item.get("agentRole") or "Spesialis").strip()
+            dept = str(item.get("dept") or "ADMIN").strip().upper()
+            title = str(item.get("title") or "Tugas Hasil Rapat").strip()
+            instr = str(item.get("instruction") or title).strip()
+
+            set_agents_busy([aid], True)
+            update_world_state({"liveStepStatus": f"🚀 [{idx}/{total}] {aname} sedang mengerjakan: {title[:55]}..."})
+            bump_world_chat_version(toast_msg=f"🚀 [{idx}/{total}] {aname} mulai mengerjakan tugas rapat: {title[:60]}")
+
+            try:
+                mid, ep, key = _resolve_agent_model_creds(aid)
+                live_ctx, exec_tools = build_dynamic_mcp_context_with_trace(f"{title} {instr}", room=dept, agent_id=aid)
+                sys_prompt = (
+                    f"Kamu adalah {aname}, menjabat sebagai {arole} (Departemen {dept}) di {comp_name}.\n"
+                    f"{build_company_context_block(comp_prof)}\n\n"
+                    "TUGAS EKSEKUSI HASIL RAPAT (KERJA NYATA MANDIRI):\n"
+                    "1. Kerjakan tugas di bawah secara tuntas, konkret, dan siap pakai dalam format Markdown rapi.\n"
+                    "2. Jika membutuhkan data live/folder/skill, panggil [[TOOL_CALL:...]] secukupnya lalu langsung susun hasil final.\n"
+                    "3. Jangan bertanya balik ke CEO — langsung serahkan hasil kerja lengkapnya."
+                )
+                user_prompt = (
+                    f"JUDUL TUGAS HASIL RAPAT: {title}\n"
+                    f"DEPARTEMEN: {dept}\n"
+                    f"INSTRUKSI DETAIL DARI RAPAT:\n{instr}\n\n"
+                    "Silakan eksekusi sekarang dan tulis hasil kerja lengkapnya."
+                )
+                deliv_md, used_engine = run_agent_with_tool_loop(
+                    mid, ep, key, sys_prompt, [], user_prompt,
+                    live_mcp_ctx=live_ctx, executed_tools=exec_tools,
+                    room=dept, max_steps=2, agent_id=aid, agent_name=aname
+                )
+                now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
+                ts_file = time.strftime("%Y%m%d-%H%M%S")
+                slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:36] or "task"
+                os.makedirs(REPORTS_DIR, exist_ok=True)
+                rel_file = f"reports/{ts_file}-rapat-{slug}.md"
+                abs_file = os.path.join(BASE_DIR, rel_file)
+                header = (
+                    f"# Hasil Eksekusi Tugas Rapat — {title}\n"
+                    f"- **Dikerjakan Oleh:** {aname} ({arole})\n"
+                    f"- **Departemen:** `{dept}`\n"
+                    f"- **Waktu Selesai:** {now_str}\n"
+                    f"- **Engine AI:** `{used_engine}`\n\n---\n\n"
+                )
+                with open(abs_file, "w", encoding="utf-8") as rf:
+                    rf.write(header + str(deliv_md or "").strip() + "\n")
+
+                record_decision_to_obsidian_vault(
+                    room=dept,
+                    title=title,
+                    decision_summary=f"Selesai dikerjakan otomatis oleh {aname} pasca-rapat ({rel_file})",
+                    agent_name=aname,
+                    agent_role=arole,
+                    deliverable_md=str(deliv_md or ""),
+                    used_engine=used_engine,
+                    task_id=tid,
+                )
+                update_agent_deliverable(
+                    aid,
+                    f"Selesai mengerjakan tugas rapat: {title}",
+                    f"[HASIL KERJA OTOMATIS PASCA-RAPAT — {dept}]\n{str(deliv_md or '')[:600]}",
+                    rel_file,
+                )
+
+                tb = load_taskboard()
+                for t in tb:
+                    if t.get("id") == tid:
+                        t["status"] = "DONE"
+                        t["detail"] = f"Selesai dikerjakan oleh {aname} ({used_engine}) pada {now_str}. File: {rel_file}"
+                        t["artifactFile"] = rel_file
+                        t["updatedAt"] = now_str
+                        break
+                save_taskboard(tb)
+
+                coord = generate_data_driven_coordination_event(custom_context={
+                    "fromId": aid,
+                    "fromName": aname,
+                    "fromRole": arole,
+                    "toId": 10 if aid != 10 else 8,
+                    "toName": "👑 Raka" if aid != 10 else "⭐ Putri",
+                    "toRole": "Laporan Selesai Tugas Rapat",
+                    "walkMsg": f"✅ {aname} menyelesaikan tugas rapat '{title[:48]}' → tersimpan di {rel_file}",
+                    "fromBubble": f"✅ \"Tugas '{title[:42]}' sudah beres & tersimpan di {rel_file}!\"",
+                    "toBubble": f"👏 \"Mantap {aname}! Papan Tugas & Memory Obsidian sudah update DONE!\"",
+                    "artifactFile": rel_file,
+                })
+                bump_world_chat_version(
+                    toast_msg=f"✅ [{idx}/{total}] {aname} selesai mengerjakan: {title[:55]} ({rel_file})",
+                    coord_event=coord,
+                )
+            except Exception as err:
+                now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
+                tb = load_taskboard()
+                for t in tb:
+                    if t.get("id") == tid:
+                        t["status"] = "TODO"
+                        t["detail"] = f"Gagal auto-eksekusi ({str(err)[:160]}). Siap dijalankan ulang."
+                        t["updatedAt"] = now_str
+                        break
+                save_taskboard(tb)
+                bump_world_chat_version(toast_msg=f"⚠️ [{idx}/{total}] {aname} kendala saat mengerjakan '{title[:40]}': {str(err)[:90]}")
+            finally:
+                set_agents_busy([aid], False)
+                update_world_state({"liveStepStatus": ""})
+
+    t = threading.Thread(target=_worker, daemon=True)
+    t.start()
+
+
+def finish_meeting_and_execute_tasks(body):
+    """Distills meeting chat into concrete per-department Taskboard items, locks summary to Obsidian, and dispatches background execution."""
+    meeting_title = str(body.get("meetingTitle") or "Rapat Tim Eksekutif").strip()
+    dept_room = str(body.get("deptRoom") or "").strip().upper()
+    history = body.get("history") if isinstance(body.get("history"), list) else []
+    participants = body.get("participants") if isinstance(body.get("participants"), list) else []
+    model_id = str(body.get("modelId") or "").strip()
+    endpoint = str(body.get("endpoint") or "").strip()
+    api_key = str(body.get("apiKey") or "").strip()
+
+    if not history:
+        return {"ok": False, "error": "Belum ada percakapan rapat untuk diekstrak menjadi task."}
+
+    # Build compact meeting transcript (last 12 turns)
+    transcript_lines = []
+    for m in history[-12:]:
+        if not isinstance(m, dict):
+            continue
+        who = "CEO" if (m.get("role") == "user" or m.get("isCEO")) else (m.get("sender") or "Tim AI")
+        txt = str(m.get("content") or m.get("text") or "").strip()
+        if txt:
+            transcript_lines.append(f"{who}: {txt[:480]}")
+    transcript = "\n".join(transcript_lines)
+    if not transcript.strip():
+        return {"ok": False, "error": "Transkrip rapat kosong."}
+
+    dept_defaults = {
+        "SOCIAL": (17, "⭐ Senna", "Manajer Dept 1 (Social & Konten)"),
+        "THEMES": (5, "⭐ Bima", "Manajer Dept 2 (Tema & Produk)"),
+        "GROWTH": (15, "⭐ Aldo", "Manajer Dept 3 (Growth, B2B & SEO)"),
+        "ADMIN": (8, "⭐ Putri", "Manajer Dept 4 (CS & Operasional)"),
+        "ENGINEERING": (22, "⭐ Arya", "Manajer Dept 5 (Engineering & Server)"),
+        "FINANCE": (29, "⭐ Tika", "Manajer Dept 6 (Finance & Anti-Rugi)"),
+    }
+    part_ref = "\n".join(
+        f"- id={p.get('id')} | {p.get('name')} ({p.get('role')}, dept={p.get('room')})"
+        for p in participants[:12] if isinstance(p, dict) and p.get("name")
+    ) or "\n".join(f"- id={v[0]} | {v[1]} ({v[2]}, dept={k})" for k, v in dept_defaults.items())
+
+    # Use GM Raka's model or fast Neon Medium for crisp JSON extraction
+    if not model_id:
+        model_id, endpoint, api_key = _resolve_agent_model_creds(10)
+
+    sys_prompt = (
+        "Kamu adalah Notulis & GM Koordinator (Raka). Tugasmu mengekstrak hasil rapat menjadi daftar ACTION ITEMS (Task) "
+        "yang konkret untuk langsung dikerjakan oleh masing-masing departemen.\n"
+        "ATURAN:\n"
+        "1. Buat 1 sampai maksimal 4 action items yang paling konkret dan disepakati dalam rapat.\n"
+        "2. Tetapkan dept (SOCIAL|THEMES|GROWTH|ADMIN|ENGINEERING|FINANCE) dan agentId/agentName yang tepat dari daftar peserta.\n"
+        "3. riskLevel: 'INTERNAL_SAFE' untuk kerja internal (riset, audit, draf konten, SOP, kode internal, rekap keuangan); "
+        "'NEEDS_CEO_APPROVAL' HANYA untuk publish publik, ubah server produksi, atau transaksi bayar.\n"
+        "4. BALAS HANYA DENGAN JSON VALID (tanpa markdown berlebih):\n"
+        "{\n"
+        '  "meetingSummary": "Ringkasan padat 1-2 kalimat keputusan rapat",\n'
+        '  "actionItems": [\n'
+        '    {"title": "Judul tugas singkat", "dept": "SOCIAL", "agentId": 17, "agentName": "⭐ Senna", "agentRole": "Manajer Social", "instruction": "Brief detail tugas yang harus dikerjakan", "priority": "HIGH", "riskLevel": "INTERNAL_SAFE"}\n'
+        "  ]\n"
+        "}"
+    )
+    user_prompt = (
+        f"JUDUL RAPAT: {meeting_title} (Ruang: {dept_room or 'TOWNHALL'})\n\n"
+        f"DAFTAR PESERTA / PENANGGUNG JAWAB:\n{part_ref}\n\n"
+        f"TRANSKRIP RAPAT:\n{transcript}\n\n"
+        "Ekstrak keputusan & daftar task JSON sekarang."
+    )
+
+    parsed = None
+    used_engine = ""
+    try:
+        raw_out, used_engine = run_agent_llm_unified(
+            model_id, endpoint, api_key, sys_prompt, [], user_prompt,
+            live_mcp_ctx="", agent_id=10, room=dept_room or "TOWNHALL", agent_name="Raka (Notulis)"
+        )
+        parsed = _extract_json_block(raw_out)
+    except Exception:
+        parsed = None
+
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("actionItems"), list) or len(parsed.get("actionItems")) == 0:
+        # Clean deterministic fallback so meeting finish never fails
+        fallback_dept = dept_room if dept_room in dept_defaults else "ADMIN"
+        f_id, f_name, f_role = dept_defaults.get(fallback_dept, (10, "👑 Raka", "General Manager / COO"))
+        last_ceo = next((m.get("content") or m.get("text") or "" for m in reversed(history) if m.get("role") == "user" or m.get("isCEO")), meeting_title)
+        parsed = {
+            "meetingSummary": f"Hasil {meeting_title}: {str(last_ceo)[:180]}",
+            "actionItems": [{
+                "title": f"Eksekusi Hasil {meeting_title}: {str(last_ceo)[:64]}",
+                "dept": fallback_dept,
+                "agentId": f_id,
+                "agentName": f_name,
+                "agentRole": f_role,
+                "instruction": f"Tindaklanjuti kesepakatan rapat berikut secara konkret:\n{transcript[-900:]}",
+                "priority": "HIGH",
+                "riskLevel": "INTERNAL_SAFE",
+            }]
+        }
+
+    meeting_summary = str(parsed.get("meetingSummary") or f"Keputusan {meeting_title}").strip()
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
+    tb = load_taskboard()
+    created_tasks = []
+    queued_for_bg = []
+    pending_approvals_added = []
+
+    for idx_a, raw_item in enumerate(parsed.get("actionItems", [])[:4]):
+        if not isinstance(raw_item, dict):
+            continue
+        dept = str(raw_item.get("dept") or dept_room or "ADMIN").strip().upper()
+        if dept not in dept_defaults:
+            dept = dept_room if dept_room in dept_defaults else "ADMIN"
+        def_id, def_name, def_role = dept_defaults.get(dept, (10, "👑 Raka", "General Manager / COO"))
+        try:
+            aid = int(raw_item.get("agentId")) if raw_item.get("agentId") is not None else def_id
+        except Exception:
+            aid = def_id
+        aname = str(raw_item.get("agentName") or def_name).strip()
+        arole = str(raw_item.get("agentRole") or def_role).strip()
+        title = str(raw_item.get("title") or f"Tindak Lanjut {dept}").strip()[:110]
+        instr = str(raw_item.get("instruction") or title).strip()
+        prio = str(raw_item.get("priority") or "HIGH").strip().upper()
+        if prio not in ("HIGH", "MEDIUM", "LOW"):
+            prio = "HIGH"
+        risk = str(raw_item.get("riskLevel") or "INTERNAL_SAFE").strip().upper()
+        tid = f"task_mtg_{int(time.time() * 1000)}_{idx_a}"
+
+        is_safe = (risk != "NEEDS_CEO_APPROVAL")
+        task_obj = {
+            "id": tid,
+            "title": title,
+            "dept": dept,
+            "agentId": aid,
+            "agentName": aname,
+            "agentRole": arole,
+            "taskType": "meeting_action_item",
+            "priority": prio,
+            "status": "IN_PROGRESS" if is_safe else "PENDING_APPROVAL",
+            "detail": (f"Auto-eksekusi pasca-rapat oleh {aname} dimulai {now_str}." if is_safe else f"Menunggu ACC CEO sebelum dieksekusi ({aname})."),
+            "instruction": instr,
+            "artifactFile": "",
+            "updatedAt": now_str,
+        }
+        tb.insert(0, task_obj)
+        created_tasks.append(task_obj)
+        if is_safe:
+            queued_for_bg.append(task_obj)
+        else:
+            pending_approvals_added.append(task_obj)
+
+    save_taskboard(tb)
+
+    # Lock meeting summary into Obsidian Memory Vault
+    record_decision_to_obsidian_vault(
+        room=dept_room or "ADMIN",
+        title=f"Notulen & Action Items — {meeting_title}",
+        decision_summary=meeting_summary,
+        agent_name="👑 Raka",
+        agent_role="General Manager / COO",
+        deliverable_md=f"# Notulen {meeting_title}\n\n{meeting_summary}\n\n## Daftar Task Otomatis\n" + "\n".join(
+            f"- [{t['status']}] **{t['dept']}** ({t['agentName']}): {t['title']}" for t in created_tasks
+        ),
+        used_engine=used_engine or "Post-Meeting Engine",
+    )
+
+    # Push any NEEDS_CEO_APPROVAL items into Autopilot Pending Approvals queue
+    if pending_approvals_added:
+        with AUTOPILOT_LOCK:
+            ap_cfg = load_autopilot_config()
+            p_list = list(ap_cfg.get("pendingApprovals") or [])
+            for pt in pending_approvals_added:
+                p_list.insert(0, {
+                    "id": f"appr_{pt['id']}",
+                    "createdAt": now_str,
+                    "title": pt["title"],
+                    "dept": pt["dept"],
+                    "agentId": pt["agentId"],
+                    "agentName": pt["agentName"],
+                    "agentRole": pt["agentRole"],
+                    "detail": pt["instruction"],
+                    "reason": "Ditandai NEEDS_CEO_APPROVAL dari hasil rapat.",
+                    "status": "PENDING",
+                })
+            ap_cfg["pendingApprovals"] = p_list[:20]
+            _save_autopilot_config_unlocked(ap_cfg)
+
+    # Start background execution worker immediately!
+    if queued_for_bg:
+        _execute_meeting_tasks_background(queued_for_bg)
+
+    bump_world_chat_version(toast_msg=f"🚀 Rapat selesai! {len(created_tasks)} task otomatis dibuat & {len(queued_for_bg)} langsung dikerjakan staf.")
+    return {
+        "ok": True,
+        "meetingSummary": meeting_summary,
+        "createdTasks": created_tasks,
+        "queuedCount": len(queued_for_bg),
+        "approvalCount": len(pending_approvals_added),
+        "taskboard": load_taskboard(),
+        "world": load_world_state(),
+    }
 
 
 def _run_gm_autopilot_background_loop():
