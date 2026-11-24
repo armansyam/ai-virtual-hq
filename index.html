@@ -175,8 +175,16 @@
           <span>HQ Architect</span>
           <span class="text-[9.5px] text-slate-500 font-mono">⌘K</span>
         </a>
-        <a href="#" onclick="openSettingsModal()" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-amber-200/90 hover:bg-white/5 hover:text-amber-200 transition">
+        <a href="#" onclick="openSettingsModal('API'); return false;" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-amber-200/90 hover:bg-white/5 hover:text-amber-200 transition">
           <span>Setup 1 Pintu &amp; API</span>
+        </a>
+        <a href="#" onclick="openSettingsModal('USAGE'); return false;" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-orange-300/95 hover:bg-white/5 hover:text-orange-200 transition">
+          <span class="flex items-center gap-1.5"><span>📊</span><span>Usage</span></span>
+          <span id="sidebar-usage-pill" class="text-[9.5px] text-sky-300/90 font-mono">0 req</span>
+        </a>
+        <a href="#" onclick="openSettingsModal('TOKENSAVER'); return false;" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-emerald-300/95 hover:bg-white/5 hover:text-emerald-200 transition">
+          <span class="flex items-center gap-1.5"><span>⚡</span><span>Token Saver</span></span>
+          <span id="sidebar-tokensaver-pill" class="text-[9.5px] text-emerald-400 font-mono">ON</span>
         </a>
       </nav>
     </div>
@@ -235,8 +243,11 @@
         <button onclick="switchView('table')" id="btn-view-toggle" class="px-1.5 py-0.5 rounded-md hover:bg-white/10 text-slate-300 hover:text-white text-[11px] cursor-pointer shrink-0">
           <span id="view-toggle-label">Tabel</span>
         </button>
-        <button onclick="openSettingsModal(); switchSettingsTab('SETUP');" id="btn-top-setup" class="px-1.5 py-0.5 rounded-md hover:bg-white/10 text-amber-200/90 hover:text-amber-200 text-[11px] cursor-pointer shrink-0">
+        <button onclick="openSettingsModal('SETUP');" id="btn-top-setup" class="px-1.5 py-0.5 rounded-md hover:bg-white/10 text-amber-200/90 hover:text-amber-200 text-[11px] cursor-pointer shrink-0">
           Setup
+        </button>
+        <button onclick="openSettingsModal('USAGE');" id="btn-top-usage" class="px-1.5 py-0.5 rounded-md hover:bg-white/10 text-orange-300/90 hover:text-orange-200 text-[11px] cursor-pointer shrink-0" title="Usage &amp; Analytics — Monitor token &amp; cached tokens">
+          Usage
         </button>
         <button onclick="toggleLiveReadonlyMode(true)" id="btn-top-liveview" class="px-1.5 py-0.5 rounded-md hover:bg-white/10 text-sky-300 hover:text-sky-200 text-[11px] cursor-pointer shrink-0" title="Preview tampilan Public Live View">
           Live
@@ -998,6 +1009,8 @@
       <div class="px-5 py-2.5 bg-[#12121a] border-b border-white/10 flex flex-wrap items-center gap-1.5 text-[11px]">
         <button id="set-tab-SETUP" onclick="switchSettingsTab('SETUP')" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 cursor-pointer">🏢 Setup 1 Pintu</button>
         <button id="set-tab-API" onclick="switchSettingsTab('API')" class="px-3 py-1.5 rounded-lg bg-[#6d3fc0] text-white font-bold cursor-pointer">🔑 API Key &amp; Model AI</button>
+        <button id="set-tab-TOKENSAVER" onclick="switchSettingsTab('TOKENSAVER')" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 cursor-pointer">⚡ Token Saver</button>
+        <button id="set-tab-USAGE" onclick="switchSettingsTab('USAGE')" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 cursor-pointer">📊 Usage</button>
         <button id="set-tab-MCP" onclick="switchSettingsTab('MCP')" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 cursor-pointer">🔌 MCP Terhubung</button>
         <button id="set-tab-SKILLS" onclick="switchSettingsTab('SKILLS')" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 cursor-pointer">🧠 Skills Tim AI</button>
         <button id="set-tab-CONNECTORS" onclick="switchSettingsTab('CONNECTORS')" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 cursor-pointer">🔗 Konektor &amp; Integrasi</button>
@@ -1576,30 +1589,44 @@
           </div>
         </div>
 
-        <div class="rounded-xl bg-[#13131b] border border-white/10 p-4 space-y-2.5">
+        <div class="rounded-xl bg-[#13131b] border border-white/10 p-4 space-y-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <span class="font-bold text-slate-200 uppercase tracking-wider text-[11px]">2. Daftar Model AI Aktif di Kantor (Sinkron dgn Endpoint)</span>
-            <div class="flex items-center gap-2">
-              <button onclick="syncAndPruneOrphanModels(true)" class="px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/35 text-sky-200 border border-sky-500/40 text-[10.5px] font-bold cursor-pointer" title="Hapus model dari endpoint yang sudah dihapus & sinkronkan ulang">
-                🔄 Sync &amp; Bersihkan Model
+            <div>
+              <span class="font-bold text-slate-200 uppercase tracking-wider text-[11px]">2. Daftar Model AI Aktif (Asli dari AGY CLI &amp; Endpoint)</span>
+              <div id="agy-models-source-note" class="text-[10px] text-slate-400 mt-0.5">Menampilkan daftar model asli dari Antigravity CLI &amp; koneksi API aktif.</div>
+            </div>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button onclick="syncAntigravityModels(true)" class="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/35 text-emerald-200 border border-emerald-500/40 text-[10.5px] font-bold cursor-pointer" title="Ambil ulang daftar model asli langsung dari perintah agy models">
+                ⚡ Refresh Model Asli AGY
               </button>
-              <span id="total-models-badge" class="text-[10.5px] font-mono text-purple-300">8 Model Terdaftar</span>
+              <button onclick="syncAndPruneOrphanModels(true)" class="px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/35 text-sky-200 border border-sky-500/40 text-[10.5px] font-bold cursor-pointer" title="Hapus model dari endpoint yang sudah dihapus & sinkronkan ulang">
+                🔄 Bersihkan Yatim
+              </button>
+              <span id="total-models-badge" class="px-2 py-0.5 rounded-full bg-purple-500/15 border border-purple-500/30 text-[10.5px] font-mono text-purple-300">0 Model</span>
             </div>
           </div>
-          <div id="settings-models-list" class="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1"></div>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-1 text-[10.5px]">
+              <button id="mfilter-ALL" onclick="setModelListFilter('ALL')" class="px-2.5 py-1 rounded-md bg-purple-600 text-white font-bold cursor-pointer">Semua</button>
+              <button id="mfilter-AGY" onclick="setModelListFilter('AGY')" class="px-2.5 py-1 rounded-md bg-white/5 hover:bg-white/10 text-slate-300 cursor-pointer">⚡ Antigravity CLI</button>
+              <button id="mfilter-API" onclick="setModelListFilter('API')" class="px-2.5 py-1 rounded-md bg-white/5 hover:bg-white/10 text-slate-300 cursor-pointer">🌐 API Endpoint</button>
+            </div>
+            <input id="settings-models-search" type="text" oninput="renderSettingsModelsGrid()" placeholder="Cari model (misal: neon, medium, high, claude)..." class="px-2.5 py-1 rounded-lg bg-[#1c1c28] border border-white/15 text-[11px] text-white w-56 focus:outline-none focus:border-purple-400" />
+          </div>
+          <div id="settings-models-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-56 overflow-y-auto pr-1"></div>
         </div>
 
         <div class="rounded-xl bg-[#13131b] border border-white/10 p-4 space-y-2.5">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <span class="font-bold text-slate-200 uppercase tracking-wider text-[11px]">3. Atur Model &amp; API Key per Karyawan AI (35 Staf)</span>
-            <div class="flex items-center gap-1.5">
-              <select id="bulk-model-select" class="px-2.5 py-1 rounded-lg bg-[#1c1c28] border border-amber-500/40 text-amber-300 font-mono text-[11px] max-w-[200px]"></select>
-              <button onclick="applyModelToAllAgents()" class="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] cursor-pointer">
-                ⚡ Terapkan ke Semua 35 Staf
+            <div class="flex flex-wrap items-center gap-1.5">
+              <select id="bulk-model-select" class="px-2.5 py-1.5 rounded-lg bg-[#1c1c28] border border-amber-500/40 text-amber-300 font-mono text-[11px] min-w-[230px] max-w-[300px] cursor-pointer"></select>
+              <button onclick="applyModelToAllAgents()" class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] cursor-pointer">
+                ⚡ Terapkan ke Semua Staf
               </button>
             </div>
           </div>
-          <div id="settings-agents-list" class="space-y-2 max-h-60 overflow-y-auto pr-1"></div>
+          <div id="settings-agents-list" class="space-y-2 max-h-64 overflow-y-auto pr-1"></div>
         </div>
       </div>
 
@@ -2011,6 +2038,383 @@
         </div>
       </div>
 
+      <!-- TAB 5: TOKEN SAVER (PROMPT CACHING, CLI SESSION REUSE & COMPRESSION) -->
+      <div id="settings-panel-TOKENSAVER" class="hidden p-5 overflow-y-auto space-y-4 text-xs">
+        <div class="rounded-xl bg-[#13131b] border border-white/10 overflow-hidden">
+          <div class="px-5 py-3.5 border-b border-white/10 flex flex-wrap items-center justify-between gap-2 bg-[#161620]">
+            <div class="flex items-center gap-2">
+              <span class="text-orange-400 text-base">⚡</span>
+              <div>
+                <div class="font-bold text-white text-sm">Token Saver</div>
+                <div class="text-[10.5px] text-slate-400">Hemat input &amp; output token dengan Cached Tokens, CLI Session Reuse, dan kompresi konteks otomatis.</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span id="ts-active-sessions-badge" class="px-2.5 py-1 rounded-lg bg-sky-500/15 border border-sky-500/30 text-sky-300 font-mono text-[10.5px]">0 Sesi CLI Aktif</span>
+              <button onclick="resetCliSessionsUI()" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/15 text-slate-300 text-[10.5px] font-semibold cursor-pointer" title="Mulai ulang sesi percakapan CLI & bersihkan cache MCP">
+                🔄 Reset Cache Sesi
+              </button>
+            </div>
+          </div>
+
+          <!-- Clean Toggle Rows (matching reference dark Token Saver UI) -->
+          <div class="divide-y divide-white/[0.06] px-5">
+            <!-- Row 1: Prompt Caching / Cached Tokens -->
+            <div class="py-3.5 flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="font-semibold text-white text-[13px]">Prompt Caching (Cached Tokens)</span>
+                  <span class="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[9.5px] font-bold">60–90% Hemat</span>
+                </div>
+                <div class="text-[11px] text-slate-400 mt-0.5">Pisahkan prefix statis (Profil + Memory Obsidian) dari data live MCP, aktifkan Anthropic <code>cache_control: ephemeral</code> &amp; prefix cache OpenAI/Gemini/OpenRouter.</div>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                <input id="ts-toggle-promptCaching" type="checkbox" onchange="saveTokenSaverToggle('promptCaching', this.checked)" class="sr-only peer" />
+                <div class="w-10 h-5 bg-slate-700 rounded-full peer peer-checked:bg-emerald-500 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
+              </label>
+            </div>
+
+            <!-- Row 2: CLI Session Reuse -->
+            <div class="py-3.5 flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="font-semibold text-white text-[13px]">CLI Session Reuse</span>
+                  <span class="text-[11px] text-orange-400 underline decoration-orange-400/50">(agy --conversation)</span>
+                  <span id="ts-badge-agy" class="px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30 text-[9.5px] font-bold">Live Cache Read</span>
+                </div>
+                <div class="text-[11px] text-slate-400 mt-0.5">Lanjutkan sesi percakapan CLI yang sama per ruang/agen agar turn ke-2+ langsung kena <code>cache_read_tokens</code> (~70%+ hit rate) tanpa kirim ulang riwayat.</div>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                <input id="ts-toggle-cliSessionReuse" type="checkbox" onchange="saveTokenSaverToggle('cliSessionReuse', this.checked)" class="sr-only peer" />
+                <div class="w-10 h-5 bg-slate-700 rounded-full peer peer-checked:bg-emerald-500 transition after:content-[''] after:top-[2px] after:left-[2px] after:absolute after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
+              </label>
+            </div>
+
+            <!-- Row 3: Compress tool output (RTK) -->
+            <div class="py-3.5 flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="font-semibold text-white text-[13px]">Compress tool output</span>
+                  <span class="text-[11px] text-orange-400 underline decoration-orange-400/50">(RTK)</span>
+                  <span id="ts-badge-rtk" class="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[9.5px] font-bold">Built-in Active</span>
+                </div>
+                <div class="text-[11px] text-slate-400 mt-0.5">JSON/MCP/folder/logs → ringkas field kosong, deduplikasi baris berulang → 60–90% fewer input tokens.</div>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                <input id="ts-toggle-compressToolOutput" type="checkbox" onchange="saveTokenSaverToggle('compressToolOutput', this.checked)" class="sr-only peer" />
+                <div class="w-10 h-5 bg-slate-700 rounded-full peer peer-checked:bg-emerald-500 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
+              </label>
+            </div>
+
+            <!-- Row 4: Compress context (Headroom / Native) -->
+            <div class="py-3.5 flex items-center justify-between gap-4">
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="font-semibold text-white text-[13px]">Compress context</span>
+                  <span class="text-[11px] text-orange-400 underline decoration-orange-400/50">(Headroom / Native)</span>
+                  <span id="ts-badge-headroom" class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/35 text-[9.5px] font-bold">Built-in Native</span>
+                  <div class="flex items-center gap-1 ml-1 text-[10px] text-slate-400">
+                    <span>MCP Cache TTL:</span>
+                    <select id="ts-mcp-ttl-select" onchange="saveTokenSaverToggle('mcpCacheTtlSec', Number(this.value))" class="px-1.5 py-0.5 rounded bg-[#1c1c28] border border-white/15 text-amber-200 font-mono text-[10px] cursor-pointer">
+                      <option value="0">OFF (0s)</option>
+                      <option value="60">60s</option>
+                      <option value="90" selected>90s</option>
+                      <option value="180">3m</option>
+                      <option value="300">5m</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="text-[11px] text-slate-400 mt-0.5">Padatkan riwayat chat lama (pertahankan 2 turn terakhir utuh), cegah duplikasi profil bisnis, &amp; cache hasil Remote MCP read-only.</div>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                <input id="ts-toggle-compressContext" type="checkbox" onchange="saveTokenSaverToggle('compressContext', this.checked)" class="sr-only peer" />
+                <div class="w-10 h-5 bg-slate-700 rounded-full peer peer-checked:bg-emerald-500 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
+              </label>
+            </div>
+
+            <!-- Row 5: Compress LLM output (Caveman) -->
+            <div class="py-3.5 flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="font-semibold text-white text-[13px]">Compress LLM output</span>
+                  <span class="text-[11px] text-orange-400 underline decoration-orange-400/50">(Caveman)</span>
+                </div>
+                <div class="text-[11px] text-slate-400 mt-0.5">Terse-style system prompt → jawaban super ringkas &amp; langsung inti → ~65% fewer output tokens (up to 87%).</div>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                <input id="ts-toggle-compressLlmOutput" type="checkbox" onchange="saveTokenSaverToggle('compressLlmOutput', this.checked)" class="sr-only peer" />
+                <div class="w-10 h-5 bg-slate-700 rounded-full peer peer-checked:bg-emerald-500 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
+              </label>
+            </div>
+
+            <!-- Row 6: Lazy senior dev (Ponytail) -->
+            <div class="py-3.5 flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="font-semibold text-white text-[13px]">Lazy senior dev</span>
+                  <span class="text-[11px] text-orange-400 underline decoration-orange-400/50">(Ponytail)</span>
+                  <span id="ts-badge-ponytail" class="px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/35 text-[9.5px] font-bold">Skill Ready</span>
+                </div>
+                <div class="text-[11px] text-slate-400 mt-0.5">Bias the model toward minimal code: YAGNI, reuse stdlib, smallest complete diff, deletion over addition.</div>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                <input id="ts-toggle-lazySeniorDev" type="checkbox" onchange="saveTokenSaverToggle('lazySeniorDev', this.checked)" class="sr-only peer" />
+                <div class="w-10 h-5 bg-slate-700 rounded-full peer peer-checked:bg-emerald-500 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
+              </label>
+            </div>
+
+            <!-- Row 7: Zero-Context Heartbeat Ping -->
+            <div class="py-3.5 flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="font-semibold text-white text-[13px]">Zero-Context Heartbeat Ping</span>
+                  <span class="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[9.5px] font-bold">Anti-Bocor 24 Jam</span>
+                </div>
+                <div class="text-[11px] text-slate-400 mt-0.5">Hapus injeksi Obsidian Memory &amp; MCP pada ping kesehatan model bila mode aktif ping digunakan.</div>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                <input id="ts-toggle-heartbeatZeroContext" type="checkbox" onchange="saveTokenSaverToggle('heartbeatZeroContext', this.checked)" class="sr-only peer" />
+                <div class="w-10 h-5 bg-slate-700 rounded-full peer peer-checked:bg-emerald-500 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
+              </label>
+            </div>
+
+            <!-- Row 8: Passive Health Check (0-Token Ping) -->
+            <div class="py-3.5 flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="font-semibold text-white text-[13px]">Passive Health Check (0-Token Ping)</span>
+                  <span class="px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30 text-[9.5px] font-bold">Hemat ~13.5k tok/ping</span>
+                </div>
+                <div class="text-[11px] text-slate-400 mt-0.5">Verifikasi status model via metadata CLI (<code>agy models</code> / <code>GET /models</code>) + hasil chat nyata tanpa mengirim prompt "OK" ke LLM.</div>
+              </div>
+              <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                <input id="ts-toggle-passiveHealthCheck" type="checkbox" onchange="saveTokenSaverToggle('passiveHealthCheck', this.checked)" class="sr-only peer" />
+                <div class="w-10 h-5 bg-slate-700 rounded-full peer peer-checked:bg-emerald-500 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
+              </label>
+            </div>
+
+            <!-- Row 9: Daily Token Budget Cap (Autopilot Guardrail) -->
+            <div class="py-3.5 flex flex-wrap items-center justify-between gap-4">
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="font-semibold text-white text-[13px]">Daily Token Budget Guardrail</span>
+                  <span id="ts-budget-pill" class="px-1.5 py-0.5 rounded bg-white/10 text-slate-300 text-[9.5px] font-mono">Unlimited</span>
+                </div>
+                <div class="text-[11px] text-slate-400 mt-0.5">Rem otomatis: jeda patroli Autopilot GM jika pemakaian token harian melewati batas yang ditentukan.</div>
+                <div id="ts-budget-bar-wrap" class="hidden mt-2 max-w-sm">
+                  <div class="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+                    <div id="ts-budget-bar-fill" class="h-full bg-emerald-400 transition-all" style="width: 0%"></div>
+                  </div>
+                </div>
+              </div>
+              <select id="ts-daily-budget-select" onchange="saveTokenSaverToggle('dailyTokenBudget', Number(this.value))" class="px-2.5 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-amber-200 font-mono text-[11px] cursor-pointer shrink-0">
+                <option value="0">Unlimited (Tanpa Batas)</option>
+                <option value="250000">250K tokens / hari</option>
+                <option value="500000">500K tokens / hari</option>
+                <option value="1000000">1M tokens / hari</option>
+                <option value="2000000">2M tokens / hari</option>
+                <option value="5000000">5M tokens / hari</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Smart Model Tiering 1-Click Presets -->
+        <div class="rounded-xl bg-[#13131b] border border-white/10 p-4 space-y-2.5">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div class="font-bold text-slate-200 text-xs">🎯 Smart Model Tiering (1-Klik Atur 35 Staf)</div>
+              <div class="text-[10.5px] text-slate-400">Sesuaikan tingkat model (Low / Medium / High / XHigh) berdasarkan jabatan agar tidak semua staf memakai XHigh.</div>
+            </div>
+            <button onclick="switchSettingsTab('USAGE')" class="px-2.5 py-1 rounded-lg bg-orange-500/15 hover:bg-orange-500/25 border border-orange-500/35 text-orange-300 font-bold text-[10.5px] cursor-pointer">
+              📊 Lihat Penggunaan Token →
+            </button>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <button onclick="applySmartModelTierPreset('eco')" class="p-3 rounded-xl bg-[#181822] hover:bg-emerald-500/10 border border-emerald-500/30 text-left cursor-pointer transition">
+              <div class="font-bold text-emerald-300 text-xs">🟢 Mode Super Hemat</div>
+              <div class="text-[10px] text-slate-400 mt-1">Staf → <code>Gemini 3.8 Flash (Medium)</code> · Manajer/GM → <code>Gemini 4 Neon (Medium)</code></div>
+            </button>
+            <button onclick="applySmartModelTierPreset('balanced')" class="p-3 rounded-xl bg-[#181822] hover:bg-amber-500/10 border border-amber-500/35 text-left cursor-pointer transition">
+              <div class="font-bold text-amber-300 text-xs">🟡 Mode Seimbang (Rekomendasi)</div>
+              <div class="text-[10px] text-slate-400 mt-1">Staf → <code>Gemini 4 Neon (Medium)</code> · Manajer &amp; GM → <code>Gemini 4 Neon (High)</code></div>
+            </button>
+            <button onclick="applySmartModelTierPreset('max')" class="p-3 rounded-xl bg-[#181822] hover:bg-rose-500/10 border border-rose-500/30 text-left cursor-pointer transition">
+              <div class="font-bold text-rose-300 text-xs">🔴 Mode Maksimal</div>
+              <div class="text-[10px] text-slate-400 mt-1">Staf → <code>Gemini 4 Neon (High)</code> · GM &amp; Lead → <code>Gemini 4 Neon (XHigh)</code></div>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB 6: USAGE & ANALYTICS (MONITOR TOKEN, CACHED TOKENS & REQUEST LOGS) -->
+      <div id="settings-panel-USAGE" class="hidden p-5 overflow-y-auto space-y-4 text-xs">
+        <!-- Header Row -->
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="text-orange-400 text-base">📊</span>
+              <h3 class="text-base font-bold text-white tracking-tight">Usage &amp; Analytics</h3>
+            </div>
+            <p class="text-[11px] text-slate-400 mt-0.5">Monitor your API &amp; CLI usage, token consumption, cached tokens, and request logs</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="loadUsageAnalyticsUI(CURRENT_USAGE_RANGE)" class="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 text-[10.5px] font-semibold cursor-pointer">
+              🔄 Refresh
+            </button>
+            <button onclick="resetUsageStatsUI()" class="px-2.5 py-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-[10.5px] font-semibold cursor-pointer">
+              🗑️ Reset Log
+            </button>
+          </div>
+        </div>
+
+        <!-- Sub-tabs (Overview | Details) & Time Range Pills (Today | 24h | 7D | 30D | 60D | All) -->
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="inline-flex items-center p-1 rounded-xl bg-[#181820] border border-white/10 text-[11px]">
+            <button id="usage-sub-overview" onclick="switchUsageSubTab('overview')" class="px-3.5 py-1 rounded-lg bg-[#272734] text-white font-semibold cursor-pointer">Overview</button>
+            <button id="usage-sub-details" onclick="switchUsageSubTab('details')" class="px-3.5 py-1 rounded-lg text-slate-400 hover:text-white cursor-pointer">Details</button>
+          </div>
+          <div class="inline-flex items-center p-1 rounded-xl bg-[#181820] border border-white/10 text-[11px] gap-0.5">
+            <button id="usage-range-today" onclick="loadUsageAnalyticsUI('today')" class="px-2.5 py-1 rounded-lg bg-[#272734] text-white font-semibold cursor-pointer">Today</button>
+            <button id="usage-range-24h" onclick="loadUsageAnalyticsUI('24h')" class="px-2.5 py-1 rounded-lg text-slate-400 hover:text-white cursor-pointer">24h</button>
+            <button id="usage-range-7d" onclick="loadUsageAnalyticsUI('7d')" class="px-2.5 py-1 rounded-lg text-slate-400 hover:text-white cursor-pointer">7D</button>
+            <button id="usage-range-30d" onclick="loadUsageAnalyticsUI('30d')" class="px-2.5 py-1 rounded-lg text-slate-400 hover:text-white cursor-pointer">30D</button>
+            <button id="usage-range-60d" onclick="loadUsageAnalyticsUI('60d')" class="px-2.5 py-1 rounded-lg text-slate-400 hover:text-white cursor-pointer">60D</button>
+            <button id="usage-range-all" onclick="loadUsageAnalyticsUI('all')" class="px-2.5 py-1 rounded-lg text-slate-400 hover:text-white cursor-pointer">All</button>
+          </div>
+        </div>
+
+        <!-- 5 Sleek KPI Cards (exact match to Usage & Analytics screenshot) -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+          <div class="rounded-xl bg-[#181820] border border-white/10 px-4 py-3.5 text-center">
+            <div class="text-[10px] font-semibold tracking-wider text-slate-400 uppercase">TOTAL REQUESTS</div>
+            <div id="usage-kpi-requests" class="text-xl font-bold text-white mt-1.5 font-mono">0</div>
+          </div>
+          <div class="rounded-xl bg-[#181820] border border-white/10 px-4 py-3.5 text-center">
+            <div class="text-[10px] font-semibold tracking-wider text-slate-400 uppercase">TOTAL INPUT TOKENS</div>
+            <div id="usage-kpi-input" class="text-xl font-bold text-[#f06449] mt-1.5 font-mono">0</div>
+          </div>
+          <div class="rounded-xl bg-[#181820] border border-white/10 px-4 py-3.5 text-center">
+            <div class="text-[10px] font-semibold tracking-wider text-slate-400 uppercase">CACHED TOKENS</div>
+            <div id="usage-kpi-cached" class="text-xl font-bold text-[#3b82f6] mt-1.5 font-mono">0</div>
+            <div id="usage-kpi-cache-pct" class="text-[9.5px] text-sky-400/80 mt-0.5 font-mono">0% cache hit</div>
+          </div>
+          <div class="rounded-xl bg-[#181820] border border-white/10 px-4 py-3.5 text-center">
+            <div class="text-[10px] font-semibold tracking-wider text-slate-400 uppercase">OUTPUT TOKENS</div>
+            <div id="usage-kpi-output" class="text-xl font-bold text-[#22c55e] mt-1.5 font-mono">0</div>
+          </div>
+          <div class="rounded-xl bg-[#181820] border border-white/10 px-4 py-3.5 text-center col-span-2 sm:col-span-1">
+            <div class="text-[10px] font-semibold tracking-wider text-slate-400 uppercase">EST. COST</div>
+            <div id="usage-kpi-cost" class="text-xl font-bold text-[#eab308] mt-1.5 font-mono">~$0.00</div>
+            <div id="usage-kpi-cost-note" class="text-[9px] text-slate-500 mt-0.5">Estimated, not actual billing</div>
+          </div>
+        </div>
+
+        <!-- Token Saver Savings Strip -->
+        <div class="rounded-xl bg-emerald-500/[0.06] border border-emerald-500/20 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+          <div class="flex flex-wrap items-center gap-3 text-slate-300">
+            <span>⚡ <b class="text-emerald-300">Kompresi &amp; Heartbeat Hemat:</b> <span id="usage-saved-compression" class="font-mono text-white">0</span> tokens</span>
+            <span class="text-white/15">|</span>
+            <span>🔌 <b class="text-sky-300">MCP TTL Cache Hits:</b> <span id="usage-mcp-hits" class="font-mono text-white">0</span></span>
+            <span class="text-white/15">|</span>
+            <span>♻️ <b class="text-amber-300">CLI Session Reuse:</b> <span id="usage-cli-hits" class="font-mono text-white">0</span></span>
+          </div>
+          <button onclick="switchSettingsTab('TOKENSAVER')" class="text-emerald-300 hover:underline font-semibold cursor-pointer">Atur Token Saver →</button>
+        </div>
+
+        <!-- OVERVIEW SUB-PANEL: TREND CHART + RECENT REQUESTS TABLE -->
+        <div id="usage-panel-overview" class="space-y-3">
+          <div class="rounded-xl bg-[#181820] border border-white/10 p-4">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <span class="text-[11px] font-semibold tracking-wider text-slate-300 uppercase">TOKEN CONSUMPTION TREND</span>
+              <div class="flex items-center gap-3 text-[10px] text-slate-400">
+                <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-[#f06449]"></span>Uncached In</span>
+                <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-[#3b82f6]"></span>Cached</span>
+                <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-[#22c55e]"></span>Output</span>
+              </div>
+            </div>
+            <div id="usage-timeline-chart" class="h-24 flex items-end gap-1.5 pt-2"></div>
+          </div>
+
+          <div class="rounded-xl bg-[#181820] border border-white/10 overflow-hidden">
+            <div class="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+              <span class="text-[11px] font-semibold tracking-wider text-slate-300 uppercase">RECENT REQUESTS</span>
+              <span id="usage-recent-count" class="text-[10.5px] font-mono text-slate-400">0 requests</span>
+            </div>
+            <div class="overflow-x-auto max-h-72 overflow-y-auto">
+              <table class="w-full text-left border-collapse text-[11.5px]">
+                <thead class="bg-[#13131a] text-slate-400 text-[10.5px] sticky top-0">
+                  <tr class="border-b border-white/10">
+                    <th class="py-2 px-4 font-semibold">Model</th>
+                    <th class="py-2 px-3 font-semibold">Staf / Dept</th>
+                    <th class="py-2 px-3 font-semibold text-right">Cached</th>
+                    <th class="py-2 px-3 font-semibold text-right">In / Out</th>
+                    <th class="py-2 px-3 font-semibold text-right">Cost</th>
+                    <th class="py-2 px-4 font-semibold text-right">When</th>
+                  </tr>
+                </thead>
+                <tbody id="usage-recent-tbody" class="divide-y divide-white/[0.05] font-mono">
+                  <tr><td colspan="6" class="py-8 text-center text-slate-500 font-sans">Belum ada riwayat request pada rentang waktu ini. Mulai chat dengan staf AI untuk melihat konsumsi token real-time.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- DETAILS SUB-PANEL: PER-MODEL & PER-DEPT BREAKDOWN -->
+        <div id="usage-panel-details" class="hidden space-y-3">
+          <div class="rounded-xl bg-[#181820] border border-white/10 overflow-hidden">
+            <div class="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+              <span class="text-[11px] font-semibold tracking-wider text-slate-300 uppercase">BREAKDOWN PER MODEL</span>
+              <span id="usage-models-count" class="text-[10.5px] font-mono text-slate-400">0 models</span>
+            </div>
+            <div class="overflow-x-auto max-h-60 overflow-y-auto">
+              <table class="w-full text-left border-collapse text-[11.5px]">
+                <thead class="bg-[#13131a] text-slate-400 text-[10.5px] sticky top-0">
+                  <tr class="border-b border-white/10">
+                    <th class="py-2 px-4 font-semibold">Model</th>
+                    <th class="py-2 px-3 font-semibold text-right">Requests</th>
+                    <th class="py-2 px-3 font-semibold text-right">Input</th>
+                    <th class="py-2 px-3 font-semibold text-right">Cached</th>
+                    <th class="py-2 px-3 font-semibold text-right">Hit %</th>
+                    <th class="py-2 px-3 font-semibold text-right">Output</th>
+                    <th class="py-2 px-4 font-semibold text-right">Est. Cost</th>
+                  </tr>
+                </thead>
+                <tbody id="usage-details-tbody" class="divide-y divide-white/[0.05] font-mono">
+                  <tr><td colspan="7" class="py-8 text-center text-slate-500 font-sans">Belum ada data model pada rentang waktu ini.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="rounded-xl bg-[#181820] border border-white/10 overflow-hidden">
+            <div class="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+              <span class="text-[11px] font-semibold tracking-wider text-slate-300 uppercase">BREAKDOWN PER STAF &amp; DEPARTEMEN</span>
+              <span id="usage-depts-count" class="text-[10.5px] font-mono text-slate-400">0 staf</span>
+            </div>
+            <div class="overflow-x-auto max-h-60 overflow-y-auto">
+              <table class="w-full text-left border-collapse text-[11.5px]">
+                <thead class="bg-[#13131a] text-slate-400 text-[10.5px] sticky top-0">
+                  <tr class="border-b border-white/10">
+                    <th class="py-2 px-4 font-semibold">Staf / Dept</th>
+                    <th class="py-2 px-3 font-semibold text-right">Requests</th>
+                    <th class="py-2 px-3 font-semibold text-right">Input</th>
+                    <th class="py-2 px-3 font-semibold text-right">Cached</th>
+                    <th class="py-2 px-3 font-semibold text-right">Hit %</th>
+                    <th class="py-2 px-3 font-semibold text-right">Output</th>
+                    <th class="py-2 px-4 font-semibold text-right">Est. Cost</th>
+                  </tr>
+                </thead>
+                <tbody id="usage-depts-tbody" class="divide-y divide-white/[0.05] font-mono">
+                  <tr><td colspan="7" class="py-8 text-center text-slate-500 font-sans">Belum ada data konsumsi per staf pada rentang waktu ini.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="px-5 py-3 border-t border-white/10 flex items-center justify-between bg-[#16161f]">
         <button onclick="resetDefaultModels()" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 text-[11px] cursor-pointer">
           Reset ke Bawaan
@@ -2116,14 +2520,29 @@
   <!-- ================= THREE.JS 36x26 GRAND HQ + LIVE AGENT INTERACTIONS + 3D CHARTS ================= -->
   <script>
     const AVAILABLE_MODELS = [
-      { id: "Gemini 4 Argon (High)", tag: "Antigravity · Flagship Kreatif & Strategi" },
-      { id: "Gemini 4 Argon (Medium)", tag: "Antigravity · Presisi & Seimbang" },
-      { id: "Gemini 4 Neon (XHigh)", tag: "Antigravity · Deep Creative & Reasoning" },
-      { id: "Gemini 4 Hydrogen (XHigh)", tag: "Antigravity · Ide & Eksplorasi Tinggi" },
-      { id: "Gemini 3.8 Flash (High)", tag: "Antigravity · Cepat (Riset & Browser)" },
-      { id: "Imagen 3 + Argon (High)", tag: "Antigravity · Visual & Art Direction" },
-      { id: "Claude Opus 5.5 (High)", tag: "Anthropic / 9Router · Deep Engineering" },
-      { id: "Claude Sonnet 5.5 (High)", tag: "Anthropic / 9Router · Coding & Backend" }
+      { id: "Gemini 4 Neon (Low)", agyId: "gemini-4-neon-low", tag: "Antigravity CLI · gemini-4-neon-low", provider: "antigravity" },
+      { id: "Gemini 4 Neon (Medium)", agyId: "gemini-4-neon-medium", tag: "Antigravity CLI · gemini-4-neon-medium", provider: "antigravity" },
+      { id: "Gemini 4 Neon (High)", agyId: "gemini-4-neon-high", tag: "Antigravity CLI · gemini-4-neon-high", provider: "antigravity" },
+      { id: "Gemini 4 Neon (XHigh)", agyId: "gemini-4-neon-xhigh", tag: "Antigravity CLI · gemini-4-neon-xhigh", provider: "antigravity" },
+      { id: "Gemini 4 Argon (Low)", agyId: "gemini-4-argon-low", tag: "Antigravity CLI · gemini-4-argon-low", provider: "antigravity" },
+      { id: "Gemini 4 Argon (Medium)", agyId: "gemini-4-argon-medium", tag: "Antigravity CLI · gemini-4-argon-medium", provider: "antigravity" },
+      { id: "Gemini 4 Argon (High)", agyId: "gemini-4-argon-high", tag: "Antigravity CLI · gemini-4-argon-high", provider: "antigravity" },
+      { id: "Gemini 4 Carbon (Low)", agyId: "gemini-4-carbon-low", tag: "Antigravity CLI · gemini-4-carbon-low", provider: "antigravity" },
+      { id: "Gemini 4 Carbon (Medium)", agyId: "gemini-4-carbon-medium", tag: "Antigravity CLI · gemini-4-carbon-medium", provider: "antigravity" },
+      { id: "Gemini 4 Carbon (High)", agyId: "gemini-4-carbon-high", tag: "Antigravity CLI · gemini-4-carbon-high", provider: "antigravity" },
+      { id: "Gemini 4 Hydrogen (Low)", agyId: "gemini-4-hydrogen-low", tag: "Antigravity CLI · gemini-4-hydrogen-low", provider: "antigravity" },
+      { id: "Gemini 4 Hydrogen (Medium)", agyId: "gemini-4-hydrogen-medium", tag: "Antigravity CLI · gemini-4-hydrogen-medium", provider: "antigravity" },
+      { id: "Gemini 4 Hydrogen (High)", agyId: "gemini-4-hydrogen-high", tag: "Antigravity CLI · gemini-4-hydrogen-high", provider: "antigravity" },
+      { id: "Gemini 4 Hydrogen (XHigh)", agyId: "gemini-4-hydrogen-xhigh", tag: "Antigravity CLI · gemini-4-hydrogen-xhigh", provider: "antigravity" },
+      { id: "Gemini 3.8 Flash (Low)", agyId: "gemini-3.8-flash-low", tag: "Antigravity CLI · gemini-3.8-flash-low", provider: "antigravity" },
+      { id: "Gemini 3.8 Flash (Medium)", agyId: "gemini-3.8-flash-medium", tag: "Antigravity CLI · gemini-3.8-flash-medium", provider: "antigravity" },
+      { id: "Gemini 3.8 Flash (High)", agyId: "gemini-3.8-flash-high", tag: "Antigravity CLI · gemini-3.8-flash-high", provider: "antigravity" },
+      { id: "Claude Opus 5.5 (Low)", agyId: "claude-opus-5-5-low", tag: "Antigravity CLI · claude-opus-5-5-low", provider: "antigravity" },
+      { id: "Claude Opus 5.5 (Medium)", agyId: "claude-opus-5-5-medium", tag: "Antigravity CLI · claude-opus-5-5-medium", provider: "antigravity" },
+      { id: "Claude Opus 5.5 (High)", agyId: "claude-opus-5-5-high", tag: "Antigravity CLI · claude-opus-5-5-high", provider: "antigravity" },
+      { id: "Claude Sonnet 5.5 (Low)", agyId: "claude-sonnet-5-5-low", tag: "Antigravity CLI · claude-sonnet-5-5-low", provider: "antigravity" },
+      { id: "Claude Sonnet 5.5 (Medium)", agyId: "claude-sonnet-5-5-medium", tag: "Antigravity CLI · claude-sonnet-5-5-medium", provider: "antigravity" },
+      { id: "Claude Sonnet 5.5 (High)", agyId: "claude-sonnet-5-5-high", tag: "Antigravity CLI · claude-sonnet-5-5-high", provider: "antigravity" }
     ];
 
     const API_CONNECTIONS = [];
@@ -5122,9 +5541,7 @@
       activeContextMenuAgentId = agentId;
       const isInCeoOffice = summonedInCeoOfficeIds.has(agentId);
 
-      const modelOptionsHtml = AVAILABLE_MODELS.map(m =>
-        `<option value="${m.id}" ${ag.model === m.id ? 'selected' : ''}>${m.id}</option>`
-      ).join("");
+      const modelOptionsHtml = buildGroupedModelOptionsHtml(ag.model, { compact: true });
 
       const ctxEl = document.getElementById("agent-context-popup");
       ctxEl.classList.remove("hidden");
@@ -5682,6 +6099,14 @@
             }
           }
 
+          // 4. Show real-time multi-step tool/thinking status while agents are working
+          if (typeof world.liveStepStatus === "string" && world.liveStepStatus.trim()) {
+            const feedEl = document.getElementById("interaction-feed-text");
+            if (feedEl) feedEl.textContent = world.liveStepStatus.trim();
+            const typingEl = document.querySelector("#chat-messages-box .animate-pulse");
+            if (typingEl) typingEl.textContent = world.liveStepStatus.trim();
+          }
+
           renderSidebarAndTable();
         } else if (incomingChatVer > LOCAL_CHAT_VERSION) {
           LOCAL_CHAT_VERSION = incomingChatVer;
@@ -5753,7 +6178,26 @@
     }
 
     hydrateChatStateFromServer();
-    setInterval(() => syncWorldStateFromServer(false), 1800);
+    // Adaptive Polling: 2.2s when busy/chatting, 8s when idle, paused when browser tab is hidden!
+    let _WORLD_POLL_TIMER = null;
+    function scheduleNextWorldPoll() {
+      if (_WORLD_POLL_TIMER) clearTimeout(_WORLD_POLL_TIMER);
+      const busyNow = (typeof SERVER_BUSY_AGENT_IDS !== "undefined" && SERVER_BUSY_AGENT_IDS && SERVER_BUSY_AGENT_IDS.size > 0);
+      const chatOpen = Boolean(document.getElementById("modal-progress") && !document.getElementById("modal-progress").classList.contains("hidden"));
+      const delayMs = (busyNow || chatOpen) ? 2200 : 8000;
+      _WORLD_POLL_TIMER = setTimeout(async () => {
+        if (!document.hidden && IS_AUTHENTICATED) {
+          await syncWorldStateFromServer(false);
+        }
+        scheduleNextWorldPoll();
+      }, delayMs);
+    }
+    scheduleNextWorldPoll();
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden && IS_AUTHENTICATED) {
+        syncWorldStateFromServer(false);
+      }
+    });
 
     var MEMORY_CONFIG_CACHE = { vaultPath: "", slidingWindow: 6, autoExecuteOnApprove: true };
     var MEMORY_NOTES_CACHE = [];
@@ -6885,8 +7329,15 @@
         if (Array.isArray(saved.models) && saved.models.length > 0) {
           AVAILABLE_MODELS.length = 0;
           saved.models.forEach(m => AVAILABLE_MODELS.push(m));
-          localStorage.setItem("luxvite_custom_models", JSON.stringify(AVAILABLE_MODELS));
         }
+        // Selalu sinkronkan daftar model asli dari Antigravity CLI (agy models)
+        if (data && data.auth && data.auth.antigravity && Array.isArray(data.auth.antigravity.models)) {
+          mergeLiveAntigravityModels(data.auth.antigravity.models, data.auth.antigravity.models_source);
+        }
+        if (data && data.token_saver) {
+          applyTokenSaverStatusUI(data.token_saver);
+        }
+        localStorage.setItem("luxvite_custom_models", JSON.stringify(AVAILABLE_MODELS));
         if (saved.agent_models && typeof saved.agent_models === "object") {
           agents.forEach(a => {
             if (saved.agent_models[a.id] !== undefined) a.model = saved.agent_models[a.id];
@@ -7091,21 +7542,185 @@
       updateToast(`✅ ${Math.min(40, filtered.length)} model dari ${CURRENT_FETCH_META.label} berhasil diimpor!`);
     }
 
-    async function syncAntigravityModels() {
+    let MODEL_LIST_FILTER = "ALL";
+    let AGY_MODELS_SOURCE = "";
+
+    function isAgyNativeModel(m) {
+      if (!m || m.endpoint) return false;
+      if (m.provider === "antigravity" || m.agyId) return true;
+      const id = String(m.id || "");
+      return /^(Gemini\s|Claude\s(Opus|Sonnet)\s5\.5|Orchestrator\s|GPT-OSS\s|Imagen\s)/i.test(id);
+    }
+
+    function mergeLiveAntigravityModels(agyModels, source = "live_cli") {
+      if (!Array.isArray(agyModels) || agyModels.length === 0) return 0;
+      AGY_MODELS_SOURCE = source || "live_cli";
+      const liveMap = new Map(agyModels.map(m => [m.id, m]));
+      // Update existing entries with fresh metadata (agyId, tag, provider)
+      AVAILABLE_MODELS.forEach(m => {
+        if (liveMap.has(m.id)) {
+          const fresh = liveMap.get(m.id);
+          m.provider = "antigravity";
+          if (fresh.agyId) m.agyId = fresh.agyId;
+          if (fresh.tag) m.tag = fresh.tag;
+        }
+      });
+      // Insert missing live CLI models at the top in exact CLI order
+      const existingIds = new Set(AVAILABLE_MODELS.map(m => m.id));
+      const nonAgy = AVAILABLE_MODELS.filter(m => !liveMap.has(m.id));
+      const orderedAgy = agyModels.map(fresh => ({
+        id: fresh.id,
+        agyId: fresh.agyId || "",
+        tag: fresh.tag || `Antigravity CLI · ${fresh.agyId || fresh.id}`,
+        provider: "antigravity"
+      }));
+      let added = 0;
+      orderedAgy.forEach(m => { if (!existingIds.has(m.id)) added++; });
+      AVAILABLE_MODELS.length = 0;
+      orderedAgy.forEach(m => AVAILABLE_MODELS.push(m));
+      nonAgy.forEach(m => AVAILABLE_MODELS.push(m));
+      return added;
+    }
+
+    function buildGroupedModelOptionsHtml(selectedId, opts = {}) {
+      const compact = Boolean(opts.compact);
+      const prefix = opts.prefix || "";
+      const esc = s => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      const agyGemini4 = [];
+      const agyOther = [];
+      const claudeLocal = [];
+      const apiGroups = new Map();
+      const manualOther = [];
+
+      AVAILABLE_MODELS.forEach(m => {
+        if (m.endpoint) {
+          const gLabel = (m.tag && m.tag.includes("·")) ? m.tag.split("·")[0].trim() : m.endpoint;
+          if (!apiGroups.has(gLabel)) apiGroups.set(gLabel, []);
+          apiGroups.get(gLabel).push(m);
+        } else if (m.provider === "claude_local" || /Local Session/i.test(m.id || "")) {
+          claudeLocal.push(m);
+        } else if (isAgyNativeModel(m)) {
+          if (/^Gemini 4 /i.test(m.id || "")) agyGemini4.push(m);
+          else agyOther.push(m);
+        } else {
+          manualOther.push(m);
+        }
+      });
+
+      const renderOpt = m => {
+        const sel = selectedId === m.id ? " selected" : "";
+        const label = compact ? `${prefix}${m.id}` : `${prefix}${m.id}${m.agyId ? ` (${m.agyId})` : ""}`;
+        return `<option value="${esc(m.id)}"${sel}>${esc(label)}</option>`;
+      };
+
+      let html = "";
+      if (agyGemini4.length) html += `<optgroup label="⚡ Antigravity CLI — Gemini 4 (Low / Med / High / XHigh)">${agyGemini4.map(renderOpt).join("")}</optgroup>`;
+      if (agyOther.length) html += `<optgroup label="⚡ Antigravity CLI — Flash, Claude &amp; Lainnya">${agyOther.map(renderOpt).join("")}</optgroup>`;
+      if (claudeLocal.length) html += `<optgroup label="🤖 Claude Local Session">${claudeLocal.map(renderOpt).join("")}</optgroup>`;
+      apiGroups.forEach((list, gLabel) => {
+        html += `<optgroup label="🌐 API · ${esc(gLabel)}">${list.map(renderOpt).join("")}</optgroup>`;
+      });
+      if (manualOther.length) html += `<optgroup label="🧩 Model Lainnya / Manual">${manualOther.map(renderOpt).join("")}</optgroup>`;
+      return html;
+    }
+
+    function setModelListFilter(mode) {
+      MODEL_LIST_FILTER = mode || "ALL";
+      ["ALL", "AGY", "API"].forEach(k => {
+        const b = document.getElementById(`mfilter-${k}`);
+        if (!b) return;
+        b.className = (k === MODEL_LIST_FILTER)
+          ? "px-2.5 py-1 rounded-md bg-purple-600 text-white font-bold cursor-pointer"
+          : "px-2.5 py-1 rounded-md bg-white/5 hover:bg-white/10 text-slate-300 cursor-pointer";
+      });
+      renderSettingsModelsGrid();
+    }
+
+    function renderSettingsModelsGrid() {
+      const modelsListEl = document.getElementById("settings-models-list");
+      const totalBadge = document.getElementById("total-models-badge");
+      const srcNote = document.getElementById("agy-models-source-note");
+      if (!modelsListEl) return;
+
+      const q = (document.getElementById("settings-models-search")?.value || "").trim().toLowerCase();
+      const agyCount = AVAILABLE_MODELS.filter(m => isAgyNativeModel(m)).length;
+      const apiCount = AVAILABLE_MODELS.filter(m => Boolean(m.endpoint)).length;
+
+      if (totalBadge) totalBadge.textContent = `${AVAILABLE_MODELS.length} Model (${agyCount} AGY · ${apiCount} API)`;
+      if (srcNote) {
+        srcNote.innerHTML = AGY_MODELS_SOURCE === "live_cli"
+          ? `<span class="text-emerald-400 font-semibold">● Live dari <code>agy models</code></span> (${agyCount} model asli terdeteksi + ${apiCount} model API endpoint)`
+          : `Menampilkan ${agyCount} model Antigravity CLI + ${apiCount} model API endpoint.`;
+      }
+
+      const filtered = AVAILABLE_MODELS.map((m, idx) => ({ m, idx })).filter(({ m }) => {
+        if (MODEL_LIST_FILTER === "AGY" && !isAgyNativeModel(m)) return false;
+        if (MODEL_LIST_FILTER === "API" && !m.endpoint) return false;
+        if (q) {
+          const hay = `${m.id || ""} ${m.agyId || ""} ${m.tag || ""}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        modelsListEl.innerHTML = `<div class="col-span-full py-6 text-center text-[11px] text-slate-400 italic">Tidak ada model yang cocok dengan filter "${q || MODEL_LIST_FILTER}".</div>`;
+        return;
+      }
+
+      modelsListEl.innerHTML = filtered.map(({ m, idx }) => {
+        const isAgy = isAgyNativeModel(m);
+        const tierMatch = String(m.id || "").match(/\((Low|Medium|High|XHigh)\)/i);
+        const tier = tierMatch ? tierMatch[1].toUpperCase() : "";
+        const tierCls = tier === "XHIGH"
+          ? "bg-rose-500/20 text-rose-300 border-rose-500/40"
+          : tier === "HIGH"
+          ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+          : tier === "MEDIUM"
+          ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+          : tier === "LOW"
+          ? "bg-sky-500/20 text-sky-300 border-sky-500/40"
+          : "";
+        const provBadge = isAgy
+          ? `<span class="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[9px] font-bold">AGY</span>`
+          : m.endpoint
+          ? `<span class="px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30 text-[9px] font-bold">API</span>`
+          : `<span class="px-1.5 py-0.5 rounded bg-slate-500/20 text-slate-300 border border-white/15 text-[9px] font-bold">LOCAL</span>`;
+        const subText = m.agyId ? m.agyId : (m.tag || "");
+        return `
+          <div class="p-2.5 rounded-lg bg-[#1c1c28] border ${isAgy ? 'border-emerald-500/20 hover:border-emerald-400/40' : 'border-white/10 hover:border-purple-400/40'} flex items-center justify-between gap-2 transition">
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5">
+                ${provBadge}
+                <span class="font-mono font-bold text-[11.5px] text-white truncate" title="${m.id}">${m.id}</span>
+                ${tier ? `<span class="px-1.5 py-0.5 rounded border text-[9px] font-bold shrink-0 ${tierCls}">${tier}</span>` : ''}
+              </div>
+              <div class="text-[10px] font-mono text-slate-400 truncate mt-0.5" title="${subText}">${subText}</div>
+            </div>
+            <div class="flex items-center gap-1 shrink-0">
+              <button onclick="promptEditModel(${idx})" class="px-1.5 py-1 rounded bg-white/5 hover:bg-white/15 text-[10px] text-slate-300 cursor-pointer" title="Edit Model">✎</button>
+              ${AVAILABLE_MODELS.length > 1 ? `<button onclick="deleteCustomModel(${idx})" class="px-1.5 py-1 rounded bg-rose-500/15 hover:bg-rose-500/30 text-[10px] text-rose-300 cursor-pointer" title="Hapus Model">✕</button>` : ''}
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    async function syncAntigravityModels(forceRefresh = true) {
       try {
-        const res = await fetch("/api/hub-status");
+        const url = forceRefresh ? "/api/hub-status?refresh_agy=1" : "/api/hub-status";
+        const res = await fetch(url);
         const data = await res.json();
-        if (data.ok && data.auth && data.auth.antigravity) {
-          data.auth.antigravity.models.forEach(m => {
-            if (!AVAILABLE_MODELS.find(x => x.id === m.id)) AVAILABLE_MODELS.push(m);
-          });
+        if (data.ok && data.auth && data.auth.antigravity && Array.isArray(data.auth.antigravity.models)) {
+          const count = data.auth.antigravity.models.length;
+          mergeLiveAntigravityModels(data.auth.antigravity.models, data.auth.antigravity.models_source);
           saveCustomConfigToStorage();
           renderSettingsModal();
           renderSidebarAndTable();
-          updateToast("✅ Sesi & Daftar Model Antigravity berhasil disinkronkan!");
+          updateToast(`✅ ${count} model asli Antigravity CLI berhasil disinkronkan!`);
         }
       } catch (e) {
-        updateToast("✅ Model Antigravity sudah aktif di daftar.");
+        updateToast("⚠️ Gagal menyinkronkan model Antigravity CLI.");
       }
     }
 
@@ -7221,11 +7836,11 @@
       AVAILABLE_MODELS.length = 0;
       kept.forEach(m => AVAILABLE_MODELS.push(m));
       if (AVAILABLE_MODELS.length === 0) {
-        AVAILABLE_MODELS.push({ id: "Gemini 4 Neon (XHigh)", tag: "Antigravity · Deep Creative & Reasoning", provider: "antigravity" });
+        AVAILABLE_MODELS.push({ id: "Gemini 4 Neon (Medium)", agyId: "gemini-4-neon-medium", tag: "Antigravity CLI · gemini-4-neon-medium", provider: "antigravity" });
       }
       // Auto-reassign any agent whose model was purged to a valid remaining model!
       const validIds = new Set(AVAILABLE_MODELS.map(m => m.id));
-      const fallbackId = AVAILABLE_MODELS.find(m => m.id === "Gemini 4 Neon (XHigh)")?.id || AVAILABLE_MODELS[0].id;
+      const fallbackId = AVAILABLE_MODELS.find(m => m.id === "Gemini 4 Neon (Medium)")?.id || AVAILABLE_MODELS[0].id;
       let reassigned = 0;
       agents.forEach(ag => {
         if (!validIds.has(ag.model)) {
@@ -7260,7 +7875,7 @@
     }
 
     function switchSettingsTab(tabKey) {
-      ["SETUP", "API", "MCP", "SKILLS", "CONNECTORS"].forEach(k => {
+      ["SETUP", "API", "TOKENSAVER", "USAGE", "MCP", "SKILLS", "CONNECTORS"].forEach(k => {
         const panel = document.getElementById(`settings-panel-${k}`);
         const btn = document.getElementById(`set-tab-${k}`);
         if (panel) panel.classList.toggle("hidden", k !== tabKey);
@@ -7275,6 +7890,12 @@
         refreshMemoryVaultSettingsUI();
         refreshMeetingPresetsUI();
       }
+      if (tabKey === "TOKENSAVER") {
+        loadTokenSaverUI();
+      }
+      if (tabKey === "USAGE") {
+        loadUsageAnalyticsUI(CURRENT_USAGE_RANGE);
+      }
       if (tabKey === "MCP") {
         loadRemoteMcpConfig();
         loadLocalStdioMcps();
@@ -7283,9 +7904,344 @@
       if (tabKey === "SKILLS") {
         loadHqSkillsUI();
       }
-      if (tabKey !== "API" && tabKey !== "SETUP" && tabKey !== "SKILLS") {
+      if (tabKey === "CONNECTORS") {
         loadExtensionsStatus();
       }
+    }
+
+    // ================= TOKEN SAVER & USAGE ANALYTICS UI =================
+    let CURRENT_USAGE_RANGE = "today";
+    let CURRENT_USAGE_SUBTAB = "overview";
+
+    function formatTokNum(n) {
+      return Number(n || 0).toLocaleString("en-US");
+    }
+
+    function formatRelativeTimeAgo(epochSec) {
+      if (!epochSec) return "-";
+      const diff = Math.max(0, Math.floor(Date.now() / 1000 - Number(epochSec)));
+      if (diff < 10) return "just now";
+      if (diff < 60) return `${diff}s ago`;
+      if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+      if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+      return `${Math.floor(diff / 86400)}d ago`;
+    }
+
+    function applyTokenSaverStatusUI(ts) {
+      if (!ts || !ts.config) return;
+      const cfg = ts.config;
+      const keys = [
+        "promptCaching", "cliSessionReuse", "passiveHealthCheck", "compressToolOutput",
+        "compressContext", "compressLlmOutput", "lazySeniorDev", "heartbeatZeroContext"
+      ];
+      keys.forEach(k => {
+        const el = document.getElementById(`ts-toggle-${k}`);
+        if (el) el.checked = Boolean(cfg[k]);
+      });
+      const ttlSel = document.getElementById("ts-mcp-ttl-select");
+      if (ttlSel && cfg.mcpCacheTtlSec !== undefined) ttlSel.value = String(cfg.mcpCacheTtlSec);
+
+      const budSel = document.getElementById("ts-daily-budget-select");
+      if (budSel && cfg.dailyTokenBudget !== undefined) budSel.value = String(cfg.dailyTokenBudget);
+      const budPill = document.getElementById("ts-budget-pill");
+      const budWrap = document.getElementById("ts-budget-bar-wrap");
+      const budFill = document.getElementById("ts-budget-bar-fill");
+      if (ts.budget && budPill) {
+        const b = ts.budget;
+        if (b.dailyTokenBudget > 0) {
+          budPill.textContent = `${formatTokNum(b.usedTodayTokens)} / ${formatTokNum(b.dailyTokenBudget)} (${b.pctUsed}%)`;
+          budPill.className = b.exceeded
+            ? "px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[9.5px] font-mono font-bold"
+            : "px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[9.5px] font-mono";
+          if (budWrap && budFill) {
+            budWrap.classList.remove("hidden");
+            budFill.style.width = `${Math.min(100, b.pctUsed || 0)}%`;
+            budFill.className = b.exceeded ? "h-full bg-rose-500 transition-all" : (b.pctUsed > 75 ? "h-full bg-amber-400 transition-all" : "h-full bg-emerald-400 transition-all");
+          }
+        } else {
+          budPill.textContent = `Unlimited (${formatTokNum(b.usedTodayTokens)} hari ini)`;
+          budPill.className = "px-1.5 py-0.5 rounded bg-white/10 text-slate-300 text-[9.5px] font-mono";
+          if (budWrap) budWrap.classList.add("hidden");
+        }
+      }
+
+      const sessBadge = document.getElementById("ts-active-sessions-badge");
+      if (sessBadge) {
+        sessBadge.textContent = `${ts.activeCliSessions || 0} Sesi CLI · ${ts.mcpCachedEntries || 0} MCP Cache`;
+      }
+
+      const activeCount = keys.filter(k => cfg[k]).length;
+      const sbTs = document.getElementById("sidebar-tokensaver-pill");
+      if (sbTs) {
+        sbTs.textContent = activeCount > 0 ? `${activeCount}/${keys.length} ON` : "OFF";
+        sbTs.className = activeCount > 0
+          ? "text-[9.5px] text-emerald-400 font-mono"
+          : "text-[9.5px] text-slate-500 font-mono";
+      }
+
+      const sbUsage = document.getElementById("sidebar-usage-pill");
+      if (sbUsage && ts.stats) {
+        const calls = Number(ts.stats.totalCalls || 0);
+        const hit = Number(ts.cacheHitRatePct || 0);
+        sbUsage.textContent = hit > 0 ? `${calls} req · ${hit}%` : `${calls} req`;
+      }
+    }
+
+    async function loadTokenSaverUI() {
+      try {
+        const res = await fetch("/api/token-saver");
+        const data = await res.json();
+        if (data.ok && data.token_saver) {
+          applyTokenSaverStatusUI(data.token_saver);
+        }
+      } catch (e) {}
+    }
+
+    async function saveTokenSaverToggle(key, value) {
+      try {
+        const res = await fetch("/api/token-saver/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ [key]: value })
+        });
+        const data = await res.json();
+        if (data.ok && data.token_saver) {
+          applyTokenSaverStatusUI(data.token_saver);
+          updateToast(`⚡ Token Saver: ${key} → ${value === true ? "AKTIF" : value === false ? "NONAKTIF" : value}`);
+        }
+      } catch (e) {
+        updateToast("⚠️ Gagal menyimpan pengaturan Token Saver.");
+      }
+    }
+
+    async function resetCliSessionsUI() {
+      try {
+        const res = await fetch("/api/token-saver/reset-sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const data = await res.json();
+        if (data.ok && data.token_saver) {
+          applyTokenSaverStatusUI(data.token_saver);
+          updateToast(`🔄 ${data.cleared || 0} sesi CLI & cache MCP dibersihkan. Turn berikutnya akan memulai prefix baru.`);
+        }
+      } catch (e) {}
+    }
+
+    function applySmartModelTierPreset(mode) {
+      const hasModel = id => AVAILABLE_MODELS.some(m => m.id === id);
+      const pick = (...cands) => cands.find(hasModel) || AVAILABLE_MODELS[0]?.id || "Gemini 4 Neon (Medium)";
+      const isLeader = ag => {
+        const txt = `${ag.name || ""} ${ag.role || ""}`.toLowerCase();
+        return txt.includes("👑") || txt.includes("⭐") || /manager|manajer|head|lead|gm|coo|architect|arsitek/i.test(txt);
+      };
+
+      let staffModel, leadModel, label;
+      if (mode === "eco") {
+        staffModel = pick("Gemini 3.8 Flash (Medium)", "Gemini 4 Neon (Low)", "Gemini 3.8 Flash (High)");
+        leadModel = pick("Gemini 4 Neon (Medium)", "Gemini 4 Argon (Medium)");
+        label = "🟢 Super Hemat";
+      } else if (mode === "max") {
+        staffModel = pick("Gemini 4 Neon (High)", "Gemini 4 Argon (High)");
+        leadModel = pick("Gemini 4 Neon (XHigh)", "Gemini 4 Neon (High)");
+        label = "🔴 Maksimal";
+      } else {
+        staffModel = pick("Gemini 4 Neon (Medium)", "Gemini 4 Argon (Medium)");
+        leadModel = pick("Gemini 4 Neon (High)", "Gemini 4 Argon (High)");
+        label = "🟡 Seimbang";
+      }
+
+      let leadCount = 0, staffCount = 0;
+      agents.forEach(ag => {
+        if (isLeader(ag)) {
+          ag.model = leadModel;
+          leadCount++;
+        } else {
+          ag.model = staffModel;
+          staffCount++;
+        }
+      });
+      saveCustomConfigToStorage();
+      renderSettingsModal();
+      renderSidebarAndTable();
+      updateToast(`🎯 Preset ${label} diterapkan: ${leadCount} Manajer → ${leadModel} · ${staffCount} Staf → ${staffModel}`);
+    }
+
+    function switchUsageSubTab(sub) {
+      CURRENT_USAGE_SUBTAB = sub === "details" ? "details" : "overview";
+      const ovBtn = document.getElementById("usage-sub-overview");
+      const dtBtn = document.getElementById("usage-sub-details");
+      const ovP = document.getElementById("usage-panel-overview");
+      const dtP = document.getElementById("usage-panel-details");
+      if (ovP) ovP.classList.toggle("hidden", CURRENT_USAGE_SUBTAB !== "overview");
+      if (dtP) dtP.classList.toggle("hidden", CURRENT_USAGE_SUBTAB !== "details");
+      if (ovBtn) ovBtn.className = CURRENT_USAGE_SUBTAB === "overview"
+        ? "px-3.5 py-1 rounded-lg bg-[#272734] text-white font-semibold cursor-pointer"
+        : "px-3.5 py-1 rounded-lg text-slate-400 hover:text-white cursor-pointer";
+      if (dtBtn) dtBtn.className = CURRENT_USAGE_SUBTAB === "details"
+        ? "px-3.5 py-1 rounded-lg bg-[#272734] text-white font-semibold cursor-pointer"
+        : "px-3.5 py-1 rounded-lg text-slate-400 hover:text-white cursor-pointer";
+    }
+
+    async function loadUsageAnalyticsUI(rangeKey = "today") {
+      CURRENT_USAGE_RANGE = rangeKey || "today";
+      ["today", "24h", "7d", "30d", "60d", "all"].forEach(rk => {
+        const b = document.getElementById(`usage-range-${rk}`);
+        if (!b) return;
+        b.className = rk === CURRENT_USAGE_RANGE
+          ? "px-2.5 py-1 rounded-lg bg-[#272734] text-white font-semibold cursor-pointer"
+          : "px-2.5 py-1 rounded-lg text-slate-400 hover:text-white cursor-pointer";
+      });
+      try {
+        const res = await fetch(`/api/usage?range=${encodeURIComponent(CURRENT_USAGE_RANGE)}`);
+        const data = await res.json();
+        if (data.ok && data.usage) {
+          renderUsageAnalyticsUI(data.usage, data.token_saver);
+        }
+      } catch (e) {}
+    }
+
+    function renderUsageAnalyticsUI(u, ts) {
+      if (ts) applyTokenSaverStatusUI(ts);
+      const s = u.summary || {};
+      const setTxt = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+      setTxt("usage-kpi-requests", formatTokNum(s.totalRequests));
+      setTxt("usage-kpi-input", formatTokNum(s.totalInputTokens));
+      setTxt("usage-kpi-cached", formatTokNum(s.cachedTokens));
+      setTxt("usage-kpi-cache-pct", `${s.cacheHitPct || 0}% cache hit`);
+      setTxt("usage-kpi-output", formatTokNum(s.outputTokens));
+      setTxt("usage-kpi-cost", `~$${Number(s.estCostUsd || 0).toFixed(2)}`);
+      setTxt(
+        "usage-kpi-cost-note",
+        s.estCacheSavedUsd > 0 ? `Hemat ~$${Number(s.estCacheSavedUsd).toFixed(3)} via cache` : "Estimated, not actual billing"
+      );
+
+      setTxt("usage-saved-compression", formatTokNum(s.savedByCompressionTokens));
+      setTxt("usage-mcp-hits", formatTokNum(ts?.stats?.mcpCacheHits || 0));
+      setTxt("usage-cli-hits", formatTokNum(ts?.stats?.cliSessionHits || 0));
+
+      // Render Token Consumption Trend Stacked Bar Chart
+      const chartEl = document.getElementById("usage-timeline-chart");
+      if (chartEl) {
+        const tl = u.timeline || [];
+        const maxTok = Math.max(1, ...tl.map(b => Number(b.inputTokens || 0) + Number(b.outputTokens || 0)));
+        if (tl.length === 0) {
+          chartEl.innerHTML = `<div class="w-full text-center text-slate-500 text-[11px] self-center">Belum ada data tren.</div>`;
+        } else {
+          chartEl.innerHTML = tl.map(b => {
+            const total = Number(b.inputTokens || 0) + Number(b.outputTokens || 0);
+            const cached = Math.min(Number(b.inputTokens || 0), Number(b.cachedTokens || 0));
+            const uncached = Math.max(0, Number(b.inputTokens || 0) - cached);
+            const outp = Number(b.outputTokens || 0);
+            const hTotal = total > 0 ? Math.max(8, Math.round((total / maxTok) * 72)) : 3;
+            const hOut = total > 0 ? Math.round((outp / total) * hTotal) : 0;
+            const hCached = total > 0 ? Math.round((cached / total) * hTotal) : 0;
+            const hUncached = Math.max(total > 0 ? 2 : 0, hTotal - hOut - hCached);
+            const tip = `${b.label} · ${b.requests} req · In ${formatTokNum(b.inputTokens)} (Cached ${formatTokNum(cached)}) · Out ${formatTokNum(outp)}`;
+            return `
+              <div class="flex-1 flex flex-col items-center gap-1 min-w-0 group" title="${tip}">
+                <div class="w-full max-w-[26px] h-[74px] flex flex-col justify-end rounded-sm overflow-hidden bg-white/[0.03]">
+                  ${total > 0 ? `
+                    ${hOut > 0 ? `<div style="height:${hOut}px" class="w-full bg-[#22c55e]"></div>` : ''}
+                    ${hCached > 0 ? `<div style="height:${hCached}px" class="w-full bg-[#3b82f6]"></div>` : ''}
+                    ${hUncached > 0 ? `<div style="height:${hUncached}px" class="w-full bg-[#f06449]"></div>` : ''}
+                  ` : `<div class="w-full h-[3px] bg-white/10"></div>`}
+                </div>
+                <span class="text-[9px] text-slate-500 font-mono truncate max-w-full">${b.label}</span>
+              </div>
+            `;
+          }).join("");
+        }
+      }
+
+      const recent = u.recentRequests || [];
+      setTxt("usage-recent-count", `${recent.length} requests`);
+      const rTbody = document.getElementById("usage-recent-tbody");
+      if (rTbody) {
+        if (recent.length === 0) {
+          rTbody.innerHTML = `<tr><td colspan="6" class="py-8 text-center text-slate-500 font-sans">Belum ada riwayat request pada rentang waktu ini. Mulai chat dengan staf AI untuk melihat konsumsi token &amp; cached tokens secara live.</td></tr>`;
+        } else {
+          rTbody.innerHTML = recent.map(r => {
+            const dotCls = r.ok === false ? "bg-rose-500" : "bg-emerald-400";
+            const cachedVal = Number(r.cachedTokens || 0);
+            const cachedHtml = cachedVal > 0
+              ? `<span class="px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/25 text-[10px]">${formatTokNum(cachedVal)} (${r.cacheHitPct || 0}%)</span>`
+              : `<span class="text-slate-600">0</span>`;
+            const costStr = Number(r.estCostUsd || 0) > 0 ? `$${Number(r.estCostUsd).toFixed(4)}` : "$0.00";
+            const whoTxt = r.agentName ? `${r.agentName}${r.room ? ` · ${r.room}` : ''}` : (r.room || "System");
+            return `
+              <tr class="hover:bg-white/[0.03] transition">
+                <td class="py-2.5 px-4 max-w-[230px]">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="w-2 h-2 rounded-full ${dotCls} shrink-0"></span>
+                    <span class="text-slate-100 truncate font-medium" title="${r.model || ''} · ${r.engine || ''}">${r.model || 'unknown'}</span>
+                    ${r.cliReused ? `<span class="px-1 py-0.5 rounded bg-sky-500/15 text-sky-300 text-[9px] shrink-0">CACHED</span>` : ''}
+                  </div>
+                </td>
+                <td class="py-2.5 px-3 text-slate-300 font-sans text-[11px] truncate max-w-[140px]" title="${whoTxt}">${whoTxt}</td>
+                <td class="py-2.5 px-3 text-right whitespace-nowrap">${cachedHtml}</td>
+                <td class="py-2.5 px-3 text-right whitespace-nowrap">
+                  <span class="text-[#f06449] font-semibold">${formatTokNum(r.promptTokens)}↑</span>
+                  <span class="text-[#22c55e] font-semibold ml-1.5">${formatTokNum(r.completionTokens)}↓</span>
+                </td>
+                <td class="py-2.5 px-3 text-right text-amber-300/90 whitespace-nowrap">${costStr}</td>
+                <td class="py-2.5 px-4 text-right text-slate-400 whitespace-nowrap">${formatRelativeTimeAgo(r.tsEpoch)}</td>
+              </tr>
+            `;
+          }).join("");
+        }
+      }
+
+      const byModel = u.byModel || [];
+      setTxt("usage-models-count", `${byModel.length} models`);
+      const dTbody = document.getElementById("usage-details-tbody");
+      if (dTbody) {
+        if (byModel.length === 0) {
+          dTbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-slate-500 font-sans">Belum ada data model pada rentang waktu ini.</td></tr>`;
+        } else {
+          dTbody.innerHTML = byModel.map(m => `
+            <tr class="hover:bg-white/[0.03] transition">
+              <td class="py-2.5 px-4 text-slate-100 font-medium truncate max-w-[230px]" title="${m.model}">${m.model}</td>
+              <td class="py-2.5 px-3 text-right text-slate-200">${formatTokNum(m.requests)}</td>
+              <td class="py-2.5 px-3 text-right text-[#f06449]">${formatTokNum(m.promptTokens)}</td>
+              <td class="py-2.5 px-3 text-right text-[#3b82f6]">${formatTokNum(m.cachedTokens)}</td>
+              <td class="py-2.5 px-3 text-right text-sky-300">${m.cacheHitPct || 0}%</td>
+              <td class="py-2.5 px-3 text-right text-[#22c55e]">${formatTokNum(m.completionTokens)}</td>
+              <td class="py-2.5 px-4 text-right text-amber-300">~$${Number(m.estCostUsd || 0).toFixed(4)}</td>
+            </tr>
+          `).join("");
+        }
+      }
+
+      const byDept = u.byDept || [];
+      setTxt("usage-depts-count", `${byDept.length} staf/dept`);
+      const deptTbody = document.getElementById("usage-depts-tbody");
+      if (deptTbody) {
+        if (byDept.length === 0) {
+          deptTbody.innerHTML = `<tr><td colspan="7" class="py-8 text-center text-slate-500 font-sans">Belum ada data konsumsi per staf pada rentang waktu ini.</td></tr>`;
+        } else {
+          deptTbody.innerHTML = byDept.map(d => `
+            <tr class="hover:bg-white/[0.03] transition">
+              <td class="py-2.5 px-4 text-slate-100 font-sans font-medium truncate max-w-[230px]" title="${d.label}">${d.label}</td>
+              <td class="py-2.5 px-3 text-right text-slate-200">${formatTokNum(d.requests)}</td>
+              <td class="py-2.5 px-3 text-right text-[#f06449]">${formatTokNum(d.promptTokens)}</td>
+              <td class="py-2.5 px-3 text-right text-[#3b82f6]">${formatTokNum(d.cachedTokens)}</td>
+              <td class="py-2.5 px-3 text-right text-sky-300">${d.cacheHitPct || 0}%</td>
+              <td class="py-2.5 px-3 text-right text-[#22c55e]">${formatTokNum(d.completionTokens)}</td>
+              <td class="py-2.5 px-4 text-right text-amber-300">~$${Number(d.estCostUsd || 0).toFixed(4)}</td>
+            </tr>
+          `).join("");
+        }
+      }
+    }
+
+    async function resetUsageStatsUI() {
+      if (!confirm("Reset semua statistik & riwayat penggunaan token?")) return;
+      try {
+        const res = await fetch("/api/token-saver/reset-stats", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const data = await res.json();
+        if (data.ok && data.usage) {
+          renderUsageAnalyticsUI(data.usage, data.token_saver);
+          updateToast("🗑️ Log Usage & statistik token berhasil direset.");
+        }
+      } catch (e) {}
     }
 
     // ================= CENTRALIZED SKILLS MANAGER UI (skills/<slug>/SKILL.md) =================
@@ -8513,11 +9469,12 @@
       if (lEl) lEl.focus();
     }
 
-    function openSettingsModal() {
+    function openSettingsModal(initialTab = null) {
       if (IS_LIVE_READONLY) return;
       renderSettingsModal();
       loadExtensionsStatus();
       loadRemoteMcpConfig();
+      loadTokenSaverUI();
       // Auto-collapse already configured/saved forms so API Hub stays clean & uncluttered!
       toggleAgyOAuthForm(!AGY_CLI_VERIFIED);
       toggleClaudeAuthForm(!CLAUDE_CLI_VERIFIED);
@@ -8525,6 +9482,9 @@
       const modal = document.getElementById("modal-settings");
       modal.classList.remove("hidden");
       modal.classList.add("flex");
+      if (initialTab) {
+        switchSettingsTab(initialTab);
+      }
     }
 
     function renderSettingsModal() {
@@ -8539,9 +9499,8 @@
 
       const bulkSel = document.getElementById("bulk-model-select");
       if (bulkSel) {
-        bulkSel.innerHTML = AVAILABLE_MODELS.map(m =>
-          `<option value="${m.id}">${m.id}</option>`
-        ).join("");
+        const prevBulk = bulkSel.value || (agents[0] && agents[0].model) || "Gemini 4 Neon (Medium)";
+        bulkSel.innerHTML = buildGroupedModelOptionsHtml(prevBulk, { compact: true });
       }
 
       if (connsListEl) {
@@ -8562,27 +9521,12 @@
       }
 
       if (hireSelectEl) {
-        hireSelectEl.innerHTML = AVAILABLE_MODELS.map(m =>
-          `<option value="${m.id}">${m.id} (${m.tag})</option>`
-        ).join("");
+        hireSelectEl.innerHTML = buildGroupedModelOptionsHtml("Gemini 4 Neon (Medium)", { compact: true });
       }
 
-      modelsListEl.innerHTML = AVAILABLE_MODELS.map((m, idx) => `
-        <div class="p-2.5 rounded-lg bg-[#1c1c28] border border-white/10 flex items-center justify-between gap-2">
-          <div class="min-w-0 flex-1">
-            <div class="font-mono font-bold text-xs text-purple-200 truncate">${m.id}</div>
-            <div class="text-[10px] text-slate-400 truncate">${m.tag}</div>
-          </div>
-          <div class="flex items-center gap-1 shrink-0">
-            <button onclick="promptEditModel(${idx})" class="px-2 py-1 rounded bg-white/10 hover:bg-white/20 text-[10px] text-slate-200 cursor-pointer">✎ Edit</button>
-            ${AVAILABLE_MODELS.length > 1 ? `<button onclick="deleteCustomModel(${idx})" class="px-2 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-[10px] text-rose-300 cursor-pointer">✕</button>` : ''}
-          </div>
-        </div>
-      `).join("");
+      renderSettingsModelsGrid();
 
-      const globalFbOpts = `<option value="">-- Tidak Ada Fallback Global --</option>` + AVAILABLE_MODELS.map(m =>
-        `<option value="${m.id}" ${DEFAULT_FALLBACK_MODEL === m.id ? 'selected' : ''}>${m.id} — ${m.tag}</option>`
-      ).join("");
+      const globalFbOpts = `<option value="">-- Tidak Ada Fallback Global --</option>` + buildGroupedModelOptionsHtml(DEFAULT_FALLBACK_MODEL, { compact: true });
       const globalFbBar = `
         <div class="p-3 rounded-xl bg-amber-500/[0.07] border border-amber-400/25 mb-2.5 flex flex-wrap items-center justify-between gap-2">
           <div>
@@ -8596,12 +9540,8 @@
       `;
 
       agentsListEl.innerHTML = globalFbBar + agents.map(ag => {
-        const opts = `<option value="" ${!ag.model ? 'selected' : ''}>⚠️ (Tidak Ada / OFF)</option>` + AVAILABLE_MODELS.map(m =>
-          `<option value="${m.id}" ${ag.model === m.id ? 'selected' : ''}>${m.id} — ${m.tag}</option>`
-        ).join("");
-        const fbOpts = `<option value="" ${!ag.fallbackModel ? 'selected' : ''}>🛡️ Fallback: ${DEFAULT_FALLBACK_MODEL ? `Default (${DEFAULT_FALLBACK_MODEL})` : 'Tidak Ada'}</option>` + AVAILABLE_MODELS.map(m =>
-          `<option value="${m.id}" ${ag.fallbackModel === m.id ? 'selected' : ''}>🛡️ ${m.id}</option>`
-        ).join("");
+        const opts = `<option value="" ${!ag.model ? 'selected' : ''}>⚠️ (Tidak Ada / OFF)</option>` + buildGroupedModelOptionsHtml(ag.model, { compact: true });
+        const fbOpts = `<option value="" ${!ag.fallbackModel ? 'selected' : ''}>🛡️ Fallback: ${DEFAULT_FALLBACK_MODEL ? `Default (${DEFAULT_FALLBACK_MODEL})` : 'Tidak Ada'}</option>` + buildGroupedModelOptionsHtml(ag.fallbackModel, { compact: true, prefix: "🛡️ " });
         return `
           <div class="p-2.5 rounded-lg bg-[#1c1c28] border border-white/5 flex flex-wrap items-center justify-between gap-2">
             <div class="min-w-[190px]">

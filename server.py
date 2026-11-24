@@ -1006,21 +1006,749 @@ def _get_public_live_state():
     }
 
 MODEL_DISPLAY_TO_AGY_ID = {
-    "Gemini 4 Argon (High)": "gemini-4-argon-high",
-    "Gemini 4 Argon (Medium)": "gemini-4-argon-medium",
-    "Gemini 4 Argon (Low)": "gemini-4-argon-low",
-    "Gemini 4 Neon (XHigh)": "gemini-4-neon-xhigh",
-    "Gemini 4 Neon (High)": "gemini-4-neon-high",
+    "Gemini 4 Neon (Low)": "gemini-4-neon-low",
     "Gemini 4 Neon (Medium)": "gemini-4-neon-medium",
-    "Gemini 4 Hydrogen (XHigh)": "gemini-4-hydrogen-xhigh",
+    "Gemini 4 Neon (High)": "gemini-4-neon-high",
+    "Gemini 4 Neon (XHigh)": "gemini-4-neon-xhigh",
+    "Gemini 4 Argon (Low)": "gemini-4-argon-low",
+    "Gemini 4 Argon (Medium)": "gemini-4-argon-medium",
+    "Gemini 4 Argon (High)": "gemini-4-argon-high",
+    "Gemini 4 Carbon (Low)": "gemini-4-carbon-low",
+    "Gemini 4 Carbon (Medium)": "gemini-4-carbon-medium",
+    "Gemini 4 Carbon (High)": "gemini-4-carbon-high",
+    "Gemini 4 Hydrogen (Low)": "gemini-4-hydrogen-low",
+    "Gemini 4 Hydrogen (Medium)": "gemini-4-hydrogen-medium",
     "Gemini 4 Hydrogen (High)": "gemini-4-hydrogen-high",
-    "Gemini 3.8 Flash (High)": "gemini-3.8-flash-high",
-    "Gemini 3.8 Flash (Medium)": "gemini-3.8-flash-medium",
+    "Gemini 4 Hydrogen (XHigh)": "gemini-4-hydrogen-xhigh",
     "Gemini 3.8 Flash (Low)": "gemini-3.8-flash-low",
-    "Imagen 3 + Argon (High)": "gemini-4-argon-high",
+    "Gemini 3.8 Flash (Medium)": "gemini-3.8-flash-medium",
+    "Gemini 3.8 Flash (High)": "gemini-3.8-flash-high",
+    "Claude Opus 5.5 (Low)": "claude-opus-5-5-low",
+    "Claude Opus 5.5 (Medium)": "claude-opus-5-5-medium",
     "Claude Opus 5.5 (High)": "claude-opus-5-5-high",
+    "Claude Sonnet 5.5 (Low)": "claude-sonnet-5-5-low",
+    "Claude Sonnet 5.5 (Medium)": "claude-sonnet-5-5-medium",
     "Claude Sonnet 5.5 (High)": "claude-sonnet-5-5-high",
+    "Orchestrator (Neon)": "gemini-pro-orchestrator-neon",
+    "Orchestrator (Carbon)": "gemini-pro-orchestrator",
+    "Orchestrator (Argon)": "gemini-pro-orchestrator-argon",
+    "GPT-OSS 120B (Medium)": "gpt-oss-120b-medium",
+    "Imagen 3 + Argon (High)": "gemini-4-argon-high",
 }
+
+_AGY_MODELS_CACHE = {"ts": 0, "models": [], "source": "fallback"}
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _agy_model_sort_key(item):
+    name = str(item.get("id") or "")
+    low = name.lower()
+    fam_rank = 99
+    if "gemini 4 neon" in low:
+        fam_rank = 1
+    elif "gemini 4 argon" in low:
+        fam_rank = 2
+    elif "gemini 4 carbon" in low:
+        fam_rank = 3
+    elif "gemini 4 hydrogen" in low:
+        fam_rank = 4
+    elif "gemini 3.8 flash" in low:
+        fam_rank = 5
+    elif "claude opus" in low:
+        fam_rank = 6
+    elif "claude sonnet" in low:
+        fam_rank = 7
+    elif "orchestrator" in low:
+        fam_rank = 8
+    elif "gpt-oss" in low:
+        fam_rank = 9
+    tier_rank = 5
+    if "(low)" in low:
+        tier_rank = 1
+    elif "(medium)" in low:
+        tier_rank = 2
+    elif "(high)" in low:
+        tier_rank = 3
+    elif "(xhigh)" in low:
+        tier_rank = 4
+    return (fam_rank, tier_rank, name)
+
+
+def discover_antigravity_cli_models(force=False):
+    now = time.time()
+    if not force and _AGY_MODELS_CACHE["models"] and (now - _AGY_MODELS_CACHE["ts"]) < 180:
+        return list(_AGY_MODELS_CACHE["models"]), _AGY_MODELS_CACHE["source"]
+
+    parsed = []
+    if os.path.exists(AGY_BIN):
+        try:
+            env = os.environ.copy()
+            env["NO_COLOR"] = "1"
+            proc = subprocess.run(
+                [AGY_BIN, "models"],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=12,
+                env=env,
+            )
+            raw = (proc.stdout or "") + "\n" + (proc.stderr or "")
+            cleaned = _ANSI_RE.sub("", raw)
+            seen_ids = set()
+            for raw_line in cleaned.splitlines():
+                # Strip spinner carriage-return prefix if present
+                line = raw_line.split("\r")[-1].strip()
+                if not line or "Fetching available models" in line:
+                    continue
+                m = re.match(r"^([a-zA-Z0-9._:/-]+)(?:\t|\s{2,})(.+?)\s*$", line)
+                if not m:
+                    continue
+                cli_id, display_name = m.group(1).strip(), m.group(2).strip()
+                if not display_name or display_name in seen_ids:
+                    continue
+                seen_ids.add(display_name)
+                MODEL_DISPLAY_TO_AGY_ID[display_name] = cli_id
+                parsed.append({
+                    "id": display_name,
+                    "agyId": cli_id,
+                    "tag": f"Antigravity CLI · {cli_id}",
+                    "provider": "antigravity",
+                })
+        except Exception:
+            parsed = []
+
+    if parsed:
+        parsed.sort(key=_agy_model_sort_key)
+        _AGY_MODELS_CACHE["ts"] = now
+        _AGY_MODELS_CACHE["models"] = list(parsed)
+        _AGY_MODELS_CACHE["source"] = "live_cli"
+        return parsed, "live_cli"
+
+    fallback = [
+        {"id": disp, "agyId": cid, "tag": f"Antigravity CLI · {cid}", "provider": "antigravity"}
+        for disp, cid in MODEL_DISPLAY_TO_AGY_ID.items()
+        if disp != "Imagen 3 + Argon (High)"
+    ]
+    fallback.sort(key=_agy_model_sort_key)
+    _AGY_MODELS_CACHE["ts"] = now
+    _AGY_MODELS_CACHE["models"] = list(fallback)
+    _AGY_MODELS_CACHE["source"] = "fallback"
+    return fallback, "fallback"
+
+
+# ==============================================================================
+# TOKEN SAVER, PROMPT CACHING (CACHED TOKENS) & COMPRESSION ENGINE
+# ==============================================================================
+TOKEN_SAVER_CONFIG_FILE = os.path.join(CONFIG_DIR, "token_saver.json")
+TOKEN_SAVER_STATS_FILE = os.path.join(CONFIG_DIR, "token_saver_stats.json")
+USAGE_EVENTS_FILE = os.path.join(CONFIG_DIR, "usage_events.json")
+CLI_SESSIONS_FILE = os.path.join(CONFIG_DIR, "cli_sessions.json")
+TOKEN_SAVER_LOCK = threading.Lock()
+_AGY_CLI_SESSIONS = {}     # key -> {"id": conv_id, "model": cli_model, "ts": float, "turns": int}
+_CLAUDE_CLI_SESSIONS = {}  # key -> {"id": sess_id, "model": alias, "ts": float, "turns": int}
+_REMOTE_MCP_TTL_CACHE = {}  # cache_key -> {"ts": float, "res": dict}
+
+
+def _load_persisted_cli_sessions():
+    if os.path.exists(CLI_SESSIONS_FILE):
+        try:
+            with open(CLI_SESSIONS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                now_ts = time.time()
+                for k, v in (data.get("agy") or {}).items():
+                    if isinstance(v, dict) and (now_ts - float(v.get("ts") or 0)) < 7200:
+                        _AGY_CLI_SESSIONS[k] = v
+                for k, v in (data.get("claude") or {}).items():
+                    if isinstance(v, dict) and (now_ts - float(v.get("ts") or 0)) < 7200:
+                        _CLAUDE_CLI_SESSIONS[k] = v
+        except Exception:
+            pass
+
+
+def _save_persisted_cli_sessions():
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        with open(CLI_SESSIONS_FILE, "w", encoding="utf-8") as f:
+            json.dump({"agy": _AGY_CLI_SESSIONS, "claude": _CLAUDE_CLI_SESSIONS}, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+_load_persisted_cli_sessions()
+
+
+def _estimate_model_cost_usd(model_id, input_tokens=0, cached_tokens=0, output_tokens=0):
+    """Estimates USD cost (not actual billing) with 90% cache-read discount; :free models = $0."""
+    m = str(model_id or "").lower()
+    if ":free" in m or m.endswith("/free") or "ollama/" in m:
+        return 0.0
+    # Approximate standard per-1M token rates (input, output)
+    in_rate, out_rate = 1.25, 5.0
+    if "flash" in m or "haiku" in m or "mini" in m or "nano" in m or "low" in m:
+        in_rate, out_rate = 0.25, 1.0
+    elif "opus" in m or "xhigh" in m:
+        in_rate, out_rate = 5.0, 25.0
+    elif "sonnet" in m or "pro" in m or "argon" in m or "neon" in m or "hydrogen" in m:
+        in_rate, out_rate = 2.0, 8.0
+    uncached_in = max(0, int(input_tokens or 0) - int(cached_tokens or 0))
+    cached_in = max(0, int(cached_tokens or 0))
+    outp = max(0, int(output_tokens or 0))
+    cost = (uncached_in * in_rate + cached_in * (in_rate * 0.1) + outp * out_rate) / 1_000_000.0
+    return round(cost, 6)
+
+
+def _load_usage_events_unlocked():
+    if os.path.exists(USAGE_EVENTS_FILE):
+        try:
+            with open(USAGE_EVENTS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, list):
+                return data
+        except Exception:
+            pass
+    return []
+
+
+def _save_usage_events_unlocked(events):
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        with open(USAGE_EVENTS_FILE, "w", encoding="utf-8") as f:
+            json.dump(events[-3000:], f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def check_daily_token_budget():
+    cfg = load_token_saver_config()
+    budget = int(cfg.get("dailyTokenBudget") or 0)
+    st = load_token_saver_stats()
+    today = time.strftime("%Y-%m-%d")
+    used = (int(st.get("promptTokens") or 0) + int(st.get("completionTokens") or 0)) if st.get("date") == today else 0
+    pct = round((used / budget) * 100, 1) if budget > 0 else 0.0
+    return {
+        "dailyTokenBudget": budget,
+        "usedTodayTokens": used,
+        "pctUsed": pct,
+        "exceeded": bool(budget > 0 and used >= budget),
+    }
+
+
+def get_usage_analytics(range_key="today"):
+    rk = str(range_key or "today").strip().lower()
+    now_ts = time.time()
+    lt = time.localtime(now_ts)
+    start_of_today = time.mktime((lt.tm_year, lt.tm_mon, lt.tm_mday, 0, 0, 0, lt.tm_wday, lt.tm_yday, lt.tm_isdst))
+    cutoffs = {
+        "today": start_of_today,
+        "24h": now_ts - 86400,
+        "7d": now_ts - 7 * 86400,
+        "30d": now_ts - 30 * 86400,
+        "60d": now_ts - 60 * 86400,
+        "all": 0.0,
+    }
+    min_ts = cutoffs.get(rk, start_of_today)
+    with TOKEN_SAVER_LOCK:
+        events = _load_usage_events_unlocked()
+        stats = load_token_saver_stats()
+
+    filtered = [e for e in events if isinstance(e, dict) and float(e.get("tsEpoch") or 0) >= min_ts]
+    total_reqs = len(filtered)
+    total_in = sum(int(e.get("promptTokens") or 0) for e in filtered)
+    total_cached = sum(int(e.get("cachedTokens") or 0) for e in filtered)
+    total_out = sum(int(e.get("completionTokens") or 0) for e in filtered)
+    total_saved = sum(int(e.get("savedTokens") or 0) for e in filtered)
+    total_cost = round(sum(float(e.get("estCostUsd") or 0.0) for e in filtered), 4)
+    cost_without_cache = round(
+        sum(_estimate_model_cost_usd(e.get("model"), e.get("promptTokens") or 0, 0, e.get("completionTokens") or 0) for e in filtered),
+        4
+    )
+    saved_cost_usd = round(max(0.0, cost_without_cache - total_cost), 4)
+
+    by_model = {}
+    by_dept = {}
+    for e in filtered:
+        m = str(e.get("model") or "unknown")
+        row = by_model.get(m) or {
+            "model": m, "requests": 0, "promptTokens": 0, "cachedTokens": 0,
+            "completionTokens": 0, "estCostUsd": 0.0, "lastTsEpoch": 0.0,
+        }
+        row["requests"] += 1
+        row["promptTokens"] += int(e.get("promptTokens") or 0)
+        row["cachedTokens"] += int(e.get("cachedTokens") or 0)
+        row["completionTokens"] += int(e.get("completionTokens") or 0)
+        row["estCostUsd"] = round(row["estCostUsd"] + float(e.get("estCostUsd") or 0.0), 5)
+        row["lastTsEpoch"] = max(row["lastTsEpoch"], float(e.get("tsEpoch") or 0))
+        by_model[m] = row
+
+        d_room = str(e.get("room") or "SYSTEM").strip() or "SYSTEM"
+        d_agent = str(e.get("agentName") or "System / Ping").strip() or "System / Ping"
+        d_key = f"{d_agent} · {d_room}"
+        drow = by_dept.get(d_key) or {
+            "label": d_key, "agentName": d_agent, "room": d_room,
+            "requests": 0, "promptTokens": 0, "cachedTokens": 0,
+            "completionTokens": 0, "estCostUsd": 0.0,
+        }
+        drow["requests"] += 1
+        drow["promptTokens"] += int(e.get("promptTokens") or 0)
+        drow["cachedTokens"] += int(e.get("cachedTokens") or 0)
+        drow["completionTokens"] += int(e.get("completionTokens") or 0)
+        drow["estCostUsd"] = round(drow["estCostUsd"] + float(e.get("estCostUsd") or 0.0), 5)
+        by_dept[d_key] = drow
+
+    model_rows = sorted(by_model.values(), key=lambda x: (x["promptTokens"] + x["completionTokens"]), reverse=True)
+    for r in model_rows:
+        r["cacheHitPct"] = round((r["cachedTokens"] / r["promptTokens"]) * 100, 1) if r["promptTokens"] > 0 else 0.0
+
+    dept_rows = sorted(by_dept.values(), key=lambda x: (x["promptTokens"] + x["completionTokens"]), reverse=True)
+    for r in dept_rows:
+        r["cacheHitPct"] = round((r["cachedTokens"] / r["promptTokens"]) * 100, 1) if r["promptTokens"] > 0 else 0.0
+
+    # Build timeline buckets (hourly for today/24h, daily for 7d/30d/60d/all)
+    timeline = []
+    if rk in ("today", "24h"):
+        n_buckets = 12
+        step_sec = 3600 if rk == "today" else 7200
+        start_anchor = now_ts - (n_buckets - 1) * step_sec
+        buckets = []
+        for i in range(n_buckets):
+            b_ts = start_anchor + i * step_sec
+            lbl = time.strftime("%H:00", time.localtime(b_ts))
+            buckets.append({"start": b_ts - step_sec * 0.5, "end": b_ts + step_sec * 0.5, "label": lbl, "requests": 0, "inputTokens": 0, "cachedTokens": 0, "outputTokens": 0})
+        for e in filtered:
+            et = float(e.get("tsEpoch") or 0)
+            for b in buckets:
+                if b["start"] <= et <= b["end"]:
+                    b["requests"] += 1
+                    b["inputTokens"] += int(e.get("promptTokens") or 0)
+                    b["cachedTokens"] += int(e.get("cachedTokens") or 0)
+                    b["outputTokens"] += int(e.get("completionTokens") or 0)
+                    break
+        timeline = [{"label": b["label"], "requests": b["requests"], "inputTokens": b["inputTokens"], "cachedTokens": b["cachedTokens"], "outputTokens": b["outputTokens"]} for b in buckets]
+    else:
+        n_days = 7 if rk == "7d" else (14 if rk == "30d" else 14)
+        step_days = 1 if rk == "7d" else (2 if rk == "30d" else 4)
+        buckets = []
+        for i in range(n_days - 1, -1, -1):
+            d_end = start_of_today + 86400 - i * step_days * 86400
+            d_start = d_end - step_days * 86400
+            lbl = time.strftime("%d %b", time.localtime(d_start + 100))
+            buckets.append({"start": d_start, "end": d_end, "label": lbl, "requests": 0, "inputTokens": 0, "cachedTokens": 0, "outputTokens": 0})
+        for e in filtered:
+            et = float(e.get("tsEpoch") or 0)
+            for b in buckets:
+                if b["start"] <= et < b["end"]:
+                    b["requests"] += 1
+                    b["inputTokens"] += int(e.get("promptTokens") or 0)
+                    b["cachedTokens"] += int(e.get("cachedTokens") or 0)
+                    b["outputTokens"] += int(e.get("completionTokens") or 0)
+                    break
+        timeline = [{"label": b["label"], "requests": b["requests"], "inputTokens": b["inputTokens"], "cachedTokens": b["cachedTokens"], "outputTokens": b["outputTokens"]} for b in buckets]
+
+    recent_list = list(reversed(filtered[-60:]))
+    return {
+        "range": rk,
+        "summary": {
+            "totalRequests": total_reqs,
+            "totalInputTokens": total_in,
+            "cachedTokens": total_cached,
+            "outputTokens": total_out,
+            "cacheHitPct": round((total_cached / total_in) * 100, 1) if total_in > 0 else 0.0,
+            "savedByCompressionTokens": max(total_saved, int(stats.get("savedByCompressionTokens") or 0)) if rk in ("today", "24h", "all") else total_saved,
+            "estCostUsd": total_cost,
+            "estCacheSavedUsd": saved_cost_usd,
+        },
+        "budget": check_daily_token_budget(),
+        "timeline": timeline,
+        "byModel": model_rows,
+        "byDept": dept_rows,
+        "recentRequests": recent_list,
+    }
+
+
+def _default_token_saver_config():
+    return {
+        "promptCaching": True,
+        "cliSessionReuse": True,
+        "passiveHealthCheck": True,
+        "compressToolOutput": True,
+        "compressContext": True,
+        "compressLlmOutput": False,
+        "lazySeniorDev": False,
+        "heartbeatZeroContext": True,
+        "mcpCacheTtlSec": 90,
+        "dailyTokenBudget": 0,
+        "headroomUrl": "",
+        "updatedAt": "",
+    }
+
+
+def load_token_saver_config():
+    base = _default_token_saver_config()
+    if os.path.exists(TOKEN_SAVER_CONFIG_FILE):
+        try:
+            with open(TOKEN_SAVER_CONFIG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                base.update(data)
+        except Exception:
+            pass
+    try:
+        base["mcpCacheTtlSec"] = max(0, min(600, int(base.get("mcpCacheTtlSec") or 0)))
+    except Exception:
+        base["mcpCacheTtlSec"] = 90
+    try:
+        base["dailyTokenBudget"] = max(0, int(base.get("dailyTokenBudget") or 0))
+    except Exception:
+        base["dailyTokenBudget"] = 0
+    return base
+
+
+def save_token_saver_config(patch):
+    with TOKEN_SAVER_LOCK:
+        cfg = load_token_saver_config()
+        if isinstance(patch, dict):
+            bool_keys = (
+                "promptCaching", "cliSessionReuse", "passiveHealthCheck", "compressToolOutput",
+                "compressContext", "compressLlmOutput", "lazySeniorDev", "heartbeatZeroContext"
+            )
+            for k in bool_keys:
+                if k in patch:
+                    cfg[k] = bool(patch[k])
+            if "mcpCacheTtlSec" in patch:
+                try:
+                    cfg["mcpCacheTtlSec"] = max(0, min(600, int(patch["mcpCacheTtlSec"])))
+                except Exception:
+                    pass
+            if "dailyTokenBudget" in patch:
+                try:
+                    cfg["dailyTokenBudget"] = max(0, int(patch["dailyTokenBudget"]))
+                except Exception:
+                    pass
+            if "headroomUrl" in patch:
+                cfg["headroomUrl"] = str(patch["headroomUrl"] or "").strip()[:240]
+        cfg["updatedAt"] = time.strftime("%Y-%m-%d %H:%M:%S WITA")
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        with open(TOKEN_SAVER_CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        return cfg
+
+
+def _default_token_saver_stats():
+    return {
+        "date": time.strftime("%Y-%m-%d"),
+        "totalCalls": 0,
+        "promptTokens": 0,
+        "cachedTokens": 0,
+        "completionTokens": 0,
+        "thinkingTokens": 0,
+        "savedByCompressionTokens": 0,
+        "mcpCacheHits": 0,
+        "heartbeatSavedTokens": 0,
+        "cliSessionHits": 0,
+        "byModel": {},
+        "recentCalls": [],
+    }
+
+
+def load_token_saver_stats():
+    base = _default_token_saver_stats()
+    if os.path.exists(TOKEN_SAVER_STATS_FILE):
+        try:
+            with open(TOKEN_SAVER_STATS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                base.update(data)
+        except Exception:
+            pass
+    return base
+
+
+def _save_token_saver_stats_unlocked(stats):
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        with open(TOKEN_SAVER_STATS_FILE, "w", encoding="utf-8") as f:
+            json.dump(stats, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def record_token_usage(model_id, engine="", input_tokens=0, cached_tokens=0, output_tokens=0, thinking_tokens=0, saved_tokens=0, cli_reused=False, mcp_cache_hit=False, heartbeat_saved=0, ok=True, room="", agent_name=""):
+    with TOKEN_SAVER_LOCK:
+        st = load_token_saver_stats()
+        today = time.strftime("%Y-%m-%d")
+        if st.get("date") != today:
+            st = _default_token_saver_stats()
+        inp = max(0, int(input_tokens or 0))
+        cached = max(0, min(inp, int(cached_tokens or 0))) if inp > 0 else max(0, int(cached_tokens or 0))
+        outp = max(0, int(output_tokens or 0))
+        think = max(0, int(thinking_tokens or 0))
+        saved = max(0, int(saved_tokens or 0))
+        hb_saved = max(0, int(heartbeat_saved or 0))
+
+        if mcp_cache_hit:
+            st["mcpCacheHits"] = int(st.get("mcpCacheHits") or 0) + 1
+        if hb_saved > 0:
+            st["heartbeatSavedTokens"] = int(st.get("heartbeatSavedTokens") or 0) + hb_saved
+            st["savedByCompressionTokens"] = int(st.get("savedByCompressionTokens") or 0) + hb_saved
+        if saved > 0:
+            st["savedByCompressionTokens"] = int(st.get("savedByCompressionTokens") or 0) + saved
+        if cli_reused:
+            st["cliSessionHits"] = int(st.get("cliSessionHits") or 0) + 1
+
+        if inp > 0 or outp > 0 or cached > 0:
+            st["totalCalls"] = int(st.get("totalCalls") or 0) + 1
+            st["promptTokens"] = int(st.get("promptTokens") or 0) + inp
+            st["cachedTokens"] = int(st.get("cachedTokens") or 0) + cached
+            st["completionTokens"] = int(st.get("completionTokens") or 0) + outp
+            st["thinkingTokens"] = int(st.get("thinkingTokens") or 0) + think
+            mkey = str(model_id or engine or "unknown")[:80]
+            bm = st.get("byModel") or {}
+            entry = bm.get(mkey) or {"calls": 0, "prompt": 0, "cached": 0, "completion": 0}
+            entry["calls"] += 1
+            entry["prompt"] += inp
+            entry["cached"] += cached
+            entry["completion"] += outp
+            bm[mkey] = entry
+            st["byModel"] = bm
+            hit_pct = round((cached / inp) * 100, 1) if inp > 0 else 0.0
+            est_cost = _estimate_model_cost_usd(mkey, inp, cached, outp)
+            now_epoch = time.time()
+            rec = {
+                "ts": time.strftime("%H:%M:%S"),
+                "tsEpoch": now_epoch,
+                "model": mkey,
+                "engine": str(engine or "")[:50],
+                "promptTokens": inp,
+                "cachedTokens": cached,
+                "completionTokens": outp,
+                "thinkingTokens": think,
+                "savedTokens": saved,
+                "cacheHitPct": hit_pct,
+                "estCostUsd": est_cost,
+                "cliReused": bool(cli_reused),
+                "ok": bool(ok),
+                "room": str(room or "")[:32],
+                "agentName": str(agent_name or "")[:40],
+            }
+            recent = list(st.get("recentCalls") or [])
+            recent.insert(0, rec)
+            st["recentCalls"] = recent[:20]
+
+            events = _load_usage_events_unlocked()
+            events.append(rec)
+            _save_usage_events_unlocked(events)
+
+        _save_token_saver_stats_unlocked(st)
+        return st
+
+
+def reset_token_saver_stats():
+    with TOKEN_SAVER_LOCK:
+        st = _default_token_saver_stats()
+        _save_token_saver_stats_unlocked(st)
+        _save_usage_events_unlocked([])
+        return st
+
+
+def reset_cli_sessions():
+    count = len(_AGY_CLI_SESSIONS) + len(_CLAUDE_CLI_SESSIONS)
+    _AGY_CLI_SESSIONS.clear()
+    _CLAUDE_CLI_SESSIONS.clear()
+    _REMOTE_MCP_TTL_CACHE.clear()
+    _save_persisted_cli_sessions()
+    return count
+
+
+def _strip_empty_json(obj):
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            if v is None or v == "" or v == [] or v == {}:
+                continue
+            cleaned = _strip_empty_json(v)
+            if cleaned is None or cleaned == "" or cleaned == [] or cleaned == {}:
+                continue
+            out[k] = cleaned
+        return out
+    if isinstance(obj, list):
+        items = [_strip_empty_json(x) for x in obj]
+        return [x for x in items if x not in (None, "", [], {})]
+    return obj
+
+
+def compress_tool_output_text(raw_text, max_chars=1600):
+    """RTK-style compact compression for verbose tool/MCP/folder outputs."""
+    txt = str(raw_text or "")
+    if not txt:
+        return "", 0
+    cfg = load_token_saver_config()
+    if not cfg.get("compressToolOutput"):
+        return txt[:max_chars], 0
+
+    orig_len = len(txt)
+    compact = txt
+    # 1. If JSON, strip null/empty keys and serialize without whitespace
+    stripped = txt.strip()
+    if (stripped.startswith("{") and stripped.endswith("}")) or (stripped.startswith("[") and stripped.endswith("]")):
+        try:
+            parsed = json.loads(stripped)
+            cleaned = _strip_empty_json(parsed)
+            compact = json.dumps(cleaned, ensure_ascii=False, separators=(",", ":"))
+        except Exception:
+            pass
+    else:
+        # 2. Deduplicate repeated lines and collapse whitespace for logs/directory listings
+        lines = []
+        prev = None
+        dup_count = 0
+        for ln in compact.splitlines():
+            s = re.sub(r"[ \t]+", " ", ln).strip()
+            if not s:
+                continue
+            if s == prev:
+                dup_count += 1
+                continue
+            if dup_count > 0:
+                lines.append(f"(...repeated {dup_count}x)")
+                dup_count = 0
+            lines.append(s)
+            prev = s
+        if dup_count > 0:
+            lines.append(f"(...repeated {dup_count}x)")
+        compact = "\n".join(lines)
+
+    if len(compact) > max_chars:
+        compact = compact[:max_chars - 24] + f"...[trimmed {len(compact) - max_chars}c]"
+    saved_tokens = max(0, (orig_len - len(compact)) // 4)
+    if saved_tokens > 10:
+        record_token_usage("compression", "tool-compressor", saved_tokens=saved_tokens)
+    return compact, saved_tokens
+
+
+def compress_history_messages(history_messages, keep_verbatim=2):
+    """Compacts older sliding-window turns while keeping recent turns intact."""
+    msgs = [dict(m) for m in (history_messages or []) if isinstance(m, dict)]
+    cfg = load_token_saver_config()
+    if not cfg.get("compressContext") or len(msgs) <= keep_verbatim:
+        return msgs, 0
+
+    cutoff = len(msgs) - keep_verbatim
+    saved_chars = 0
+    out = []
+    for idx, m in enumerate(msgs):
+        content = m.get("content")
+        if idx < cutoff and isinstance(content, str) and len(content) > 360:
+            compact_c = re.sub(r"\n{3,}", "\n", content).strip()
+            if len(compact_c) > 340:
+                new_c = compact_c[:240].rstrip() + " ... " + compact_c[-85:].lstrip()
+                saved_chars += max(0, len(content) - len(new_c))
+                m["content"] = new_c
+        out.append(m)
+    saved_tokens = saved_chars // 4
+    if saved_tokens > 15:
+        record_token_usage("compression", "context-compressor", saved_tokens=saved_tokens)
+    return out, saved_tokens
+
+
+def apply_token_saver_system_directives(sys_prompt):
+    """Injects Caveman (terse output) and/or Ponytail (lazy senior dev) directives when enabled."""
+    cfg = load_token_saver_config()
+    additions = []
+    if cfg.get("compressLlmOutput"):
+        additions.append(
+            "MODE HEMAT OUTPUT (CAVEMAN/TERSE): Jawab super ringkas, langsung inti, pakai poin padat. "
+            "Hapus basa-basi pembuka/penutup, hindari pengulangan, target <= 40% panjang normal tanpa mengurangi akurasi fakta."
+        )
+    if cfg.get("lazySeniorDev"):
+        additions.append(
+            "MODE LAZY SENIOR DEV (PONYTAIL): Untuk tugas kode/teknis, pilih solusi paling minimalis yang tuntas (YAGNI). "
+            "Utamakan stdlib/helper yang sudah ada, diff sekecil mungkin, hapus kode berlebih daripada menambah abstraksi baru."
+        )
+    if not additions:
+        return sys_prompt
+    return f"{sys_prompt}\n\n" + "\n".join(additions)
+
+
+def split_static_and_dynamic_context(sys_prompt, live_mcp_ctx="", comp_block=""):
+    """Separates cache-stable prefix (system) from volatile live data (user suffix) so Prompt Caching hits!"""
+    cfg = load_token_saver_config()
+    static_parts = [str(sys_prompt or "").strip()]
+    # Deduplicate company context block if already present in sys_prompt
+    if comp_block and comp_block.strip() and comp_block.strip()[:120] not in static_parts[0]:
+        static_parts.append(comp_block.strip())
+
+    raw_mcp = str(live_mcp_ctx or "").strip()
+    if not raw_mcp:
+        return "\n\n".join(p for p in static_parts if p), ""
+
+    if not cfg.get("promptCaching"):
+        static_parts.append(raw_mcp)
+        return "\n\n".join(p for p in static_parts if p), ""
+
+    # Separate static catalog/memory/skills blocks from volatile live metrics lines
+    volatile_prefixes = (
+        "- LAPORAN KEUANGAN LIVE",
+        "- KPI BISNIS LIVE",
+        "- HEALTH SERVER LIVE",
+        "- LOG OPS SERVER LIVE",
+        "- PAKET & SETTING LIVE",
+        "- DAFTAR UNDANGAN LIVE",
+        "- KATALOG TEMA LIVE",
+        "- HASIL CEK DNS",
+        "- BUKU KAS LOKAL",
+        "PAPAN TUGAS AKTIF:",
+        "CATATAN KERJA TERBARU AGEN INI:",
+    )
+    stable_lines = []
+    dynamic_lines = []
+    in_taskboard = False
+    for line in raw_mcp.splitlines():
+        s = line.strip()
+        if s.startswith("PAPAN TUGAS AKTIF:"):
+            in_taskboard = True
+            dynamic_lines.append(line)
+            continue
+        if in_taskboard:
+            if s.startswith("- ["):
+                dynamic_lines.append(line)
+                continue
+            in_taskboard = False
+        if any(s.startswith(vp) for vp in volatile_prefixes):
+            dynamic_lines.append(line)
+        else:
+            stable_lines.append(line)
+
+    stable_mcp = "\n".join(stable_lines).strip()
+    dynamic_mcp = "\n".join(dynamic_lines).strip()
+    if stable_mcp:
+        static_parts.append(stable_mcp)
+    return "\n\n".join(p for p in static_parts if p), dynamic_mcp
+
+
+def get_token_saver_status():
+    import shutil
+    cfg = load_token_saver_config()
+    st = load_token_saver_stats()
+    inp = int(st.get("promptTokens") or 0)
+    cached = int(st.get("cachedTokens") or 0)
+    hit_rate = round((cached / inp) * 100, 1) if inp > 0 else 0.0
+    ponytail_path = os.path.join(BASE_DIR, "skills", "ponytail", "SKILL.md")
+    return {
+        "config": cfg,
+        "stats": st,
+        "budget": check_daily_token_budget(),
+        "cacheHitRatePct": hit_rate,
+        "activeCliSessions": len(_AGY_CLI_SESSIONS) + len(_CLAUDE_CLI_SESSIONS),
+        "mcpCachedEntries": len(_REMOTE_MCP_TTL_CACHE),
+        "capabilities": {
+            "agyCliJsonCache": os.path.exists(AGY_BIN),
+            "claudeCliJsonCache": bool(find_claude_cli_bin()),
+            "rtkBinary": bool(shutil.which("rtk")),
+            "headroomBinary": bool(shutil.which("headroom")),
+            "ponytailSkill": os.path.exists(ponytail_path),
+        },
+    }
 
 CLAUDE_LOCAL_MODELS = {
     "Claude Opus (Local Session)": "opus",
@@ -1196,15 +1924,17 @@ def submit_agy_oauth_code(raw_input):
         return {"ok": False, "error": f"Gagal mengirim kode ke agy CLI: {str(e)}"}
 
 
-def call_verified_agy_cli(model_display_or_id, system_prompt, history_messages, latest_prompt, attachments=None, live_mcp_ctx=None):
-    # Honor the user's true selected model fidelity (High / XHigh / Medium) without silent downgrade!
+def call_verified_agy_cli(model_display_or_id, system_prompt, history_messages, latest_prompt, attachments=None, live_mcp_ctx=None, session_key="", room="", agent_name=""):
+    # Honor the user's true selected model fidelity (High / XHigh / Medium / Low) without silent downgrade!
     agy_model = MODEL_DISPLAY_TO_AGY_ID.get(model_display_or_id, model_display_or_id if str(model_display_or_id).startswith(("gemini-", "claude-")) else "gemini-4-argon-high")
+    ts_cfg = load_token_saver_config()
     win_size = int(load_memory_config().get("slidingWindow") or 6)
     convo_text = ""
     raw_hist = list(history_messages or []) if isinstance(history_messages, list) else []
     if raw_hist and raw_hist[-1].get("role") == "user" and str(raw_hist[-1].get("content") or "").strip() == str(latest_prompt or "").strip():
         raw_hist = raw_hist[:-1]
     recent = raw_hist[-win_size:]
+    recent, _ = compress_history_messages(recent, keep_verbatim=2)
     for m in recent:
         who = "CEO" if m.get("role") == "user" else "TIM AI"
         convo_text += f"{who}: {m.get('content', '')}\n\n"
@@ -1214,13 +1944,29 @@ def call_verified_agy_cli(model_display_or_id, system_prompt, history_messages, 
     att_ctx = build_attachment_text_context(attachments)
     vision_ctx = describe_images_via_connected_vision(attachments, latest_prompt) if attachments else ""
     extra_att_block = "\n\n".join(x for x in [att_ctx, vision_ctx] if x)
-    full_prompt = (
-        f"{system_prompt}\n\n"
-        f"{live_mcp_ctx}\n\n"
-        + (f"{extra_att_block}\n\n" if extra_att_block else "")
-        + (f"RIWAYAT OBROLAN TERAKHIR (SLIDING WINDOW {len(recent)} PESAN):\n{convo_text}" if convo_text else "")
-        + f"PESAN TERBARU DARI CEO YANG HARUS KAMU JAWAB SEKARANG:\n{latest_prompt}"
-    )
+
+    eff_sys = apply_token_saver_system_directives(system_prompt)
+    static_sys, dynamic_mcp = split_static_and_dynamic_context(eff_sys, live_mcp_ctx)
+
+    def _build_full_prompt():
+        dyn_block = f"DATA LIVE TERBARU:\n{dynamic_mcp}\n\n" if dynamic_mcp else ""
+        return (
+            f"{static_sys}\n\n"
+            + (f"RIWAYAT OBROLAN TERAKHIR (SLIDING WINDOW {len(recent)} PESAN):\n{convo_text}" if convo_text else "")
+            + dyn_block
+            + (f"{extra_att_block}\n\n" if extra_att_block else "")
+            + f"PESAN TERBARU DARI CEO YANG HARUS KAMU JAWAB SEKARANG:\n{latest_prompt}"
+        )
+
+    def _build_delta_prompt():
+        parts = []
+        if dynamic_mcp:
+            parts.append(f"DATA LIVE TERBARU:\n{dynamic_mcp}")
+        if extra_att_block:
+            parts.append(extra_att_block)
+        parts.append(f"PESAN TERBARU DARI CEO:\n{latest_prompt}")
+        return "\n\n".join(parts)
+
     env = os.environ.copy()
     env["BROWSER"] = "/usr/bin/true"
 
@@ -1230,29 +1976,92 @@ def call_verified_agy_cli(model_display_or_id, system_prompt, history_messages, 
     if agy_model != "gemini-3.8-flash-high":
         fallback_chain.append("gemini-3.8-flash-high")
 
+    can_reuse = bool(ts_cfg.get("cliSessionReuse") and session_key and not attachments)
+    now_ts = time.time()
+
     for idx_try, try_model in enumerate(fallback_chain):
-        try:
-            proc = subprocess.run(
-                [AGY_BIN, f"--model={try_model}", "--disable-slash-commands", f"-p={full_prompt}"],
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                timeout=45 if idx_try == 0 else 40,
-                cwd=BASE_DIR,
-                env=env
-            )
-            out = (proc.stdout or "").strip()
-            err = (proc.stderr or "").strip()
-            if proc.returncode == 0 and out and "Authentication required" not in out:
-                AGY_AUTH_SESSION["verified"] = True
-                return out, try_model
-            if "Authentication required" in out or "Authentication required" in err:
-                AGY_AUTH_SESSION["verified"] = False
-                raise RuntimeError("Sesi Antigravity CLI perlu login ulang di ⚙️ Pengaturan AI & Model.")
-        except subprocess.TimeoutExpired:
-            if idx_try + 1 < len(fallback_chain):
-                continue
-            raise RuntimeError(f"Timeout: Model Antigravity ({try_model}) terlalu lama merespons. Coba ganti ke Gemini 3.8 Flash (High) atau koneksi API Router.")
+        existing_sess = _AGY_CLI_SESSIONS.get(session_key) if can_reuse else None
+        use_conv_id = ""
+        if (
+            existing_sess
+            and existing_sess.get("model") == try_model
+            and (now_ts - float(existing_sess.get("ts") or 0)) < 1800
+            and int(existing_sess.get("turns") or 0) < 14
+        ):
+            use_conv_id = existing_sess.get("id") or ""
+
+        # Try reused conversation first (real cached tokens hit!), auto-fallback to fresh if session expired
+        attempts = [use_conv_id, ""] if use_conv_id else [""]
+        for conv_id in attempts:
+            prompt_payload = _build_delta_prompt() if conv_id else _build_full_prompt()
+            cmd = [AGY_BIN, f"--model={try_model}", "--disable-slash-commands", "--output-format=json"]
+            if conv_id:
+                cmd.append(f"--conversation={conv_id}")
+            cmd.append(f"-p={prompt_payload}")
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    stdin=subprocess.DEVNULL,
+                    capture_output=True,
+                    text=True,
+                    timeout=50 if idx_try == 0 else 40,
+                    cwd=BASE_DIR,
+                    env=env
+                )
+                out = (proc.stdout or "").strip()
+                err = (proc.stderr or "").strip()
+                if "Authentication required" in out or "Authentication required" in err:
+                    AGY_AUTH_SESSION["verified"] = False
+                    raise RuntimeError("Sesi Antigravity CLI perlu login ulang di ⚙️ Pengaturan AI & Model.")
+                if proc.returncode == 0 and out:
+                    parsed_resp = None
+                    try:
+                        # Handle occasional prefix lines before JSON object
+                        j_start = out.rfind("\n{")
+                        j_str = out[j_start + 1:] if j_start >= 0 else out
+                        parsed_resp = json.loads(j_str)
+                    except Exception:
+                        parsed_resp = None
+                    if isinstance(parsed_resp, dict) and parsed_resp.get("response") is not None:
+                        reply_txt = str(parsed_resp.get("response") or "").strip()
+                        new_cid = str(parsed_resp.get("conversation_id") or "").strip()
+                        usage = parsed_resp.get("usage") if isinstance(parsed_resp.get("usage"), dict) else {}
+                        if can_reuse and new_cid:
+                            prev_turns = int(existing_sess.get("turns") or 0) if (existing_sess and conv_id) else 0
+                            _AGY_CLI_SESSIONS[session_key] = {
+                                "id": new_cid,
+                                "model": try_model,
+                                "ts": time.time(),
+                                "turns": prev_turns + 1,
+                            }
+                            _save_persisted_cli_sessions()
+                        record_token_usage(
+                            model_display_or_id or try_model,
+                            f"Antigravity CLI ({try_model})",
+                            input_tokens=usage.get("input_tokens") or 0,
+                            cached_tokens=usage.get("cache_read_tokens") or 0,
+                            output_tokens=usage.get("output_tokens") or 0,
+                            thinking_tokens=usage.get("thinking_tokens") or 0,
+                            cli_reused=bool(conv_id),
+                            room=room,
+                            agent_name=agent_name,
+                        )
+                        if reply_txt:
+                            AGY_AUTH_SESSION["verified"] = True
+                            return reply_txt, try_model
+                    elif out and not out.startswith("{"):
+                        AGY_AUTH_SESSION["verified"] = True
+                        return out, try_model
+                # If reused session failed, clear it and immediately try fresh in inner loop
+                if conv_id and session_key in _AGY_CLI_SESSIONS:
+                    _AGY_CLI_SESSIONS.pop(session_key, None)
+            except subprocess.TimeoutExpired:
+                if conv_id and session_key in _AGY_CLI_SESSIONS:
+                    _AGY_CLI_SESSIONS.pop(session_key, None)
+                    continue
+                if idx_try + 1 < len(fallback_chain):
+                    break
+                raise RuntimeError(f"Timeout: Model Antigravity ({try_model}) terlalu lama merespons. Coba ganti ke Gemini 3.8 Flash (High) atau koneksi API Router.")
 
     raise RuntimeError(f"Antigravity CLI ({agy_model}) gagal merespons.")
 
@@ -1431,8 +2240,8 @@ def start_claude_local_login():
         return {"ok": False, "error": f"Gagal menjalankan claude auth login: {str(e)}"}
 
 
-def call_local_claude_cli(model_display_or_id, system_prompt, history_messages, latest_prompt, attachments=None, live_mcp_ctx=None):
-    """Menjalankan prompt langsung melalui sesi lokal Claude Code CLI (`claude -p`) tanpa Anthropic API Key."""
+def call_local_claude_cli(model_display_or_id, system_prompt, history_messages, latest_prompt, attachments=None, live_mcp_ctx=None, session_key="", room="", agent_name=""):
+    """Menjalankan prompt langsung melalui sesi lokal Claude Code CLI (`claude -p`) dengan JSON usage + --resume session reuse."""
     claude_bin = find_claude_cli_bin()
     if not claude_bin:
         raise RuntimeError("Binary Claude Code CLI tidak ditemukan di komputer ini.")
@@ -1440,6 +2249,7 @@ def call_local_claude_cli(model_display_or_id, system_prompt, history_messages, 
     if not st.get("logged_in"):
         raise RuntimeError("Sesi lokal Claude Code belum aktif. Buka ⚙️ Pengaturan AI & Model -> klik 'Login Sesi Lokal Claude' terlebih dahulu.")
 
+    ts_cfg = load_token_saver_config()
     alias = CLAUDE_LOCAL_MODELS.get(model_display_or_id, "sonnet")
     win_size = int(load_memory_config().get("slidingWindow") or 6)
     convo_text = ""
@@ -1447,6 +2257,7 @@ def call_local_claude_cli(model_display_or_id, system_prompt, history_messages, 
     if raw_hist and raw_hist[-1].get("role") == "user" and str(raw_hist[-1].get("content") or "").strip() == str(latest_prompt or "").strip():
         raw_hist = raw_hist[:-1]
     recent = raw_hist[-win_size:]
+    recent, _ = compress_history_messages(recent, keep_verbatim=2)
     for m in recent:
         who = "CEO" if m.get("role") == "user" else "TIM AI"
         convo_text += f"{who}: {m.get('content', '')}\n\n"
@@ -1456,35 +2267,100 @@ def call_local_claude_cli(model_display_or_id, system_prompt, history_messages, 
     att_ctx = build_attachment_text_context(attachments)
     vision_ctx = describe_images_via_connected_vision(attachments, latest_prompt) if attachments else ""
     extra_att_block = "\n\n".join(x for x in [att_ctx, vision_ctx] if x)
-    full_prompt = (
-        f"{system_prompt}\n\n"
-        f"{live_mcp_ctx}\n\n"
-        + (f"{extra_att_block}\n\n" if extra_att_block else "")
-        + (f"RIWAYAT OBROLAN TERAKHIR (SLIDING WINDOW {len(recent)} PESAN):\n{convo_text}" if convo_text else "")
-        + f"PESAN TERBARU DARI CEO:\n{latest_prompt}"
-    )
+    eff_sys = apply_token_saver_system_directives(system_prompt)
+    static_sys, dynamic_mcp = split_static_and_dynamic_context(eff_sys, live_mcp_ctx)
+
+    def _full_prompt():
+        dyn_block = f"DATA LIVE TERBARU:\n{dynamic_mcp}\n\n" if dynamic_mcp else ""
+        return (
+            f"{static_sys}\n\n"
+            + (f"RIWAYAT OBROLAN TERAKHIR (SLIDING WINDOW {len(recent)} PESAN):\n{convo_text}" if convo_text else "")
+            + dyn_block
+            + (f"{extra_att_block}\n\n" if extra_att_block else "")
+            + f"PESAN TERBARU DARI CEO:\n{latest_prompt}"
+        )
+
+    def _delta_prompt():
+        parts = []
+        if dynamic_mcp:
+            parts.append(f"DATA LIVE TERBARU:\n{dynamic_mcp}")
+        if extra_att_block:
+            parts.append(extra_att_block)
+        parts.append(f"PESAN TERBARU DARI CEO:\n{latest_prompt}")
+        return "\n\n".join(parts)
 
     env = os.environ.copy()
-    # Pastikan tidak menimpa sesi OAuth lokal dengan variabel ANTHROPIC_API_KEY kosong/basi
     env.pop("ANTHROPIC_API_KEY", None)
 
-    proc = subprocess.run(
-        [claude_bin, "-p", full_prompt, "--model", alias, "--output-format", "text", "--tools", ""],
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        text=True,
-        timeout=45,
-        cwd=BASE_DIR,
-        env=env,
-    )
-    out = (proc.stdout or "").strip()
-    err = (proc.stderr or "").strip()
-    if proc.returncode == 0 and out:
-        return out, f"claude-local/{alias}"
-    if "not logged in" in (out + err).lower() or "please run /login" in (out + err).lower() or "authentication" in (out + err).lower():
-        _CLAUDE_STATUS_CACHE["ts"] = 0
-        raise RuntimeError("Sesi lokal Claude Code kedaluwarsa. Klik 'Login Sesi Lokal Claude' di ⚙️ Pengaturan AI & Model.")
-    raise RuntimeError(f"Claude Code CLI ({alias}) gagal merespons: {(err or out)[:220]}")
+    can_reuse = bool(ts_cfg.get("cliSessionReuse") and session_key and not attachments)
+    existing_sess = _CLAUDE_CLI_SESSIONS.get(session_key) if can_reuse else None
+    use_sid = ""
+    if (
+        existing_sess
+        and existing_sess.get("model") == alias
+        and (time.time() - float(existing_sess.get("ts") or 0)) < 1800
+        and int(existing_sess.get("turns") or 0) < 14
+    ):
+        use_sid = existing_sess.get("id") or ""
+
+    attempts = [use_sid, ""] if use_sid else [""]
+    last_err = ""
+    for sid in attempts:
+        prompt_text = _delta_prompt() if sid else _full_prompt()
+        cmd = [claude_bin, "-p", prompt_text, "--model", alias, "--output-format", "json", "--tools", ""]
+        if sid:
+            cmd.extend(["--resume", sid])
+        proc = subprocess.run(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=50,
+            cwd=BASE_DIR,
+            env=env,
+        )
+        out = (proc.stdout or "").strip()
+        err = (proc.stderr or "").strip()
+        if "not logged in" in (out + err).lower() or "please run /login" in (out + err).lower() or "authentication" in (out + err).lower():
+            _CLAUDE_STATUS_CACHE["ts"] = 0
+            raise RuntimeError("Sesi lokal Claude Code kedaluwarsa. Klik 'Login Sesi Lokal Claude' di ⚙️ Pengaturan AI & Model.")
+        if proc.returncode == 0 and out:
+            parsed = None
+            try:
+                j_start = out.rfind("\n{")
+                parsed = json.loads(out[j_start + 1:] if j_start >= 0 else out)
+            except Exception:
+                parsed = None
+            if isinstance(parsed, dict) and parsed.get("result") is not None:
+                reply_txt = str(parsed.get("result") or "").strip()
+                new_sid = str(parsed.get("session_id") or "").strip()
+                usage = parsed.get("usage") if isinstance(parsed.get("usage"), dict) else {}
+                in_tok = int(usage.get("input_tokens") or 0) + int(usage.get("cache_read_input_tokens") or 0) + int(usage.get("cache_creation_input_tokens") or 0)
+                cached_tok = int(usage.get("cache_read_input_tokens") or 0)
+                out_tok = int(usage.get("output_tokens") or 0)
+                if can_reuse and new_sid:
+                    prev_turns = int(existing_sess.get("turns") or 0) if (existing_sess and sid) else 0
+                    _CLAUDE_CLI_SESSIONS[session_key] = {"id": new_sid, "model": alias, "ts": time.time(), "turns": prev_turns + 1}
+                    _save_persisted_cli_sessions()
+                record_token_usage(
+                    model_display_or_id or f"claude-local/{alias}",
+                    f"Claude Code Local ({alias})",
+                    input_tokens=in_tok,
+                    cached_tokens=cached_tok,
+                    output_tokens=out_tok,
+                    cli_reused=bool(sid),
+                    room=room,
+                    agent_name=agent_name,
+                )
+                if reply_txt:
+                    return reply_txt, f"claude-local/{alias}"
+            elif out and not out.startswith("{"):
+                return out, f"claude-local/{alias}"
+        last_err = (err or out)[:220]
+        if sid and session_key in _CLAUDE_CLI_SESSIONS:
+            _CLAUDE_CLI_SESSIONS.pop(session_key, None)
+            _save_persisted_cli_sessions()
+    raise RuntimeError(f"Claude Code CLI ({alias}) gagal merespons: {last_err}")
 
 
 def get_live_platform_snapshot(force=False):
@@ -3400,6 +4276,23 @@ def call_remote_mcp(method, params=None, timeout=12, room="", api_key_override=N
 
 
 def call_remote_mcp_tool(tool_name, arguments=None, room="", api_key_override=None, url_override=None, server_id=""):
+    ts_cfg = load_token_saver_config()
+    ttl_sec = int(ts_cfg.get("mcpCacheTtlSec") or 0) if ts_cfg.get("compressContext") else 0
+    is_read_only = bool(re.match(r"^(luxvite_)?(get|list|search|check|read|audit)_", str(tool_name or "").lower()))
+    cache_key = ""
+    if ttl_sec > 0 and is_read_only and not api_key_override and not url_override:
+        try:
+            cache_key = f"{server_id}|{room}|{tool_name}|{json.dumps(arguments or {}, sort_keys=True)}"
+        except Exception:
+            cache_key = ""
+        cached_item = _REMOTE_MCP_TTL_CACHE.get(cache_key)
+        if cached_item and (time.time() - float(cached_item.get("ts") or 0)) < ttl_sec:
+            record_token_usage("mcp-cache", tool_name, mcp_cache_hit=True)
+            hit_res = dict(cached_item["res"])
+            hit_res["cached"] = True
+            hit_res["ms"] = 0
+            return hit_res
+
     res = call_remote_mcp(
         "tools/call",
         {"name": tool_name, "arguments": arguments or {}},
@@ -3427,13 +4320,16 @@ def call_remote_mcp_tool(tool_name, arguments=None, room="", api_key_override=No
             parsed_data = json.loads(raw_txt)
         except Exception:
             parsed_data = {"text": raw_txt}
-    return {
+    out_obj = {
         "ok": True,
         "tool": tool_name,
         "ms": (res or {}).get("_ms", 0),
         "slot": (res or {}).get("_slot", ""),
         "result": parsed_data,
     }
+    if cache_key and ttl_sec > 0:
+        _REMOTE_MCP_TTL_CACHE[cache_key] = {"ts": time.time(), "res": out_obj}
+    return out_obj
 
 
 def test_remote_mcp_connection(url=None, api_key=None, slot="DEFAULT", server_id=""):
@@ -3700,11 +4596,12 @@ def get_mcp_status():
     }
 
 
-def get_antigravity_and_claude_status(force_claude=False):
+def get_antigravity_and_claude_status(force_claude=False, force_agy=False):
     agy_bin = os.path.exists(AGY_BIN)
     gemini_dir = os.path.exists(os.path.expanduser("~/.gemini"))
     agy_acct = detect_antigravity_account()
     claude_info = detect_claude_local_session(force=force_claude)
+    agy_models, agy_models_source = discover_antigravity_cli_models(force=force_agy)
     return {
         "antigravity": {
             "connected": bool(agy_bin or gemini_dir),
@@ -3712,14 +4609,8 @@ def get_antigravity_and_claude_status(force_claude=False):
             "path": AGY_BIN,
             "account_email": agy_acct.get("email"),
             "auth_method": agy_acct.get("auth_method"),
-            "models": [
-                {"id": "Gemini 4 Argon (High)", "tag": "Antigravity Live CLI · Flagship Kreatif & Strategi", "provider": "antigravity"},
-                {"id": "Gemini 4 Argon (Medium)", "tag": "Antigravity Live CLI · Seimbang", "provider": "antigravity"},
-                {"id": "Gemini 4 Neon (XHigh)", "tag": "Antigravity Live CLI · Deep Reasoning", "provider": "antigravity"},
-                {"id": "Gemini 4 Neon (High)", "tag": "Antigravity Live CLI · High Reasoning", "provider": "antigravity"},
-                {"id": "Gemini 4 Hydrogen (XHigh)", "tag": "Antigravity Live CLI · Eksplorasi Ide", "provider": "antigravity"},
-                {"id": "Gemini 3.8 Flash (High)", "tag": "Antigravity Live CLI · Respons Sangat Cepat", "provider": "antigravity"}
-            ]
+            "models_source": agy_models_source,
+            "models": agy_models,
         },
         "claude": claude_info
     }
@@ -4416,8 +5307,9 @@ def _extract_openai_text(raw_text):
     raise RuntimeError(f"Format respons tidak dikenali dari endpoint: {txt[:200]}")
 
 
-def call_live_llm(endpoint_url, api_key, model_id, system_prompt, history_messages, attachments=None):
+def call_live_llm(endpoint_url, api_key, model_id, system_prompt, history_messages, attachments=None, room="", agent_name=""):
     endpoint = endpoint_url.strip().rstrip("/")
+    ts_cfg = load_token_saver_config()
     att_text = build_attachment_text_context(attachments)
     img_atts = [a for a in (attachments or []) if a.get("isImage")]
 
@@ -4436,10 +5328,15 @@ def call_live_llm(endpoint_url, api_key, model_id, system_prompt, history_messag
                     blocks.append({"type": "image", "source": {"type": "base64", "media_type": mime, "data": b64}})
             blocks.append({"type": "text", "text": msgs_copy[-1].get("content", "")})
             msgs_copy[-1]["content"] = blocks
+        sys_field = (
+            [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}]
+            if (ts_cfg.get("promptCaching") and len(str(system_prompt or "")) >= 200)
+            else system_prompt
+        )
         payload = json.dumps({
             "model": model_id,
             "max_tokens": 1500,
-            "system": system_prompt,
+            "system": sys_field,
             "messages": msgs_copy
         }).encode("utf-8")
         req = urllib.request.Request(url, data=payload, method="POST")
@@ -4448,6 +5345,11 @@ def call_live_llm(endpoint_url, api_key, model_id, system_prompt, history_messag
         req.add_header("Content-Type", "application/json")
         with urllib.request.urlopen(req, timeout=45) as resp:
             body = json.loads(resp.read().decode("utf-8"))
+            usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
+            in_tok = int(usage.get("input_tokens") or 0) + int(usage.get("cache_read_input_tokens") or 0) + int(usage.get("cache_creation_input_tokens") or 0)
+            cached_tok = int(usage.get("cache_read_input_tokens") or 0)
+            out_tok = int(usage.get("output_tokens") or 0)
+            record_token_usage(model_id, f"Anthropic ({model_id})", input_tokens=in_tok, cached_tokens=cached_tok, output_tokens=out_tok, room=room, agent_name=agent_name)
             blocks = body.get("content", [])
             return "\n".join(b.get("text", "") for b in blocks if b.get("type") == "text")
 
@@ -4473,6 +5375,17 @@ def call_live_llm(endpoint_url, api_key, model_id, system_prompt, history_messag
         req.add_header("Content-Type", "application/json")
         with urllib.request.urlopen(req, timeout=45) as resp:
             body = json.loads(resp.read().decode("utf-8"))
+            um = body.get("usageMetadata") if isinstance(body.get("usageMetadata"), dict) else {}
+            record_token_usage(
+                model_id,
+                f"Gemini API ({clean_model})",
+                input_tokens=int(um.get("promptTokenCount") or 0),
+                cached_tokens=int(um.get("cachedContentTokenCount") or 0),
+                output_tokens=int(um.get("candidatesTokenCount") or 0),
+                thinking_tokens=int(um.get("thoughtsTokenCount") or 0),
+                room=room,
+                agent_name=agent_name,
+            )
             cands = body.get("candidates", [])
             if cands:
                 parts = cands[0].get("content", {}).get("parts", [])
@@ -4487,7 +5400,11 @@ def call_live_llm(endpoint_url, api_key, model_id, system_prompt, history_messag
             if b64:
                 content_arr.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
         msgs_copy[-1]["content"] = content_arr
-    msgs = [{"role": "system", "content": system_prompt}] + msgs_copy
+    # For OpenRouter Claude models, support explicit cache_control block on system prompt when enabled
+    sys_msg_content = system_prompt
+    if ts_cfg.get("promptCaching") and "openrouter.ai" in endpoint.lower() and "claude" in str(model_id or "").lower() and len(str(system_prompt or "")) >= 200:
+        sys_msg_content = [{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}]
+    msgs = [{"role": "system", "content": sys_msg_content}] + msgs_copy
     payload = json.dumps({
         "model": model_id,
         "messages": msgs,
@@ -4501,6 +5418,17 @@ def call_live_llm(endpoint_url, api_key, model_id, system_prompt, history_messag
     req.add_header("User-Agent", "LuxviteVirtualHQ/1.1")
     with urllib.request.urlopen(req, timeout=45) as resp:
         raw = resp.read().decode("utf-8", errors="ignore")
+        try:
+            body_obj = json.loads(raw)
+            usage = body_obj.get("usage") if isinstance(body_obj.get("usage"), dict) else {}
+            ptd = usage.get("prompt_tokens_details") if isinstance(usage.get("prompt_tokens_details"), dict) else {}
+            in_tok = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+            cached_tok = int(ptd.get("cached_tokens") or usage.get("cache_read_input_tokens") or usage.get("cached_tokens") or 0)
+            out_tok = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+            if in_tok > 0 or out_tok > 0:
+                record_token_usage(model_id, f"API ({model_id})", input_tokens=in_tok, cached_tokens=cached_tok, output_tokens=out_tok, room=room, agent_name=agent_name)
+        except Exception:
+            pass
         return _extract_openai_text(raw)
 
 
@@ -4726,42 +5654,48 @@ def _resolve_fallback_model_for_agent(agent_id, primary_model_id, explicit_fallb
     return ""
 
 
-def _run_single_llm_provider(model_id, endpoint, api_key, sys_prompt, sliced_history, prompt, attachments=None, live_mcp_ctx=None, win_size=6):
+def _run_single_llm_provider(model_id, endpoint, api_key, sys_prompt, sliced_history, prompt, attachments=None, live_mcp_ctx=None, win_size=6, session_key="", room="", agent_name=""):
     if model_id in CLAUDE_LOCAL_MODELS:
-        reply, used_model = call_local_claude_cli(model_id, sys_prompt, sliced_history, prompt, attachments=attachments, live_mcp_ctx=live_mcp_ctx)
+        reply, used_model = call_local_claude_cli(model_id, apply_token_saver_system_directives(sys_prompt), sliced_history, prompt, attachments=attachments, live_mcp_ctx=live_mcp_ctx, session_key=session_key, room=room, agent_name=agent_name)
         return reply, f"Claude Code Local ({used_model})"
 
     if endpoint and api_key and model_id not in MODEL_DISPLAY_TO_AGY_ID:
         if live_mcp_ctx == "__ARCHITECT_MODE__":
             full_sys = sys_prompt
+            dyn_ctx = ""
         else:
             if live_mcp_ctx is None:
                 live_mcp_ctx = build_dynamic_mcp_context(prompt)
-            full_sys = f"{sys_prompt}\n\n{build_company_context_block()}\n\n{live_mcp_ctx}"
-        msgs = list(sliced_history) if len(sliced_history) > 0 else [{"role": "user", "content": prompt}]
+            eff_sys = apply_token_saver_system_directives(sys_prompt)
+            full_sys, dyn_ctx = split_static_and_dynamic_context(eff_sys, live_mcp_ctx, comp_block=build_company_context_block())
+        msgs, _ = compress_history_messages(sliced_history if len(sliced_history) > 0 else [{"role": "user", "content": prompt}], keep_verbatim=2)
         if not msgs or msgs[-1].get("role") != "user" or str(msgs[-1].get("content") or "").strip() != str(prompt or "").strip():
             msgs.append({"role": "user", "content": prompt})
         msgs = msgs[-(win_size + 1):]
+        if dyn_ctx and msgs and isinstance(msgs[-1].get("content"), str):
+            msgs[-1]["content"] = f"[DATA LIVE TERBARU]\n{dyn_ctx}\n\n{msgs[-1]['content']}"
         try:
-            reply = call_live_llm(endpoint, api_key, model_id, full_sys, msgs, attachments=attachments)
+            reply = call_live_llm(endpoint, api_key, model_id, full_sys, msgs, attachments=attachments, room=room, agent_name=agent_name)
             return reply, f"API ({model_id})"
         except Exception as llm_err:
             raise RuntimeError(format_llm_http_error(llm_err, model_id, endpoint))
 
-    reply, used_model = call_verified_agy_cli(model_id, sys_prompt, sliced_history, prompt, attachments=attachments, live_mcp_ctx=live_mcp_ctx)
+    reply, used_model = call_verified_agy_cli(model_id, sys_prompt, sliced_history, prompt, attachments=attachments, live_mcp_ctx=live_mcp_ctx, session_key=session_key, room=room, agent_name=agent_name)
     return reply, f"Antigravity CLI ({used_model})"
 
 
-def run_agent_llm_unified(model_id, endpoint, api_key, sys_prompt, history, prompt, attachments=None, live_mcp_ctx=None, agent_id=None, fallback_model_id=""):
-    """Unified caller with instant model health tracking & automatic per-staff fallback model retry."""
+def run_agent_llm_unified(model_id, endpoint, api_key, sys_prompt, history, prompt, attachments=None, live_mcp_ctx=None, agent_id=None, fallback_model_id="", session_key="", room="", agent_name=""):
+    """Unified caller with instant model health tracking, Prompt Caching / CLI session reuse & automatic per-staff fallback."""
     win_size = int(load_memory_config().get("slidingWindow") or 6)
     sliced_history = list(history[-win_size:]) if isinstance(history, list) else []
+    eff_session_key = session_key or (f"agent:{agent_id}" if agent_id is not None else "")
     t0 = time.time()
 
     try:
         reply, engine = _run_single_llm_provider(
             model_id, endpoint, api_key, sys_prompt, sliced_history, prompt,
-            attachments=attachments, live_mcp_ctx=live_mcp_ctx, win_size=win_size
+            attachments=attachments, live_mcp_ctx=live_mcp_ctx, win_size=win_size,
+            session_key=eff_session_key, room=room, agent_name=agent_name
         )
         record_model_health_event(model_id, True, ms=(time.time() - t0) * 1000)
         return reply, engine
@@ -4778,7 +5712,8 @@ def run_agent_llm_unified(model_id, endpoint, api_key, sys_prompt, history, prom
                 bump_world_chat_version(toast_msg=f"🔄 Model utama {model_id} kendala ({err_type}) — otomatis dialihkan ke Fallback: {fb_model}")
                 reply, fb_engine = _run_single_llm_provider(
                     fb_model, fb_ep, fb_key, sys_prompt, sliced_history, prompt,
-                    attachments=attachments, live_mcp_ctx=live_mcp_ctx, win_size=win_size
+                    attachments=attachments, live_mcp_ctx=live_mcp_ctx, win_size=win_size,
+                    session_key=eff_session_key, room=room, agent_name=agent_name
                 )
                 record_model_health_event(fb_model, True, ms=(time.time() - t1) * 1000)
                 return reply, f"{fb_engine} [Fallback dari {model_id}]"
@@ -5698,6 +6633,17 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             self._send_json(200, resp)
             return
 
+        if self.path.startswith("/api/token-saver"):
+            self._send_json(200, {"ok": True, "token_saver": get_token_saver_status()})
+            return
+
+        if self.path.startswith("/api/usage"):
+            parsed_u = urllib.parse.urlparse(self.path)
+            qs_u = urllib.parse.parse_qs(parsed_u.query)
+            rk = (qs_u.get("range") or ["today"])[0]
+            self._send_json(200, {"ok": True, "usage": get_usage_analytics(rk), "token_saver": get_token_saver_status()})
+            return
+
         if self.path.startswith("/api/company-profile"):
             self._send_json(200, {"ok": True, "company_profile": load_company_profile()})
             return
@@ -5752,7 +6698,8 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             return
 
         if self.path.startswith("/api/hub-status"):
-            status = get_antigravity_and_claude_status()
+            force_agy = "refresh_agy=1" in self.path
+            status = get_antigravity_and_claude_status(force_agy=force_agy)
             mcp = get_mcp_status()
             saved = load_saved_config()
             world = load_world_state()
@@ -5766,6 +6713,7 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 "office_off": bool(world.get("officeOff", False)),
                 "world": world,
                 "company_profile": load_company_profile(),
+                "token_saver": get_token_saver_status(),
                 "memory_config": load_memory_config(),
                 "meeting_presets": load_meeting_presets(),
                 "roster": load_roster(),
@@ -5942,6 +6890,22 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             return
 
         # 4. Strict Static File Whitelist (Block .env, config/, server.py, reports/, *.md, *.py)
+        if clean_path == "/favicon.ico":
+            ico_path = os.path.join(BASE_DIR, "brand", "logo.png")
+            if os.path.exists(ico_path):
+                with open(ico_path, "rb") as f_ico:
+                    data_ico = f_ico.read()
+                self.send_response(200)
+                self.send_header("Content-Type", "image/png")
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.send_header("Content-Length", str(len(data_ico)))
+                self.end_headers()
+                self.wfile.write(data_ico)
+            else:
+                self.send_response(204)
+                self.end_headers()
+            return
+
         if clean_path in ("/", "/live", "/login", "/admin"):
             self.path = "/index.html"
             super().do_GET()
@@ -6145,6 +7109,22 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 self._send_json(200, {"ok": False, "error": str(e)})
             return
 
+        if self.path.startswith("/api/token-saver/save"):
+            patch = body.get("config") if isinstance(body.get("config"), dict) else body
+            save_token_saver_config(patch)
+            self._send_json(200, {"ok": True, "token_saver": get_token_saver_status()})
+            return
+
+        if self.path.startswith("/api/token-saver/reset-stats"):
+            reset_token_saver_stats()
+            self._send_json(200, {"ok": True, "token_saver": get_token_saver_status(), "usage": get_usage_analytics("today")})
+            return
+
+        if self.path.startswith("/api/token-saver/reset-sessions"):
+            cleared = reset_cli_sessions()
+            self._send_json(200, {"ok": True, "cleared": cleared, "token_saver": get_token_saver_status()})
+            return
+
         if self.path.startswith("/api/finance-ledger/save"):
             ledger = body.get("ledger")
             if isinstance(ledger, dict):
@@ -6313,12 +7293,19 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             return
 
         if self.path.startswith("/api/probe-models"):
-            # Real parallel live health ping with 10-minute verified cache so refresh is INSTANT with zero red flicker!
+            # Zero-token Passive Health Check by default (saves 13.5k+ tokens per reload!), active ping only if explicit activePing=true or passiveHealthCheck=OFF
             import concurrent.futures
             targets = body.get("targets") or []
             force = bool(body.get("force"))
+            active_ping = bool(body.get("activePing"))
+            ts_cfg = load_token_saver_config()
+            use_passive = bool(ts_cfg.get("passiveHealthCheck", True)) and not active_ping
             cached = load_model_health_cache()
             now_ts = time.time()
+            live_agy_ids = set()
+            if use_passive and AGY_AUTH_SESSION.get("verified"):
+                agy_list, _ = discover_antigravity_cli_models(force=False)
+                live_agy_ids = set(m.get("id") for m in agy_list if isinstance(m, dict))
 
             def _probe_one(item):
                 mid = (item.get("modelId") or "").strip()
@@ -6330,26 +7317,51 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 prev = cached.get(mid)
                 if not force and isinstance(prev, dict) and prev.get("ok") is True and (now_ts - float(prev.get("ts") or 0)) < 600:
                     return mid, prev
-                # 1. External / 9Router model probe
+
+                # PASSIVE MODE (0 LLM Tokens!)
+                if use_passive:
+                    if mid in MODEL_DISPLAY_TO_AGY_ID or mid in live_agy_ids or "Gemini" in mid or "Imagen" in mid:
+                        if not AGY_AUTH_SESSION.get("verified"):
+                            return mid, {"ok": False, "error": "Antigravity CLI belum login / terverifikasi.", "ts": now_ts}
+                        if not live_agy_ids or mid in live_agy_ids or mid in MODEL_DISPLAY_TO_AGY_ID:
+                            return mid, {"ok": True, "ms": 0, "engine": f"Antigravity CLI (Passive · 0 tok)", "passive": True, "ts": now_ts}
+                    if mid in CLAUDE_LOCAL_MODELS:
+                        cst = detect_claude_local_session(force=False)
+                        if cst.get("logged_in"):
+                            return mid, {"ok": True, "ms": 0, "engine": "Claude Local (Passive · 0 tok)", "passive": True, "ts": now_ts}
+                        return mid, {"ok": False, "error": "Sesi lokal Claude Code belum login.", "ts": now_ts}
+                    if ep and key:
+                        # Lightweight GET /models check (0 completion/inference tokens)
+                        try:
+                            m_url = ep.rstrip("/") + "/models"
+                            req_m = urllib.request.Request(m_url, method="GET")
+                            req_m.add_header("Authorization", f"Bearer {key}")
+                            with urllib.request.urlopen(req_m, timeout=6) as r_m:
+                                if r_m.status < 400:
+                                    return mid, {"ok": True, "ms": int((time.time() - t0) * 1000), "engine": f"API ({mid} · Passive 0 tok)", "passive": True, "ts": time.time()}
+                        except Exception:
+                            if isinstance(prev, dict) and prev.get("ok") is True:
+                                return mid, prev
+                        return mid, {"ok": True, "ms": 0, "engine": f"API ({mid} · Passive)", "passive": True, "ts": now_ts}
+
+                # ACTIVE PING MODE (only when passiveHealthCheck is OFF or user explicitly forces activePing)
                 if ep and key and mid not in MODEL_DISPLAY_TO_AGY_ID and mid not in CLAUDE_LOCAL_MODELS:
                     try:
-                        _ = call_live_llm(ep, key, mid, "Balas 1 kata: OK", [{"role": "user", "content": "OK"}])
+                        _ = call_live_llm(ep, key, mid, "Balas 1 kata: OK", [{"role": "user", "content": "OK"}], room="PROBE", agent_name="Health Probe")
                         return mid, {"ok": True, "ms": int((time.time() - t0) * 1000), "engine": f"API ({mid})", "ts": time.time()}
                     except Exception as e:
                         return mid, {"ok": False, "error": format_llm_http_error(e, mid, ep), "ts": time.time()}
-                # 2. Local Claude Code CLI session probe (tanpa API Key)
                 if mid in CLAUDE_LOCAL_MODELS:
                     try:
-                        _, used = call_local_claude_cli(mid, "Balas tepat 1 kata: OK", [], "OK")
+                        _, used = call_local_claude_cli(mid, "Balas tepat 1 kata: OK", [], "OK", live_mcp_ctx="", room="PROBE", agent_name="Health Probe")
                         return mid, {"ok": True, "ms": int((time.time() - t0) * 1000), "engine": f"Claude Code Local ({used})", "ts": time.time()}
                     except Exception as e:
                         return mid, {"ok": False, "error": str(e), "ts": time.time()}
-                # 3. Antigravity CLI model probe
                 if mid in MODEL_DISPLAY_TO_AGY_ID or "Gemini" in mid or "Imagen" in mid:
                     if not AGY_AUTH_SESSION.get("verified"):
                         return mid, {"ok": False, "error": "Antigravity CLI belum login / terverifikasi.", "ts": time.time()}
                     try:
-                        _, used = call_verified_agy_cli(mid, "Balas tepat 1 kata: OK", [], "OK")
+                        _, used = call_verified_agy_cli(mid, "Balas tepat 1 kata: OK", [], "OK", live_mcp_ctx="", room="PROBE", agent_name="Health Probe")
                         return mid, {"ok": True, "ms": int((time.time() - t0) * 1000), "engine": f"Antigravity CLI ({used})", "ts": time.time()}
                     except Exception as e:
                         return mid, {"ok": False, "error": str(e), "ts": time.time()}
@@ -6730,10 +7742,12 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             set_agents_busy(busy_ids, True)
             try:
                 live_ctx, executed_tools = build_dynamic_mcp_context_with_trace(prompt, room=target_room)
+                lead_meta_pre = speaker_meta.get(first_key) or {"agentId": 10, "sender": "Raka · GM / COO"}
+                lead_name_pre = lead_meta_pre["sender"].split("·")[0].strip()
                 reply_raw, used_engine = run_agent_with_tool_loop(
                     model_id, endpoint, api_key, sys_prompt, history, prompt,
                     attachments=attachments, live_mcp_ctx=live_ctx, executed_tools=executed_tools, room=target_room,
-                    agent_id=(speaker_meta.get(first_key) or {}).get("agentId", 10)
+                    agent_id=lead_meta_pre.get("agentId", 10), agent_name=lead_name_pre
                 )
                 lead_meta = speaker_meta.get(first_key) or {"agentId": 10, "sender": "Raka · GM / COO"}
                 lead_name = lead_meta["sender"].split("·")[0].strip()
@@ -6800,7 +7814,7 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 reply_raw, used_engine = run_agent_with_tool_loop(
                     model_id, endpoint, api_key, sys_prompt, history, prompt,
                     attachments=attachments, live_mcp_ctx=live_ctx, executed_tools=executed_tools, room=room,
-                    agent_id=agent_id
+                    agent_id=agent_id, agent_name=agent_name
                 )
                 reply, auto_exec, coord_ev = extract_and_execute_approved_from_reply(
                     reply_raw, prompt, history, room=room,
@@ -6833,148 +7847,160 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
         self._send_json(404, {"ok": False, "error": "Endpoint tidak ditemukan"})
 
 
-def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, prompt, attachments=None, live_mcp_ctx=None, executed_tools=None, room="", max_steps=3, agent_id=None):
-    """Executes multi-step autonomous [[TOOL_CALL:{...}]] requests for local folders, Local STDIO MCPs, and Remote HTTP MCPs."""
+def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, prompt, attachments=None, live_mcp_ctx=None, executed_tools=None, room="", max_steps=3, agent_id=None, agent_name=""):
+    """Executes multi-step autonomous [[TOOL_CALL:{...}]] requests with live step status updates in world_state."""
     executed_tools = executed_tools if isinstance(executed_tools, list) else []
     cur_history = list(history or [])
     cur_prompt = prompt
     used_engine = ""
     reply = ""
+    who_label = agent_name or f"Agen #{agent_id}" if agent_id is not None else (room or "Tim AI")
 
-    for step_idx in range(max_steps + 1):
-        reply, used_engine = run_agent_llm_unified(
-            model_id, endpoint, api_key, sys_prompt, cur_history, cur_prompt,
-            attachments=attachments if step_idx == 0 else None,
-            live_mcp_ctx=live_mcp_ctx,
-            agent_id=agent_id,
-        )
-        matches = re.findall(r"\[\[TOOL_CALL:(\{[\s\S]*?\})\]\]", str(reply or ""))
-        skill_loads = re.findall(r"\[\[LOAD_SKILL:\s*\"?([A-Za-z0-9_.:-]+)\"?\s*\]\]", str(reply or ""))
-        skill_searches = re.findall(r"\[\[SEARCH_SKILLS:\s*\"?([^\]]+?)\"?\s*\]\]", str(reply or ""))
-        skill_saves = re.findall(r"\[\[SAVE_SKILL:\s*(\{[\s\S]*?\})\s*\]\]", str(reply or ""))
-        skill_imports = re.findall(r"\[\[IMPORT_SKILL_URL:\s*(\{[\s\S]*?\})\s*\]\]", str(reply or ""))
+    try:
+        for step_idx in range(max_steps + 1):
+            step_lbl = f"⚡ {who_label} sedang berpikir ({model_id})..." if step_idx == 0 else f"⚡ {who_label} menyusun hasil langkah ke-{step_idx + 1}..."
+            update_world_state({"liveStepStatus": step_lbl})
+            reply, used_engine = run_agent_llm_unified(
+                model_id, endpoint, api_key, sys_prompt, cur_history, cur_prompt,
+                attachments=attachments if step_idx == 0 else None,
+                live_mcp_ctx=live_mcp_ctx,
+                agent_id=agent_id,
+                session_key=f"room:{room or 'GENERAL'}:agent:{agent_id if agent_id is not None else 'any'}",
+                room=room or "GENERAL",
+                agent_name=who_label,
+            )
+            matches = re.findall(r"\[\[TOOL_CALL:(\{[\s\S]*?\})\]\]", str(reply or ""))
+            skill_loads = re.findall(r"\[\[LOAD_SKILL:\s*\"?([A-Za-z0-9_.:-]+)\"?\s*\]\]", str(reply or ""))
+            skill_searches = re.findall(r"\[\[SEARCH_SKILLS:\s*\"?([^\]]+?)\"?\s*\]\]", str(reply or ""))
+            skill_saves = re.findall(r"\[\[SAVE_SKILL:\s*(\{[\s\S]*?\})\s*\]\]", str(reply or ""))
+            skill_imports = re.findall(r"\[\[IMPORT_SKILL_URL:\s*(\{[\s\S]*?\})\s*\]\]", str(reply or ""))
 
-        if (not matches and not skill_loads and not skill_searches and not skill_saves and not skill_imports) or step_idx >= max_steps:
-            # Strip raw tags cleanly before showing to user
-            clean_final = re.sub(r"\[\[TOOL_CALL:\{[\s\S]*?\}\]\]", "", str(reply or ""))
-            clean_final = re.sub(r"\[\[LOAD_SKILL:\s*\"?[A-Za-z0-9_.:-]+\"?\s*\]\]", "", clean_final)
-            clean_final = re.sub(r"\[\[SEARCH_SKILLS:\s*\"?[^\]]+?\"?\s*\]\]", "", clean_final)
-            clean_final = re.sub(r"\[\[SAVE_SKILL:\s*\{[\s\S]*?\}\s*\]\]", "", clean_final)
-            clean_final = re.sub(r"\[\[IMPORT_SKILL_URL:\s*\{[\s\S]*?\}\s*\]\]", "", clean_final).strip()
-            return clean_final or reply, used_engine
+            if (not matches and not skill_loads and not skill_searches and not skill_saves and not skill_imports) or step_idx >= max_steps:
+                clean_final = re.sub(r"\[\[TOOL_CALL:\{[\s\S]*?\}\]\]", "", str(reply or ""))
+                clean_final = re.sub(r"\[\[LOAD_SKILL:\s*\"?[A-Za-z0-9_.:-]+\"?\s*\]\]", "", clean_final)
+                clean_final = re.sub(r"\[\[SEARCH_SKILLS:\s*\"?[^\]]+?\"?\s*\]\]", "", clean_final)
+                clean_final = re.sub(r"\[\[SAVE_SKILL:\s*\{[\s\S]*?\}\s*\]\]", "", clean_final)
+                clean_final = re.sub(r"\[\[IMPORT_SKILL_URL:\s*\{[\s\S]*?\}\s*\]\]", "", clean_final).strip()
+                return clean_final or reply, used_engine
 
-        tool_results_lines = []
-        for sk_slug in skill_loads[:2]:
-            sk_res = read_hq_skill(sk_slug)
-            if sk_res.get("ok"):
-                sk_meta = sk_res["skill"]
+            update_world_state({"liveStepStatus": f"🔌 {who_label} mengeksekusi tool/skill (langkah {step_idx + 1})..."})
+            tool_results_lines = []
+            for sk_slug in skill_loads[:2]:
+                sk_res = read_hq_skill(sk_slug)
+                if sk_res.get("ok"):
+                    sk_meta = sk_res["skill"]
+                    executed_tools.append({
+                        "tool": sk_meta["name"],
+                        "source": "SKILL",
+                        "summary": "On-Demand SKILL.md",
+                    })
+                    tool_results_lines.append(f"- ISI LENGKAP SKILL `{sk_meta['name']}` (`{sk_meta['slug']}`):\n{sk_res['content'][:5000]}")
+                else:
+                    tool_results_lines.append(f"- Skill `{sk_slug}` tidak ditemukan.")
+
+            for sq in skill_searches[:2]:
+                sr = search_trusted_skills_online(sq.strip().strip("\"'"))
                 executed_tools.append({
-                    "tool": sk_meta["name"],
+                    "tool": f"Cari Skill: {sq.strip()[:28]}",
                     "source": "SKILL",
-                    "summary": "On-Demand SKILL.md",
+                    "summary": f"{len(sr.get('results') or [])} hasil terpercaya",
                 })
-                tool_results_lines.append(f"- ISI LENGKAP SKILL `{sk_meta['name']}` (`{sk_meta['slug']}`):\n{sk_res['content'][:5000]}")
-            else:
-                tool_results_lines.append(f"- Skill `{sk_slug}` tidak ditemukan.")
+                tool_results_lines.append(f"- HASIL PENCARIAN SKILL TERPERCAYA ('{sq}'): {json.dumps(sr.get('results') or [], ensure_ascii=False)[:2400]}")
 
-        for sq in skill_searches[:2]:
-            sr = search_trusted_skills_online(sq.strip().strip("\"'"))
-            executed_tools.append({
-                "tool": f"Cari Skill: {sq.strip()[:28]}",
-                "source": "SKILL",
-                "summary": f"{len(sr.get('results') or [])} hasil terpercaya",
-            })
-            tool_results_lines.append(f"- HASIL PENCARIAN SKILL TERPERCAYA ('{sq}'): {json.dumps(sr.get('results') or [], ensure_ascii=False)[:2400]}")
+            for raw_sv in skill_saves[:2]:
+                try:
+                    sv_obj = json.loads(raw_sv)
+                    if room and not sv_obj.get("scope"):
+                        sv_obj["scope"] = "DEPT"
+                        sv_obj["depts"] = [room]
+                    sv_obj["origin"] = "agent_created"
+                    sv_res = save_hq_skill(sv_obj)
+                    if sv_res.get("ok"):
+                        executed_tools.append({
+                            "tool": f"Buat Skill: {sv_obj.get('name', sv_res.get('slug', ''))}",
+                            "source": "SKILL",
+                            "summary": f"skills/{sv_res.get('slug')}/SKILL.md",
+                        })
+                        tool_results_lines.append(f"- SKILL BARU TERSIMPAN: skills/{sv_res.get('slug')}/SKILL.md (aktif di tab 🧠 Skills)")
+                    else:
+                        tool_results_lines.append(f"- Gagal menyimpan skill: {sv_res.get('error')}")
+                except Exception as sve:
+                    tool_results_lines.append(f"- Parse error SAVE_SKILL: {sve}")
 
-        for raw_sv in skill_saves[:2]:
-            try:
-                sv_obj = json.loads(raw_sv)
-                if room and not sv_obj.get("scope"):
-                    sv_obj["scope"] = "DEPT"
-                    sv_obj["depts"] = [room]
-                sv_obj["origin"] = "agent_created"
-                sv_res = save_hq_skill(sv_obj)
-                if sv_res.get("ok"):
+            for raw_im in skill_imports[:2]:
+                try:
+                    im_obj = json.loads(raw_im)
+                    if room and not im_obj.get("scope"):
+                        im_obj["scope"] = "DEPT"
+                        im_obj["depts"] = [room]
+                    im_res = import_skill_from_url(im_obj)
+                    if im_res.get("ok"):
+                        executed_tools.append({
+                            "tool": f"Import Skill: {im_res.get('slug', '')}",
+                            "source": "SKILL",
+                            "summary": f"skills/{im_res.get('slug')}/SKILL.md",
+                        })
+                        tool_results_lines.append(f"- SKILL TERPERCAYA BERHASIL DIIMPOR: skills/{im_res.get('slug')}/SKILL.md")
+                    else:
+                        tool_results_lines.append(f"- Gagal import skill URL: {im_res.get('error')}")
+                except Exception as ime:
+                    tool_results_lines.append(f"- Parse error IMPORT_SKILL_URL: {ime}")
+
+            for raw_json in matches[:4]:
+                try:
+                    req_obj = json.loads(raw_json)
+                except Exception as pe:
+                    tool_results_lines.append(f"- Parse error TOOL_CALL: {pe}")
+                    continue
+                src = str(req_obj.get("source") or "").strip().lower()
+                if src == "local_folder":
+                    act = str(req_obj.get("action") or "list").strip().lower()
+                    fid = str(req_obj.get("folderId") or "").strip()
+                    rpath = str(req_obj.get("relPath") or "").strip()
+                    res = execute_local_folder_action(act, fid, rpath, req_obj.get("content") or "")
                     executed_tools.append({
-                        "tool": f"Buat Skill: {sv_obj.get('name', sv_res.get('slug', ''))}",
-                        "source": "SKILL",
-                        "summary": f"skills/{sv_res.get('slug')}/SKILL.md",
+                        "tool": f"local_folder.{act}({fid}/{rpath})".rstrip("/"),
+                        "source": "LOCAL_FOLDER",
+                        "summary": "OK" if res.get("ok") else f"Err: {str(res.get('error') or '')[:60]}",
                     })
-                    tool_results_lines.append(f"- SKILL BARU TERSIMPAN: skills/{sv_res.get('slug')}/SKILL.md (aktif di tab 🧠 Skills)")
-                else:
-                    tool_results_lines.append(f"- Gagal menyimpan skill: {sv_res.get('error')}")
-            except Exception as sve:
-                tool_results_lines.append(f"- Parse error SAVE_SKILL: {sve}")
-
-        for raw_im in skill_imports[:2]:
-            try:
-                im_obj = json.loads(raw_im)
-                if room and not im_obj.get("scope"):
-                    im_obj["scope"] = "DEPT"
-                    im_obj["depts"] = [room]
-                im_res = import_skill_from_url(im_obj)
-                if im_res.get("ok"):
+                    comp_res, _ = compress_tool_output_text(json.dumps(res, ensure_ascii=False), max_chars=2000)
+                    tool_results_lines.append(f"- HASIL local_folder.{act}: {comp_res}")
+                elif src == "local_mcp":
+                    sid = str(req_obj.get("serverId") or "").strip()
+                    tname = str(req_obj.get("tool") or "").strip()
+                    targs = req_obj.get("args") if isinstance(req_obj.get("args"), dict) else {}
+                    res = call_local_stdio_mcp_tool(tname, targs, server_id=sid)
                     executed_tools.append({
-                        "tool": f"Import Skill: {im_res.get('slug', '')}",
-                        "source": "SKILL",
-                        "summary": f"skills/{im_res.get('slug')}/SKILL.md",
+                        "tool": f"{sid or 'local_mcp'}:{tname}",
+                        "source": "LOCAL_STDIO_MCP",
+                        "summary": f"OK · {res.get('ms', 0)}ms" if res.get("ok") else f"Err: {str(res.get('error') or '')[:60]}",
                     })
-                    tool_results_lines.append(f"- SKILL TERPERCAYA BERHASIL DIIMPOR: skills/{im_res.get('slug')}/SKILL.md")
-                else:
-                    tool_results_lines.append(f"- Gagal import skill URL: {im_res.get('error')}")
-            except Exception as ime:
-                tool_results_lines.append(f"- Parse error IMPORT_SKILL_URL: {ime}")
+                    comp_res, _ = compress_tool_output_text(json.dumps(res, ensure_ascii=False), max_chars=2000)
+                    tool_results_lines.append(f"- HASIL local_mcp({tname}): {comp_res}")
+                elif src == "remote_mcp":
+                    sid = str(req_obj.get("serverId") or "").strip()
+                    tname = str(req_obj.get("tool") or "").strip()
+                    targs = req_obj.get("args") if isinstance(req_obj.get("args"), dict) else {}
+                    res = call_remote_mcp_tool(tname, targs, room=room, server_id=sid)
+                    executed_tools.append({
+                        "tool": tname,
+                        "source": "REMOTE_MCP",
+                        "summary": f"OK · {res.get('ms', 0)}ms" if res.get("ok") else f"Err: {str(res.get('error') or '')[:60]}",
+                    })
+                    comp_res, _ = compress_tool_output_text(json.dumps(res, ensure_ascii=False), max_chars=2000)
+                    tool_results_lines.append(f"- HASIL remote_mcp({tname}): {comp_res}")
 
-        for raw_json in matches[:4]:
-            try:
-                req_obj = json.loads(raw_json)
-            except Exception as pe:
-                tool_results_lines.append(f"- Parse error TOOL_CALL: {pe}")
-                continue
-            src = str(req_obj.get("source") or "").strip().lower()
-            if src == "local_folder":
-                act = str(req_obj.get("action") or "list").strip().lower()
-                fid = str(req_obj.get("folderId") or "").strip()
-                rpath = str(req_obj.get("relPath") or "").strip()
-                res = execute_local_folder_action(act, fid, rpath, req_obj.get("content") or "")
-                executed_tools.append({
-                    "tool": f"local_folder.{act}({fid}/{rpath})".rstrip("/"),
-                    "source": "LOCAL_FOLDER",
-                    "summary": "OK" if res.get("ok") else f"Err: {str(res.get('error') or '')[:60]}",
-                })
-                tool_results_lines.append(f"- HASIL local_folder.{act}: {json.dumps(res, ensure_ascii=False)[:2400]}")
-            elif src == "local_mcp":
-                sid = str(req_obj.get("serverId") or "").strip()
-                tname = str(req_obj.get("tool") or "").strip()
-                targs = req_obj.get("args") if isinstance(req_obj.get("args"), dict) else {}
-                res = call_local_stdio_mcp_tool(tname, targs, server_id=sid)
-                executed_tools.append({
-                    "tool": f"{sid or 'local_mcp'}:{tname}",
-                    "source": "LOCAL_STDIO_MCP",
-                    "summary": f"OK · {res.get('ms', 0)}ms" if res.get("ok") else f"Err: {str(res.get('error') or '')[:60]}",
-                })
-                tool_results_lines.append(f"- HASIL local_mcp({tname}): {json.dumps(res, ensure_ascii=False)[:2400]}")
-            elif src == "remote_mcp":
-                sid = str(req_obj.get("serverId") or "").strip()
-                tname = str(req_obj.get("tool") or "").strip()
-                targs = req_obj.get("args") if isinstance(req_obj.get("args"), dict) else {}
-                res = call_remote_mcp_tool(tname, targs, room=room, server_id=sid)
-                executed_tools.append({
-                    "tool": tname,
-                    "source": "REMOTE_MCP",
-                    "summary": f"OK · {res.get('ms', 0)}ms" if res.get("ok") else f"Err: {str(res.get('error') or '')[:60]}",
-                })
-                tool_results_lines.append(f"- HASIL remote_mcp({tname}): {json.dumps(res, ensure_ascii=False)[:2400]}")
+            cur_history.append({"role": "user", "content": cur_prompt})
+            cur_history.append({"role": "assistant", "content": reply})
+            cur_prompt = (
+                "HASIL EKSEKUSI TOOL NYATA:\n"
+                + "\n".join(tool_results_lines)
+                + "\n\nLanjutkan pekerjaanmu berdasarkan hasil nyata di atas. Jika semua langkah sudah selesai, berikan laporan final yang rapi kepada CEO (tanpa tag TOOL_CALL)."
+            )
 
-        cur_history.append({"role": "user", "content": cur_prompt})
-        cur_history.append({"role": "assistant", "content": reply})
-        cur_prompt = (
-            "HASIL EKSEKUSI TOOL NYATA:\n"
-            + "\n".join(tool_results_lines)
-            + "\n\nLanjutkan pekerjaanmu berdasarkan hasil nyata di atas. Jika semua langkah sudah selesai, berikan laporan final yang rapi kepada CEO (tanpa tag TOOL_CALL)."
-        )
-
-    return reply, used_engine
+        return reply, used_engine
+    finally:
+        update_world_state({"liveStepStatus": ""})
 
 
 def _extract_architect_plan_json(raw_text):
@@ -7296,6 +8322,12 @@ def _run_background_model_and_vps_heartbeat():
                 cached = load_model_health_cache()
                 now_ts = time.time()
                 updated = False
+                ts_hb = load_token_saver_config()
+                use_passive_hb = bool(ts_hb.get("passiveHealthCheck", True))
+                live_agy_hb = set()
+                if use_passive_hb and AGY_AUTH_SESSION.get("verified"):
+                    agy_l, _ = discover_antigravity_cli_models(force=False)
+                    live_agy_hb = set(m.get("id") for m in agy_l if isinstance(m, dict))
                 for mid in unique_ids:
                     prev = cached.get(mid)
                     if isinstance(prev, dict) and prev.get("ok") is True and (now_ts - float(prev.get("ts") or 0)) < 540:
@@ -7304,9 +8336,31 @@ def _run_background_model_and_vps_heartbeat():
                     ep = (m_obj.get("endpoint") or "").strip()
                     key = (m_obj.get("apiKey") or "").strip()
                     t0 = time.time()
+                    if use_passive_hb:
+                        # Zero-token passive health verification (saves ~13,500 tokens per AGY ping!)
+                        if mid in MODEL_DISPLAY_TO_AGY_ID or mid in live_agy_hb or "Gemini" in mid or "Imagen" in mid:
+                            if AGY_AUTH_SESSION.get("verified"):
+                                cached[mid] = {"ok": True, "ms": 0, "engine": "Antigravity CLI (Passive · 0 tok)", "passive": True, "ts": now_ts}
+                                record_token_usage(mid, "passive-heartbeat", heartbeat_saved=13500)
+                                updated = True
+                        elif mid in CLAUDE_LOCAL_MODELS:
+                            cst = detect_claude_local_session(force=False)
+                            cached[mid] = {"ok": bool(cst.get("logged_in")), "ms": 0, "engine": "Claude Local (Passive · 0 tok)", "passive": True, "ts": now_ts}
+                            updated = True
+                        elif ep and key:
+                            try:
+                                req_m = urllib.request.Request(ep.rstrip("/") + "/models", method="GET")
+                                req_m.add_header("Authorization", f"Bearer {key}")
+                                with urllib.request.urlopen(req_m, timeout=6) as r_m:
+                                    if r_m.status < 400:
+                                        cached[mid] = {"ok": True, "ms": int((time.time() - t0) * 1000), "engine": f"API ({mid} · Passive 0 tok)", "passive": True, "ts": time.time()}
+                                        updated = True
+                            except Exception:
+                                pass
+                        continue
                     if ep and key and mid not in MODEL_DISPLAY_TO_AGY_ID:
                         try:
-                            _ = call_live_llm(ep, key, mid, "Balas 1 kata: OK", [{"role": "user", "content": "OK"}])
+                            _ = call_live_llm(ep, key, mid, "Balas 1 kata: OK", [{"role": "user", "content": "OK"}], room="HEARTBEAT", agent_name="Heartbeat")
                             cached[mid] = {"ok": True, "ms": int((time.time() - t0) * 1000), "engine": f"API ({mid})", "ts": time.time()}
                             updated = True
                         except Exception as e:
@@ -7314,7 +8368,11 @@ def _run_background_model_and_vps_heartbeat():
                             updated = True
                     elif (mid in MODEL_DISPLAY_TO_AGY_ID or "Gemini" in mid or "Imagen" in mid) and AGY_AUTH_SESSION.get("verified"):
                         try:
-                            _, used = call_verified_agy_cli(mid, "Balas tepat 1 kata: OK", [], "OK")
+                            if ts_hb.get("heartbeatZeroContext", True):
+                                _, used = call_verified_agy_cli(mid, "Balas tepat 1 kata: OK", [], "OK", live_mcp_ctx="", room="HEARTBEAT", agent_name="Heartbeat")
+                                record_token_usage(mid, "heartbeat-zero-ctx", heartbeat_saved=1800)
+                            else:
+                                _, used = call_verified_agy_cli(mid, "Balas tepat 1 kata: OK", [], "OK", room="HEARTBEAT", agent_name="Heartbeat")
                             cached[mid] = {"ok": True, "ms": int((time.time() - t0) * 1000), "engine": f"Antigravity CLI ({used})", "ts": time.time()}
                             updated = True
                         except Exception as e:
@@ -7510,6 +8568,9 @@ def run_gm_autopilot_cycle(manual=False):
             return {"ok": False, "error": "Kantor sedang dalam mode Tutup/Istirahat."}
         if not manual and int(cfg.get("runsToday") or 0) >= int(cfg.get("maxDailyRuns") or 8):
             return {"ok": False, "error": "Batas kuota patroli harian sudah tercapai."}
+        budget_st = check_daily_token_budget()
+        if not manual and budget_st.get("exceeded"):
+            return {"ok": False, "error": f"Autopilot dijeda otomatis: batas Daily Token Budget tercapai ({budget_st['usedTodayTokens']:,} / {budget_st['dailyTokenBudget']:,} tok)."}
         cfg["isRunning"] = True
         _save_autopilot_config_unlocked(cfg)
 
@@ -7602,7 +8663,8 @@ def run_gm_autopilot_cycle(manual=False):
         )
 
         raw_reply, used_engine = run_agent_llm_unified(
-            gm_mid, gm_ep, gm_key, sys_prompt, [], user_prompt, live_mcp_ctx=live_ctx, agent_id=gm_id
+            gm_mid, gm_ep, gm_key, sys_prompt, [], user_prompt, live_mcp_ctx=live_ctx,
+            agent_id=gm_id, room="AUTOPILOT", agent_name=gm_name
         )
         decision = _extract_json_block(raw_reply)
         if not isinstance(decision, dict):
