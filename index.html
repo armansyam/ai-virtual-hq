@@ -333,6 +333,11 @@
 
       <!-- Clean Navigation Menu (Uniform Refined Badges) -->
       <nav class="space-y-0.5 text-[11.5px] pt-1 border-t border-white/5">
+        <a href="#" onclick="openCeoSummaryModal(); return false;" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-400/25 text-amber-100 font-semibold hover:bg-amber-500/20 transition">
+          <span>Ringkasan CEO</span>
+          <span id="sidebar-attention-badge" class="hidden px-1.5 py-0.5 rounded-md bg-amber-500/30 border border-amber-400/40 text-[9.5px] text-amber-100 font-bold leading-none" title="Menunggu keputusan Anda">0</span>
+        </a>
+        <div class="px-2.5 pt-2 pb-0.5 text-[9.5px] uppercase tracking-wider text-slate-500">Kerja</div>
         <a href="#" onclick="selectRoom('ALL')" id="nav-dashboard" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-white/10 text-white font-medium">
           <span>Kampus HQ</span>
           <span id="sidebar-floor-badge" class="px-1.5 py-0.5 rounded-md bg-white/[0.06] border border-white/10 text-[9.5px] text-slate-300 font-mono leading-none">4 Gedung</span>
@@ -350,13 +355,14 @@
         <a href="#" onclick="openFinanceModal()" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-slate-300 hover:bg-white/5 hover:text-white transition">
           <span>Keuangan</span>
         </a>
-        <a href="#" onclick="openInterDeptLogModal()" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-slate-300 hover:bg-white/5 hover:text-white transition">
-          <span>Log Diskusi</span>
+        <a href="#" onclick="openInterDeptLogModal('TASKBOARD'); return false;" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-slate-300 hover:bg-white/5 hover:text-white transition">
+          <span>Papan Tugas &amp; Log</span>
           <span id="sidebar-log-count" class="px-1.5 py-0.5 rounded-md bg-white/[0.05] border border-white/10 text-[9.5px] text-slate-400 font-mono leading-none">0</span>
         </a>
         <a href="#" onclick="openAllOutputsModal()" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-slate-300 hover:bg-white/5 hover:text-white transition">
           <span>Hasil Kerja</span>
         </a>
+        <div class="px-2.5 pt-2 pb-0.5 text-[9.5px] uppercase tracking-wider text-slate-500">Pengaturan</div>
         <a href="#" onclick="switchView('table')" class="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-slate-300 hover:bg-white/5 hover:text-white transition">
           <span>Kelola Tim</span>
           <span id="sidebar-team-count" class="px-1.5 py-0.5 rounded-md bg-white/[0.05] border border-white/10 text-[9.5px] text-slate-300 font-mono leading-none">35/35</span>
@@ -937,6 +943,19 @@
   </div>
 
   <!-- ================= MODAL 6: DEPARTEMEN 6 KEUANGAN, OPEX, UNIT ECONOMICS & ANTI-RUGI ================= -->
+  <div id="modal-ceo-summary" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+    <div class="w-full max-w-3xl rounded-2xl bg-[#191923] border border-white/15 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div class="px-5 py-3.5 border-b border-white/10 flex items-center justify-between bg-[#14141d]">
+        <div>
+          <h3 class="font-bold text-sm text-white">Ringkasan CEO</h3>
+          <p class="text-[11px] text-slate-400 mt-0.5">Yang menunggu keputusan Anda, target bisnis, pekerjaan berjalan, dan hasil terbaru.</p>
+        </div>
+        <button onclick="closeModals()" class="text-slate-400 hover:text-white text-sm cursor-pointer px-1" aria-label="Tutup">✕</button>
+      </div>
+      <div id="ceo-summary-body" class="flex-1 overflow-y-auto p-5 space-y-5 text-xs text-slate-200"></div>
+    </div>
+  </div>
+
   <div id="modal-finance" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
     <div class="w-full max-w-5xl rounded-2xl bg-[#191923] border border-amber-500/40 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
       <div class="px-5 py-3.5 border-b border-white/10 flex items-center justify-between bg-[#14141d]">
@@ -10916,7 +10935,10 @@
       document.getElementById("sidebar-team-count").textContent = `${activeCount}/${agents.length}`;
       const liveInd = document.getElementById("sidebar-live-indicator");
       if (liveInd) {
-        if (activeCount === 0) {
+        if (activeCount === 0 && OFFICE_OFF_MODE) {
+          liveInd.className = "flex items-center gap-1.5 text-[11px] text-slate-400 font-medium";
+          liveInd.innerHTML = `<span class="w-2 h-2 rounded-full bg-slate-500"></span> Kantor tutup · semua istirahat`;
+        } else if (activeCount === 0) {
           liveInd.className = "flex items-center gap-1.5 text-[11px] text-rose-400 font-semibold";
           liveInd.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span> 0/${agents.length} Model Aktif`;
         } else if (busyCount > 0) {
@@ -11002,11 +11024,12 @@
             : (!st.active
               ? `<span class="px-1.5 py-0.5 rounded-full ${st.code === 'QUOTA' ? 'bg-amber-500/25 text-amber-200 border-amber-400/50' : 'bg-rose-500/20 text-rose-300 border-rose-500/40'} border text-[9.5px] font-bold shrink-0" title="${escapeHtmlSafe(st.reason)}">${st.shortBadge || '🔴 Off'}</span>`
               : `<span class="px-1.5 py-0.5 rounded-full bg-slate-500/15 text-slate-400 border border-white/10 text-[9.5px] font-medium shrink-0">○ Standby</span>`));
-        const errNote = st.active
-          ? `<div class="text-[10px] ${isBusy ? 'text-emerald-300 font-medium' : 'text-slate-400'} truncate">${isBusy ? 'Sedang mengeksekusi tugas nyata...' : ag.role}</div>`
+        // Istirahat di luar jam kerja adalah kondisi normal: tampil netral, bukan sebagai error model.
+        const errNote = (st.active || st.resting)
+          ? `<div class="text-[10px] ${isBusy ? 'text-emerald-300 font-medium' : 'text-slate-400'} truncate">${isBusy ? 'Sedang mengeksekusi tugas nyata...' : escapeHtmlSafe(ag.role)}</div>`
           : `<div class="text-[10px] ${st.code === 'QUOTA' ? 'text-amber-300' : 'text-rose-300'} truncate" title="${escapeHtmlSafe(st.reason)}">⚠️ ${escapeHtmlSafe(st.reason)}</div>`;
         return `
-        <div onclick="selectAgentById(${ag.id})" class="p-2 rounded-xl ${isBusy ? 'bg-emerald-500/15 border-emerald-400/50' : (inCeo ? 'bg-amber-500/15 border-amber-400/50' : (st.active ? 'bg-white/[0.03] border-white/5' : 'bg-rose-950/30 border-rose-500/40'))} hover:bg-white/[0.08] border flex items-center justify-between gap-1.5 cursor-pointer transition">
+        <div onclick="selectAgentById(${ag.id})" class="p-2 rounded-xl ${isBusy ? 'bg-emerald-500/15 border-emerald-400/50' : (inCeo ? 'bg-amber-500/15 border-amber-400/50' : ((st.active || st.resting) ? 'bg-white/[0.03] border-white/5' : 'bg-rose-950/30 border-rose-500/40'))} hover:bg-white/[0.08] border flex items-center justify-between gap-1.5 cursor-pointer transition">
           <div class="flex items-center gap-2 min-w-0">
             <div class="w-7 h-7 rounded-full ${isBusy ? 'bg-emerald-500/30 border-emerald-400 text-emerald-200' : (st.active ? 'bg-purple-600/30 border-purple-400/40 text-purple-200' : 'bg-rose-600/30 border-rose-400/50 text-rose-200')} border flex items-center justify-center text-xs font-bold shrink-0">
               ${ag.name.charAt(0)}
@@ -11053,7 +11076,7 @@
               </div>
               ${tableBadge}
             </div>
-            ${!st.active ? `<div class="p-2 rounded-lg bg-rose-500/15 border border-rose-500/35 text-[11px] text-rose-200">⚠️ <b>${st.label}:</b> ${escapeHtmlSafe(st.reason)}${st.hasFallback ? `<div class="text-amber-200 mt-0.5">🛡️ Fallback siap mengambil alih otomatis: <span class="font-mono">${escapeHtmlSafe(st.fallbackModel)}</span></div>` : ""}</div>` : ""}
+            ${(!st.active && !st.resting) ? `<div class="p-2 rounded-lg bg-rose-500/15 border border-rose-500/35 text-[11px] text-rose-200">⚠️ <b>${st.label}:</b> ${escapeHtmlSafe(st.reason)}${st.hasFallback ? `<div class="text-amber-200 mt-0.5">🛡️ Fallback siap mengambil alih otomatis: <span class="font-mono">${escapeHtmlSafe(st.fallbackModel)}</span></div>` : ""}</div>` : ""}
             <div class="flex items-center gap-2">
               <span class="text-[11px] text-slate-400 shrink-0 w-24">⚡ Model Utama:</span>
               <select onchange="changeAgentModel(${ag.id}, this.value)" class="flex-1 px-2.5 py-1 rounded-lg bg-[#12121a] border border-purple-500/40 text-purple-200 font-mono text-xs cursor-pointer">
@@ -12292,7 +12315,7 @@
     }
 
     function closeModals(fromRemoteSync = false) {
-      ["modal-analytics", "modal-progress", "modal-result", "modal-hire", "modal-settings", "modal-interdept-log", "modal-finance", "modal-expand-hq", "modal-autopilot"].forEach(id => {
+      ["modal-analytics", "modal-progress", "modal-result", "modal-hire", "modal-settings", "modal-interdept-log", "modal-finance", "modal-expand-hq", "modal-autopilot", "modal-ceo-summary"].forEach(id => {
         const el = document.getElementById(id);
         if (el) {
           el.classList.add("hidden");
@@ -12514,6 +12537,7 @@
     }
 
     function renderAutopilotBadge() {
+      renderCeoAttentionBadge();
       const cfg = AUTOPILOT_STATE;
       const badge = document.getElementById("sidebar-autopilot-badge");
       const btn = document.getElementById("sidebar-autopilot-btn");
@@ -12775,6 +12799,185 @@
           updateToast(action === "approve" ? "✅ Disetujui! Tim sedang mengeksekusi tugas di 3D." : "✖ Usulan diabaikan.");
         }
       } catch (e) {}
+    }
+
+    // ===== Ringkasan CEO: satu tempat untuk keputusan yang menunggu, target bisnis, kerja berjalan, dan hasil terbaru =====
+    var CEO_TARGETS = null;
+
+    function _ceoAttentionItems() {
+      const apvs = (AUTOPILOT_STATE && Array.isArray(AUTOPILOT_STATE.pendingApprovals)) ? AUTOPILOT_STATE.pendingApprovals : [];
+      const stuck = (Array.isArray(TASKBOARD_ITEMS) ? TASKBOARD_ITEMS : []).filter(t => t.status === "REVISI" || t.status === "GAGAL");
+      return { apvs, stuck };
+    }
+
+    function renderCeoAttentionBadge() {
+      const el = document.getElementById("sidebar-attention-badge");
+      if (!el) return;
+      const { apvs, stuck } = _ceoAttentionItems();
+      const n = apvs.length + stuck.length;
+      el.textContent = String(n);
+      el.classList.toggle("hidden", n === 0);
+    }
+
+    async function openCeoSummaryModal() {
+      closeModals();
+      const modal = document.getElementById("modal-ceo-summary");
+      modal.classList.remove("hidden");
+      modal.classList.add("flex");
+      renderCeoSummary();
+      await Promise.all([
+        fetchAutopilotStatus(),
+        fetch("/api/taskboard").then(r => r.json()).then(d => { if (d && Array.isArray(d.taskboard)) TASKBOARD_ITEMS = d.taskboard; })
+          .catch(err => console.warn("Papan tugas gagal dimuat", err)),
+        fetch("/api/targets").then(r => r.json()).then(d => { if (d && d.ok) CEO_TARGETS = d.progress; })
+          .catch(err => console.warn("Target bisnis gagal dimuat", err)),
+      ]);
+      renderCeoSummary();
+      renderCeoAttentionBadge();
+    }
+
+    function _ceoFmt(key, val) {
+      if (val === null || val === undefined) return "—";
+      return key === "revenueMonth" ? `Rp ${Number(val).toLocaleString("id-ID")}` : Number(val).toLocaleString("id-ID");
+    }
+
+    function renderCeoSummary() {
+      const body = document.getElementById("ceo-summary-body");
+      if (!body) return;
+      const { apvs, stuck } = _ceoAttentionItems();
+      const tasks = Array.isArray(TASKBOARD_ITEMS) ? TASKBOARD_ITEMS : [];
+      const running = tasks.filter(t => t.status === "TODO" || t.status === "IN_PROGRESS");
+      const done = tasks.filter(t => t.status === "DONE").slice(0, 5);
+      const card = "p-3 rounded-xl bg-[#13131b] border border-white/10";
+      const sectionTitle = (txt, count) => `<div class="flex items-center justify-between mb-2"><h4 class="text-[12px] font-bold text-white">${txt}</h4>${count !== undefined ? `<span class="text-[10px] text-slate-400">${count}</span>` : ""}</div>`;
+
+      const apvHtml = apvs.map(a => `
+        <div class="${card} flex flex-wrap items-start justify-between gap-2">
+          <div class="min-w-0 flex-1">
+            <div class="text-[10px] text-amber-300 font-semibold">Butuh ACC · ${escapeHtmlSafe(a.dept || "")} · ${escapeHtmlSafe(a.agentName || "")}</div>
+            <div class="font-semibold text-white text-[11.5px]">${escapeHtmlSafe(a.title || "")}</div>
+            <div class="text-[10.5px] text-slate-400 mt-0.5 line-clamp-2">${escapeHtmlSafe(String(a.detail || "").slice(0, 220))}</div>
+          </div>
+          <div class="flex gap-1.5 shrink-0">
+            <button onclick="ceoDecideApproval('${escapeHtmlSafe(a.id)}','approve')" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10.5px] cursor-pointer">Setujui</button>
+            <button onclick="ceoDecideApproval('${escapeHtmlSafe(a.id)}','dismiss')" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-slate-200 text-[10.5px] cursor-pointer">Abaikan</button>
+          </div>
+        </div>`).join("");
+
+      const stuckHtml = stuck.map(t => `
+        <div class="${card} flex flex-wrap items-start justify-between gap-2">
+          <div class="min-w-0 flex-1">
+            <div class="text-[10px] ${t.status === "GAGAL" ? "text-rose-300" : "text-orange-300"} font-semibold">${t.status === "GAGAL" ? "Gagal dieksekusi" : "Belum lulus QA"} · ${escapeHtmlSafe(t.dept || "")}</div>
+            <div class="font-semibold text-white text-[11.5px]">${escapeHtmlSafe(t.title || "")}</div>
+            <div class="text-[10.5px] text-slate-400 mt-0.5 line-clamp-2">${escapeHtmlSafe(t.detail || "")}</div>
+          </div>
+          <div class="flex flex-wrap gap-1.5 shrink-0">
+            <button onclick="ceoRequeueTask('${escapeHtmlSafe(t.id)}')" class="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold text-[10.5px] cursor-pointer">Kerjakan ulang</button>
+            ${t.status === "REVISI" ? `<button onclick="ceoAcceptTask('${escapeHtmlSafe(t.id)}')" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-slate-200 text-[10.5px] cursor-pointer">Terima apa adanya</button>` : ""}
+            ${t.artifactFile ? `<button onclick="closeModals(); openAllOutputsModal()" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 text-[10.5px] cursor-pointer">Lihat laporan</button>` : ""}
+          </div>
+        </div>`).join("");
+
+      const metrics = (CEO_TARGETS && Array.isArray(CEO_TARGETS.metrics)) ? CEO_TARGETS.metrics : [];
+      const targetsHtml = metrics.length
+        ? metrics.map(m => {
+            const pct = (m.percent === null || m.percent === undefined) ? 0 : Math.min(100, m.percent);
+            return `
+            <div class="${card} space-y-1.5">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-[11px] text-slate-300">${escapeHtmlSafe(m.label)}</span>
+                <span class="text-[11.5px] font-bold text-white">${_ceoFmt(m.key, m.actual)}${m.target ? ` <span class="text-slate-400 font-normal">/ ${_ceoFmt(m.key, m.target)}</span>` : ""}</span>
+              </div>
+              <div class="h-1.5 rounded-full bg-white/10 overflow-hidden"><div class="h-full bg-emerald-400" style="width:${pct}%"></div></div>
+              <label class="flex items-center gap-2 text-[10.5px] text-slate-400">Target:
+                <input id="ceo-target-${m.key}" type="number" min="0" value="${m.target ?? ""}" placeholder="belum ditetapkan" class="w-36 px-2 py-1 rounded-md bg-[#0d0d14] border border-white/15 text-white text-[11px]" />
+              </label>
+            </div>`;
+          }).join("")
+        : `<div class="text-[11px] text-slate-400">Memuat angka dari luxvite.id…</div>`;
+      const targetErr = (CEO_TARGETS && CEO_TARGETS.errors && CEO_TARGETS.errors.length)
+        ? `<div class="text-[10.5px] text-amber-300">Sebagian angka gagal dibaca: ${escapeHtmlSafe(CEO_TARGETS.errors.join("; "))}</div>` : "";
+
+      const runningHtml = running.slice(0, 8).map(t => `
+        <div class="flex items-center justify-between gap-2 py-1 border-b border-white/5 last:border-0">
+          <span class="truncate text-[11px] text-slate-200">${escapeHtmlSafe(t.title || "")}</span>
+          <span class="shrink-0 text-[10px] text-slate-400">${escapeHtmlSafe(t.dept || "")}${t.revisionRound ? ` · revisi ${t.revisionRound}` : ""}</span>
+        </div>`).join("");
+
+      const doneHtml = done.map(t => `
+        <button onclick="closeModals(); openAllOutputsModal()" class="w-full text-left flex items-center justify-between gap-2 py-1 border-b border-white/5 last:border-0 cursor-pointer hover:text-white">
+          <span class="truncate text-[11px] text-slate-200">${escapeHtmlSafe(t.title || "")}</span>
+          <span class="shrink-0 text-[10px] text-slate-400">${escapeHtmlSafe(t.dept || "")}</span>
+        </button>`).join("");
+
+      body.innerHTML = `
+        <section>
+          ${sectionTitle("Menunggu keputusan Anda", `${apvs.length + stuck.length} item`)}
+          <div class="space-y-2">${apvHtml}${stuckHtml}${(apvs.length + stuck.length) === 0 ? `<div class="${card} text-[11px] text-slate-400">Tidak ada yang menunggu Anda.</div>` : ""}</div>
+        </section>
+        <section>
+          ${sectionTitle("Target bisnis", CEO_TARGETS ? `data live · ${escapeHtmlSafe(CEO_TARGETS.fetchedAt || "")}` : undefined)}
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">${targetsHtml}</div>
+          ${targetErr}
+          <div class="flex items-center justify-between gap-2 mt-2">
+            <span class="text-[10.5px] text-slate-500">Tim memakai target ini saat merencanakan tugas sendiri.</span>
+            <button onclick="ceoSaveTargets()" class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-[#1a1407] font-bold text-[11px] cursor-pointer">Simpan target</button>
+          </div>
+        </section>
+        <section class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="${card}">${sectionTitle("Sedang dikerjakan", running.length)}${runningHtml || `<div class="text-[11px] text-slate-400">Tidak ada tugas berjalan.</div>`}
+            ${OFFICE_OFF_MODE && running.length ? `<div class="mt-2 text-[10.5px] text-slate-500">Kantor tutup: tugas lanjut saat jam kerja, atau tekan Aktifkan (Lembur).</div>` : ""}</div>
+          <div class="${card}">${sectionTitle("Hasil terbaru (lulus QA)", done.length)}${doneHtml || `<div class="text-[11px] text-slate-400">Belum ada hasil yang lulus QA.</div>`}</div>
+        </section>`;
+    }
+
+    async function ceoDecideApproval(approvalId, action) {
+      await handleAutopilotApproval(approvalId, action);
+      renderCeoSummary();
+      renderCeoAttentionBadge();
+    }
+
+    async function _ceoUpdateTask(taskId, patch, toastMsg) {
+      const item = TASKBOARD_ITEMS.find(t => t.id === taskId);
+      if (!item) return;
+      Object.assign(item, patch, { updatedAt: new Date().toLocaleString("id-ID") });
+      await saveTaskboardToServer();
+      renderCeoSummary();
+      renderCeoAttentionBadge();
+      updateToast(toastMsg);
+    }
+
+    function ceoRequeueTask(taskId) {
+      return _ceoUpdateTask(taskId, { status: "TODO", failCount: 0, revisionRound: 0, detail: "Dijadwalkan ulang oleh CEO." }, "Tugas dijadwalkan ulang. Tim mengerjakannya pada jam kerja.");
+    }
+
+    function ceoAcceptTask(taskId) {
+      return _ceoUpdateTask(taskId, { status: "DONE", detail: "Diterima CEO apa adanya meski QA meminta revisi." }, "Tugas ditandai selesai atas keputusan CEO.");
+    }
+
+    async function ceoSaveTargets() {
+      const targets = {};
+      ["newSignups7d", "paidOrdersMonth", "revenueMonth"].forEach(k => {
+        const el = document.getElementById(`ceo-target-${k}`);
+        if (el && el.value !== "") targets[k] = Number(el.value);
+      });
+      try {
+        const res = await fetch("/api/targets/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ targets }),
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          updateToast(data.error || "Target gagal disimpan.");
+          return;
+        }
+        CEO_TARGETS = data.progress;
+        renderCeoSummary();
+        updateToast("Target bisnis disimpan.");
+      } catch (err) {
+        updateToast(`Target gagal disimpan: ${err.message}`);
+      }
     }
 
     setInterval(() => {

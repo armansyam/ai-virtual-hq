@@ -7386,6 +7386,10 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             })
             return
 
+        if clean_path == "/api/targets":
+            self._send_json(200, {"ok": True, "progress": fetch_business_progress(force="refresh=1" in self.path)})
+            return
+
         if self.path.startswith("/api/taskboard"):
             self._send_json(200, {
                 "ok": True,
@@ -7811,6 +7815,15 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 "deliverables": load_agent_deliverables(),
                 "interdept_logs": load_interdept_logs()
             })
+            return
+
+        if clean_path == "/api/targets/save":
+            try:
+                saved_targets = save_business_targets(body.get("targets") or {})
+            except (TypeError, ValueError) as tgt_err:
+                self._send_json(400, {"ok": False, "error": f"Target tidak valid: {tgt_err}"})
+                return
+            self._send_json(200, {"ok": True, "saved": saved_targets, "progress": fetch_business_progress(force=True)})
             return
 
         if self.path.startswith("/api/taskboard/save"):
@@ -9727,6 +9740,7 @@ def run_gm_autopilot_cycle(manual=False):
             f"WAKTU PATROLI: {ts_str}\n\n"
             f"{dept_heads_ref}\n"
             f"KEUANGAN RINGKAS: OPEX Bulanan Rp {total_opex:,} | Pemasukan Tercatat Rp {total_inc:,}\n\n"
+            f"{build_business_targets_block()}\n\n"
             f"TASKBOARD PENDING ({len(pending_tasks)}):\n"
             + (json.dumps([{"id": t.get("id"), "title": t.get("title"), "dept": t.get("dept"), "agentId": t.get("agentId", t.get("assigneeId")), "agentName": t.get("agentName", t.get("assigneeName")), "priority": t.get("priority")} for t in pending_tasks], ensure_ascii=False) if pending_tasks else "Tidak ada tugas PENDING.")
             + f"\n\nTUGAS SELESAI TERBARU ({len(done_recent)}):\n"
@@ -10089,6 +10103,7 @@ def _pick_squad_members(dept, task_text, manager_id=None, max_staff=2):
 
 
 MAX_TASK_FAILURES = 2
+MAX_REVISION_ROUNDS = 2
 
 QUALITY_GATE_TAG_RE = re.compile(r"\[\[GATE:\s*(PASS|REVISI)\s*\]\]", re.I)
 
@@ -10477,12 +10492,29 @@ def _execute_single_department_project(item, idx=1, total=1):
         except Exception as wh_err:
             print(f"[webhook] Gagal mengirim deliverable '{title[:60]}': {wh_err!r}", flush=True)
 
-        task_status = "DONE" if gate_passed else "REVISI"
-        task_detail = (
-            f"Dieksekusi mandiri oleh {squad_names} & lulus QA {aname} pada {now_str}. File: {rel_file}"
-            if gate_passed
-            else f"REVISI dari QA {aname} pada {now_str}: hasil {squad_names} belum memenuhi target. Lihat {rel_file}"
-        )
+        # Siklus revisi: tugas REVISI dikerjakan ulang otomatis dengan catatan QA sebagai masukan, seperti pegawai yang
+        # memperbaiki pekerjaannya dari catatan atasan. Setelah MAX_REVISION_ROUNDS putaran, tugas berhenti menunggu CEO.
+        rev_round = int(item.get("revisionRound") or 0)
+        will_revise = (not gate_passed) and rev_round < MAX_REVISION_ROUNDS
+        base_instr = str(item.get("baseInstruction") or instr)
+        if gate_passed:
+            task_status = "DONE"
+            task_detail = f"Dieksekusi mandiri oleh {squad_names} & lulus QA {aname} pada {now_str}. File: {rel_file}"
+        elif will_revise:
+            task_status = "TODO"
+            task_detail = f"Revisi putaran {rev_round + 1}/{MAX_REVISION_ROUNDS} dijadwalkan dari catatan QA {aname} ({now_str}). Laporan sebelumnya: {rel_file}"
+        else:
+            task_status = "REVISI"
+            task_detail = (
+                f"REVISI dari QA {aname} pada {now_str}"
+                + (f" setelah {rev_round} putaran revisi" if rev_round else "")
+                + f": hasil {squad_names} belum memenuhi target. Lihat {rel_file}"
+            )
+        revision_instr = (
+            f"{base_instr}\n\n[REVISI PUTARAN {rev_round + 1}] Hasil sebelumnya dinilai REVISI oleh QA {aname} "
+            f"(laporan: {rel_file}). Perbaiki HANYA kekurangan yang disebut QA, pertahankan bagian yang sudah benar.\n"
+            f"CATATAN QA SEBELUMNYA:\n{str(deliv_md or '')[:2500]}"
+        ) if will_revise else None
         with TASKBOARD_LOCK:
             tb = load_taskboard()
             found = False
@@ -10493,6 +10525,10 @@ def _execute_single_department_project(item, idx=1, total=1):
                     t["detail"] = task_detail
                     t["artifactFile"] = rel_file
                     t["updatedAt"] = now_str
+                    if revision_instr:
+                        t["baseInstruction"] = base_instr
+                        t["instruction"] = revision_instr
+                        t["revisionRound"] = rev_round + 1
                     found = True
                     break
             if not found:
@@ -10552,7 +10588,11 @@ def _execute_single_department_project(item, idx=1, total=1):
             )
         elif not gate_passed:
             bump_world_chat_version(
-                toast_msg=f"⚠️ [{dept}] QA REVISI: hasil {squad_names} untuk '{title[:48]}' belum lulus. Lihat {rel_file}",
+                toast_msg=(
+                    f"↺ [{dept}] QA minta revisi '{title[:48]}' — tim mengerjakan ulang (putaran {rev_round + 1}/{MAX_REVISION_ROUNDS})"
+                    if will_revise
+                    else f"⚠️ [{dept}] '{title[:48]}' masih REVISI setelah {rev_round} putaran — menunggu arahan CEO. Lihat {rel_file}"
+                ),
             )
         else:
             coord = generate_data_driven_coordination_event(custom_context={
@@ -10874,6 +10914,87 @@ _AUTO_DEPT_RUNNING = set()  # currently planning/executing dept keys
 _AUTO_DEPT_ROTATION = ["SOCIAL", "THEMES", "GROWTH", "ENGINEERING", "FINANCE", "ADMIN"]
 
 
+BUSINESS_TARGETS_FILE = os.path.join(CONFIG_DIR, "business_targets.json")
+BUSINESS_TARGET_METRICS = (
+    ("newSignups7d", "Pendaftar baru (7 hari terakhir)"),
+    ("paidOrdersMonth", "Order lunas (bulan ini)"),
+    ("revenueMonth", "Omzet bulan ini (Rp)"),
+)
+_BUSINESS_PROGRESS_CACHE = {"ts": 0.0, "data": None}
+
+
+def load_business_targets():
+    try:
+        with open(BUSINESS_TARGETS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        return {}
+
+
+def save_business_targets(raw):
+    targets = {}
+    for key, _label in BUSINESS_TARGET_METRICS:
+        val = (raw or {}).get(key)
+        if val in (None, ""):
+            continue
+        num = int(float(val))
+        if num < 0:
+            raise ValueError(f"Target {key} tidak boleh negatif.")
+        targets[key] = num
+    data = {"targets": targets, "updatedAt": time.strftime("%Y-%m-%d %H:%M:%S WITA")}
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    tmp = BUSINESS_TARGETS_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, BUSINESS_TARGETS_FILE)
+    _BUSINESS_PROGRESS_CACHE["ts"] = 0.0
+    return data
+
+
+def fetch_business_progress(force=False):
+    """Angka aktual target bisnis dari server produksi (Remote MCP, read-only), dicache 5 menit."""
+    if not force and _BUSINESS_PROGRESS_CACHE["data"] and time.time() - _BUSINESS_PROGRESS_CACHE["ts"] < 300:
+        return _BUSINESS_PROGRESS_CACHE["data"]
+    actual, errors = {}, []
+    kpi = call_remote_mcp_tool("luxvite_get_business_kpi_report", {"days": 7})
+    if kpi.get("ok"):
+        actual["newSignups7d"] = int(((kpi.get("result") or {}).get("users") or {}).get("newInPeriod") or 0)
+    else:
+        errors.append(f"KPI: {kpi.get('error')}")
+    fin = call_remote_mcp_tool("luxvite_get_finance_report", {})
+    if fin.get("ok"):
+        summ = (fin.get("result") or {}).get("summary") or {}
+        actual["paidOrdersMonth"] = int(summ.get("paidOrdersCount") or 0)
+        actual["revenueMonth"] = int(summ.get("grossRevenue") or 0)
+    else:
+        errors.append(f"Keuangan: {fin.get('error')}")
+    targets = load_business_targets().get("targets") or {}
+    metrics = []
+    for key, label in BUSINESS_TARGET_METRICS:
+        tgt = targets.get(key)
+        act = actual.get(key)
+        pct = round(act * 100 / tgt) if (tgt and act is not None) else None
+        metrics.append({"key": key, "label": label, "target": tgt, "actual": act, "percent": pct})
+    data = {"metrics": metrics, "errors": errors, "fetchedAt": time.strftime("%Y-%m-%d %H:%M:%S WITA")}
+    _BUSINESS_PROGRESS_CACHE.update({"ts": time.time(), "data": data})
+    return data
+
+
+def build_business_targets_block():
+    prog = fetch_business_progress()
+    lines = ["TARGET BISNIS DARI CEO & ANGKA AKTUAL PRODUKSI (data live, bukan perkiraan):"]
+    for m in prog["metrics"]:
+        act = "tidak terbaca" if m["actual"] is None else f"{m['actual']:,}"
+        if m["target"]:
+            lines.append(f"- {m['label']}: aktual {act} dari target {m['target']:,} ({m['percent'] if m['percent'] is not None else '?'}%)")
+        else:
+            lines.append(f"- {m['label']}: aktual {act} (target belum ditetapkan CEO)")
+    if prog["errors"]:
+        lines.append("- Catatan: sebagian angka gagal dibaca (" + "; ".join(prog["errors"])[:200] + ")")
+    return "\n".join(lines)
+
+
 def run_autonomous_department_self_plan(dept_key):
     """True Autonomous Department Loop: Department Head reads own Obsidian roadmap, creates 1 non-duplicate next task on Taskboard, and runs 3-Phase Staff Squad execution."""
     dept = str(dept_key or "").strip().upper()
@@ -10920,8 +11041,9 @@ def run_autonomous_department_self_plan(dept_key):
             f"{build_company_context_block(comp_prof)}\n\n"
             "PERAN OTONOM MANDIRI:\n"
             "1. Tanpa menunggu perintah CEO, baca roadmap & catatan Memory Obsidian departemenmu di bawah.\n"
-            "2. Rancang TEPAT 1 tugas operasional lanjutan yang BARU, konkret, berdampak langsung ke bisnis/produk, dan TIDAK mengulang tugas yang sudah DONE.\n"
-            "3. Untuk Dept THEMES: boleh merancang & mendorong tema baru ke List Draft server via `luxvite_create_draft_theme`.\n"
+            "2. Rancang TEPAT 1 tugas operasional lanjutan yang BARU, konkret, dan TIDAK mengulang tugas yang sudah DONE. "
+            "Pilih tugas yang paling mungkin menggerakkan angka TARGET BISNIS di bawah, dan tulis di instruksi metrik mana yang dikejar dan bagaimana hasilnya dipakai.\n"
+            "3. Untuk Dept THEMES: boleh merancang tema baru; pengiriman ke List Draft server (`luxvite_create_draft_theme`) menunggu ACC CEO.\n"
             "4. Untuk tugas berisiko produksi live di luar Draft atau pengeluaran dana, jangan dipilih (pilih kerja internal aman).\n"
             "BALAS HANYA DENGAN JSON VALID:\n"
             '{"status":"CREATE_TASK"|"IDLE","title":"Judul task baru yang spesifik & belum pernah dikerjakan","instruction":"Instruksi kerja konkret untuk tim staf departemenmu","priority":"HIGH"|"MEDIUM"}'
@@ -10930,6 +11052,7 @@ def run_autonomous_department_self_plan(dept_key):
             f"DEPARTEMEN: {dept}\n"
             f"TUGAS YANG SUDAH SELESAI (JANGAN DIULANG):\n"
             + ("\n".join(f"- {x}" for x in recent_done) if recent_done else "- Belum ada.")
+            + f"\n\n{build_business_targets_block()}"
             + f"\n\nMEMORI & ROADMAP DEPARTEMEN:\n{obs_ctx[:2600]}\n\n"
             "Tentukan 1 task lanjutan paling berdampak untuk langsung dieksekusi oleh staf departemenmu sekarang."
         )
@@ -10971,8 +11094,8 @@ def run_autonomous_department_self_plan(dept_key):
         bump_world_chat_version(toast_msg=f"🧠 [{dept}] {aname} otomatis membuat task baru & menggerakkan staf: {new_title[:60]}")
         # Immediately run the full 3-Phase Manager -> Autonomous Tool-Enabled Staff -> Manager QA workflow!
         _execute_single_department_project(task_obj, 1, 1)
-    except Exception:
-        pass
+    except Exception as plan_err:
+        print(f"[auto-plan] {dept} gagal merencanakan tugas: {plan_err!r}", flush=True)
     finally:
         set_agents_busy([aid], False)
         with _AUTO_DEPT_STATE_LOCK:
