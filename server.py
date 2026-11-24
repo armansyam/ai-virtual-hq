@@ -10698,6 +10698,9 @@ def resume_in_progress_tasks():
                         continue
                 t["status"] = "IN_PROGRESS"
                 t["updatedAt"] = now_str
+                # Keterangan lama (mis. pesan error percobaan sebelumnya) diganti agar Papan Tugas mencerminkan kondisi sekarang.
+                rev = int(t.get("revisionRound") or 0)
+                t["detail"] = f"Sedang dikerjakan tim {t.get('dept', '')} (dilanjutkan otomatis {now_str}" + (f", revisi putaran {rev}" if rev else "") + ")."
                 to_run.append(t)
         if to_run:
             save_taskboard(tb)
