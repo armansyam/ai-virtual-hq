@@ -4990,13 +4990,6 @@ def build_dynamic_mcp_context_with_trace(user_prompt="", room="", agent_id=None)
                 lt_all = rs.get("lastTest") or {}
                 lt_room = lt_all.get(room_u_cat) or lt_all.get("DEFAULT") or (list(lt_all.values())[0] if lt_all else {})
                 t_names = list((lt_room.get("tools") or []) if isinstance(lt_room, dict) else [])
-                # Expose luxvite_create_draft_theme to THEMES (and ALL/ENGINEERING) whenever any connected slot has it
-                all_srv_tools = set()
-                for _ltv in lt_all.values():
-                    if isinstance(_ltv, dict):
-                        all_srv_tools.update(_ltv.get("tools") or [])
-                if room_u_cat in ("THEMES", "DEPT2_THEMES", "ALL", "TOWNHALL", "") and "luxvite_create_draft_theme" in all_srv_tools and "luxvite_create_draft_theme" not in t_names:
-                    t_names.append("luxvite_create_draft_theme")
                 if t_names:
                     lines.append(f"- Remote MCP `{rs['id']}` ({rs['name']}): [{', '.join(t_names[:18])}]")
         if auth_folders:
@@ -5011,6 +5004,34 @@ def build_dynamic_mcp_context_with_trace(user_prompt="", room="", agent_id=None)
         lines.append(
             "Format panggil tool on-demand (hanya jika perlu): "
             "[[TOOL_CALL:{\"source\":\"remote_mcp\"|\"local_mcp\"|\"local_folder\", ...}]]"
+        )
+
+    room_key = str(room or "").strip().upper()
+    if room_key in ("SOCIAL", "DEPT1_SOCIAL"):
+        assets = sorted(os.listdir(os.path.join(UPLOADS_DIR, "assets"))) if os.path.isdir(os.path.join(UPLOADS_DIR, "assets")) else []
+        lines.append(
+            "HASIL KERJA SOCIAL WAJIB BERUPA PAKET POSTING (bukan rencana). Sistem merender slide jadi gambar PNG 1080x1350 dan "
+            "memasukkannya ke antrean Siap Posting CEO. Format (JSON valid, satu tag per posting):\n"
+            '[[POST_PACKAGE:{"title":"Judul internal","platform":"instagram|tiktok|threads","format":"carousel|single|reel",'
+            '"tone":"dark|light","slides":[{"headline":"maks 90 karakter","body":"maks 420 karakter","image":"nama file aset opsional"}],'
+            '"caption":"caption final siap tempel","hashtags":["luxvite","undangandigital"],"cta":"ajakan + link","postTime":"Sel 19:00 WITA",'
+            '"script":"wajib untuk reel: naskah + shotlist per detik"}]]\n'
+            "Aset gambar UI asli yang boleh dipakai di field image: " + (", ".join(assets) or "(belum ada)") + ". "
+            "Semua angka dan fitur wajib sesuai data live luxvite.id."
+        )
+        fb = social_feedback_block()
+        if fb:
+            lines.append(fb)
+    if room_key in ("THEMES", "DEPT2_THEMES"):
+        lines.append(
+            "MEMBUAT TEMA BARU = kirim SPESIFIKASI, bukan HTML. Sistem merakit dari blueprint resmi lalu langsung mengirimnya ke "
+            "Draft Themes luxvite.id (nonaktif, aman). Format (JSON valid):\n"
+            '[[THEME_DRAFT:{"slug":"huruf-kecil-tanda-hubung","name":"Nama Tema","eventType":"WEDDING|PERSONAL|EVENT",'
+            '"style":"minimalist|modern|traditional","subEvent":"opsional","description":"konsep singkat",'
+            '"palette":{"primary":"#hex","secondary":"#hex","accent":"#hex","bg-light":"#hex","bg-dark":"#hex","text-main":"#hex","on-dark":"#hex","on-primary":"#hex"},'
+            '"fonts":{"heading":"...","body":"...","script":"..."},"texture":"nama-file.webp","extraCss":"CSS dekorasi opsional, maks 8000 karakter, hanya pakai var(--...)"}]]\n'
+            f"Font yang tersedia: {', '.join(theme_font_catalog())}. Tekstur: {', '.join(theme_texture_catalog())}. "
+            "Jaga kontras teks (text-main di atas bg-light, on-dark di atas bg-dark)."
         )
 
     # Obsidian Markdown Memory Vault (00-INDEX.md + DEPT-<ROOM>.md — Token-Saving Single Source of Truth)
@@ -7394,6 +7415,29 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             self._send_json(200, {"ok": True, "progress": fetch_business_progress(force="refresh=1" in self.path)})
             return
 
+        if clean_path == "/api/content-queue":
+            self._send_json(200, {"ok": True, "items": load_content_queue()[:30]})
+            return
+
+        if clean_path == "/api/content-queue/file":
+            rel = (qs_map.get("path") or [""])[0]
+            root_real = os.path.realpath(CONTENT_QUEUE_DIR)
+            target = os.path.realpath(os.path.join(DATA_DIR, rel))
+            if not rel.startswith("content-queue/") or os.path.commonpath([root_real, target]) != root_real or not os.path.isfile(target):
+                self._send_json(404, {"ok": False, "error": "Berkas konten tidak ditemukan."})
+                return
+            ctype = "image/png" if target.endswith(".png") else "text/plain; charset=utf-8"
+            with open(target, "rb") as f:
+                data = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "private, max-age=3600")
+            self._send_security_headers()
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
         if self.path.startswith("/api/taskboard"):
             self._send_json(200, {
                 "ok": True,
@@ -7819,6 +7863,25 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 "deliverables": load_agent_deliverables(),
                 "interdept_logs": load_interdept_logs()
             })
+            return
+
+        if clean_path == "/api/content-queue/update":
+            item_id = str(body.get("id") or "").strip()
+            new_status = str(body.get("status") or "").strip().upper()
+            if new_status not in ("SIAP_POSTING", "POSTED", "REJECTED"):
+                self._send_json(400, {"ok": False, "error": "Status harus SIAP_POSTING, POSTED, atau REJECTED."})
+                return
+            with CONTENT_QUEUE_LOCK:
+                q = load_content_queue()
+                found = next((x for x in q if x.get("id") == item_id), None)
+                if not found:
+                    self._send_json(404, {"ok": False, "error": "Paket posting tidak ditemukan."})
+                    return
+                found["status"] = new_status
+                found["ceoNote"] = str(body.get("note") or "").strip()[:500]
+                found["decidedAt"] = time.strftime("%Y-%m-%d %H:%M:%S WITA")
+                save_content_queue(q)
+            self._send_json(200, {"ok": True, "items": q[:30]})
             return
 
         if clean_path == "/api/targets/save":
@@ -8626,6 +8689,311 @@ def _execute_approved_agent_action(item):
     return res
 
 
+# ===== Dept THEMES: draf tema dari spesifikasi kecil (model tidak sanggup menulis ulang blueprint 70-80 KB dalam satu jawaban) =====
+THEME_BLUEPRINT_FILES = {
+    "WEDDING": ("wedding", "starter-blueprint.html"),
+    "PERSONAL": ("personal", "starter-blueprint-personal.html"),
+    "EVENT": ("event", "starter-blueprint-event.html"),
+}
+THEME_PALETTE_VARS = ("primary", "secondary", "accent", "bg-light", "bg-dark", "text-main", "on-dark", "on-primary")
+THEME_FONT_FALLBACK = {"heading": "Georgia, serif", "body": "system-ui, -apple-system, sans-serif", "script": "cursive"}
+
+
+def _theme_project_path():
+    return (load_company_profile().get("projectPath") or "").strip()
+
+
+def theme_font_catalog():
+    try:
+        with open(os.path.join(_theme_project_path(), "public", "fonts", "fonts.css"), "r", encoding="utf-8") as f:
+            return sorted(set(re.findall(r"font-family:\s*'([^']+)'", f.read())))
+    except FileNotFoundError:
+        return []
+
+
+def theme_texture_catalog():
+    tex_dir = os.path.join(_theme_project_path(), "public", "assets", "ornaments", "background")
+    return sorted(f for f in os.listdir(tex_dir) if f.endswith(".webp")) if os.path.isdir(tex_dir) else []
+
+
+def build_theme_draft_html(spec):
+    """Merakit master tema dari blueprint resmi + spesifikasi agen. Mengembalikan (html, daftar_error)."""
+    errors = []
+    event_type = str(spec.get("eventType") or "WEDDING").strip().upper()
+    if event_type not in THEME_BLUEPRINT_FILES:
+        errors.append("eventType harus WEDDING, PERSONAL, atau EVENT.")
+        return "", errors
+    folder, fname = THEME_BLUEPRINT_FILES[event_type]
+    bp_path = os.path.join(_theme_project_path(), "themes", "_blueprints", folder, fname)
+    if not os.path.exists(bp_path):
+        return "", [f"Blueprint tidak ditemukan: {bp_path}"]
+    with open(bp_path, "r", encoding="utf-8") as f:
+        html = f.read()
+
+    palette = spec.get("palette") if isinstance(spec.get("palette"), dict) else {}
+    for var in THEME_PALETTE_VARS:
+        val = str(palette.get(var) or palette.get(var.replace("-", "_")) or "").strip()
+        if not val:
+            continue
+        if not re.fullmatch(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})", val):
+            errors.append(f"palette.{var} harus hex warna (#rgb/#rrggbb), diterima: {val[:20]}")
+            continue
+        html = re.sub(rf"(--{re.escape(var)}:\s*)[^;]+;", rf"\g<1>{val};", html, count=1)
+
+    fonts = spec.get("fonts") if isinstance(spec.get("fonts"), dict) else {}
+    catalog = theme_font_catalog()
+    for role in ("heading", "body", "script"):
+        fam = str(fonts.get(role) or "").strip().strip("'\"")
+        if not fam:
+            continue
+        if fam not in catalog:
+            errors.append(f"fonts.{role} '{fam}' tidak ada di katalog font lokal: {', '.join(catalog)}")
+            continue
+        html = re.sub(rf"(--font-{role}:\s*)[^;]+;", rf"\g<1>'{fam}', {THEME_FONT_FALLBACK[role]};", html, count=1)
+
+    texture = str(spec.get("texture") or "").strip()
+    if texture:
+        if texture not in theme_texture_catalog():
+            errors.append(f"texture '{texture}' tidak ada. Pilihan: {', '.join(theme_texture_catalog())}")
+        else:
+            html = re.sub(r"(--canvas-texture:\s*)[^;]+;", rf"\g<1>url('/assets/ornaments/background/{texture}');", html, count=1)
+
+    extra_css = str(spec.get("extraCss") or "")
+    if extra_css:
+        if len(extra_css) > 8000:
+            errors.append("extraCss maksimal 8000 karakter.")
+        elif re.search(r"<|@import|url\(\s*['\"]?(?:https?:|//|javascript:|data:)|expression\(", extra_css, re.I):
+            errors.append("extraCss tidak boleh berisi tag HTML, @import, URL eksternal/data, atau expression().")
+        else:
+            html = html.replace("</style>", f"\n/* Desain {spec.get('name', '')} — Dept Theme Lab */\n{extra_css}\n</style>", 1)
+
+    name = str(spec.get("name") or "").strip()
+    if name:
+        html = re.sub(r"<title>.*?</title>", f"<title>{name} — Luxvite</title>", html, count=1, flags=re.S | re.I)
+    return html, errors
+
+
+def create_theme_draft_from_spec(spec, room="THEMES"):
+    slug = str(spec.get("slug") or "").strip().lower()
+    name = str(spec.get("name") or "").strip()
+    style = str(spec.get("style") or "modern").strip().lower()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,48}", slug):
+        return {"ok": False, "error": "slug wajib huruf kecil/angka/tanda hubung, 2-49 karakter (contoh: maison-lumiere)."}
+    if not name or len(name) > 80:
+        return {"ok": False, "error": "name wajib diisi (maks 80 karakter)."}
+    if style not in ("minimalist", "modern", "traditional"):
+        return {"ok": False, "error": "style harus minimalist, modern, atau traditional."}
+    html, errors = build_theme_draft_html(spec)
+    if errors:
+        return {"ok": False, "error": " | ".join(errors)}
+    args = {
+        "slug": slug,
+        "name": name,
+        "eventType": str(spec.get("eventType") or "WEDDING").strip().upper(),
+        "style": style,
+        "description": str(spec.get("description") or f"{name} — draf Dept Theme Lab")[:300],
+        "htmlContent": html,
+    }
+    if spec.get("subEvent"):
+        args["subEvent"] = str(spec["subEvent"])[:60]
+    # Draf selalu nonaktif, preview admin di-sandbox, dan tool menolak menimpa tema lain: aman dikirim otomatis tanpa ACC.
+    # Kunci Dept 2 tidak punya ops:write, jadi khusus tool ini boleh memakai slot yang memilikinya.
+    res = call_remote_mcp_tool("luxvite_create_draft_theme", args, room=room, allow_cross_slot=True)
+    if res.get("ok"):
+        os.makedirs(os.path.join(REPORTS_DIR, "draft-themes"), exist_ok=True)
+        with open(os.path.join(REPORTS_DIR, "draft-themes", f"{slug}.html"), "w", encoding="utf-8") as f:
+            f.write(html)
+    return res
+
+
+# ===== Dept SOCIAL: Paket Posting dirender jadi gambar slide nyata + antrean "Siap Posting" untuk CEO =====
+CONTENT_QUEUE_DIR = os.path.join(DATA_DIR, "content-queue")
+CONTENT_QUEUE_FILE = os.path.join(CONFIG_DIR, "content_queue.json")
+CONTENT_QUEUE_LOCK = threading.Lock()
+SLIDE_W, SLIDE_H = 1080, 1350
+_BRAND = {
+    "gold": (201, 162, 39),
+    "dark": {"bg": (22, 20, 18), "text": (245, 242, 235), "muted": (168, 162, 154), "line": (60, 56, 52)},
+    "light": {"bg": (250, 246, 240), "text": (32, 28, 24), "muted": (115, 108, 99), "line": (222, 214, 202)},
+}
+_FONT_CANDIDATES = {
+    "serif": ["/System/Library/Fonts/Supplemental/Georgia.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"],
+    "serif_bold": ["/System/Library/Fonts/Supplemental/Georgia Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"],
+    "sans": ["/System/Library/Fonts/Supplemental/Arial.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"],
+    "sans_bold": ["/System/Library/Fonts/Supplemental/Arial Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"],
+}
+
+
+def load_content_queue():
+    try:
+        with open(CONTENT_QUEUE_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except FileNotFoundError:
+        return []
+
+
+def save_content_queue(items):
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    tmp = CONTENT_QUEUE_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(items[:100], f, ensure_ascii=False, indent=2)
+    os.replace(tmp, CONTENT_QUEUE_FILE)
+
+
+def _slide_font(kind, size):
+    from PIL import ImageFont
+    for path in _FONT_CANDIDATES[kind]:
+        if os.path.exists(path):
+            return ImageFont.truetype(path, size)
+    return ImageFont.load_default(size=size)
+
+
+def _wrap_text(draw, text, font, max_w):
+    lines = []
+    for para in str(text or "").split("\n"):
+        words, cur = para.split(), ""
+        for w in words:
+            trial = f"{cur} {w}".strip()
+            if draw.textlength(trial, font=font) <= max_w:
+                cur = trial
+            else:
+                if cur:
+                    lines.append(cur)
+                cur = w
+        lines.append(cur)
+    return lines
+
+
+def _render_slide(slide, idx, total, tone, out_path):
+    from PIL import Image, ImageDraw
+    pal = _BRAND[tone]
+    img = Image.new("RGB", (SLIDE_W, SLIDE_H), pal["bg"])
+    draw = ImageDraw.Draw(img)
+    margin = 84
+    tag_font = _slide_font("sans_bold", 22)
+    draw.text((margin, 72), "LUXVITE INVITATION", fill=_BRAND["gold"], font=tag_font)
+    draw.text((SLIDE_W - margin, 72), f"{idx:02d} / {total:02d}", fill=pal["muted"], font=tag_font, anchor="ra")
+    draw.line([(margin, 118), (SLIDE_W - margin, 118)], fill=pal["line"], width=2)
+
+    y = 190
+    image_name = str(slide.get("image") or "").strip()
+    asset_path = os.path.join(UPLOADS_DIR, "assets", os.path.basename(image_name)) if image_name else ""
+    if asset_path and os.path.isfile(asset_path):
+        shot = Image.open(asset_path).convert("RGB")
+        box_w, box_h = SLIDE_W - 2 * margin, 520
+        shot.thumbnail((box_w, box_h))
+        img.paste(shot, ((SLIDE_W - shot.width) // 2, y))
+        y += shot.height + 48
+
+    has_image = y > 190
+    head_font = _slide_font("serif_bold", 52 if has_image else 72)
+    body_font = _slide_font("sans", 34 if has_image else 38)
+    head_lines = _wrap_text(draw, slide.get("headline"), head_font, SLIDE_W - 2 * margin)[:5]
+    body_lines = _wrap_text(draw, slide.get("body"), body_font, SLIDE_W - 2 * margin)[:12]
+    head_lh, body_lh = int(head_font.size * 1.22), int(body_font.size * 1.45)
+    if not has_image:
+        # Slide teks saja: blok teks di tengah area konten agar tidak menyisakan ruang kosong di bawah.
+        block_h = len(head_lines) * head_lh + 36 + len(body_lines) * body_lh
+        y = max(190, 118 + (SLIDE_H - 115 - 118 - block_h) // 2)
+        draw.line([(margin, y - 36), (margin + 72, y - 36)], fill=_BRAND["gold"], width=4)
+    for line in head_lines:
+        draw.text((margin, y), line, fill=pal["text"], font=head_font)
+        y += head_lh
+    y += 36
+    for line in body_lines:
+        if y > SLIDE_H - 190:
+            break
+        draw.text((margin, y), line, fill=pal["muted"], font=body_font)
+        y += body_lh
+
+    draw.line([(margin, SLIDE_H - 115), (SLIDE_W - margin, SLIDE_H - 115)], fill=pal["line"], width=2)
+    draw.text((margin, SLIDE_H - 82), "Your story, beautifully invited.", fill=pal["muted"], font=_slide_font("serif", 24))
+    draw.text((SLIDE_W - margin, SLIDE_H - 80), "luxvite.id →", fill=_BRAND["gold"], font=_slide_font("sans_bold", 22), anchor="ra")
+    img.save(out_path, "PNG", optimize=True)
+
+
+def save_post_package(pkg, room="SOCIAL", agent_name=""):
+    """Validasi Paket Posting dari agen, render slide jadi PNG, dan masukkan ke antrean Siap Posting."""
+    title = str(pkg.get("title") or "").strip()
+    platform = str(pkg.get("platform") or "instagram").strip().lower()
+    fmt = str(pkg.get("format") or "carousel").strip().lower()
+    slides = pkg.get("slides") if isinstance(pkg.get("slides"), list) else []
+    caption = str(pkg.get("caption") or "").strip()
+    hashtags = [str(h).strip() for h in (pkg.get("hashtags") or []) if str(h).strip()][:30]
+    errors = []
+    if not title or len(title) > 90:
+        errors.append("title wajib (maks 90 karakter)")
+    if platform not in ("instagram", "tiktok", "threads"):
+        errors.append("platform harus instagram, tiktok, atau threads")
+    if fmt not in ("carousel", "single", "reel"):
+        errors.append("format harus carousel, single, atau reel")
+    if fmt in ("carousel", "single") and not (1 <= len(slides) <= 10):
+        errors.append("slides wajib 1-10 item untuk carousel/single")
+    if fmt == "reel" and not str(pkg.get("script") or "").strip():
+        errors.append("format reel wajib menyertakan script (naskah + shotlist)")
+    if not caption or len(caption) > 2200:
+        errors.append("caption final wajib (maks 2200 karakter)")
+    for i, sl in enumerate(slides, start=1):
+        if not isinstance(sl, dict) or not str(sl.get("headline") or "").strip():
+            errors.append(f"slide {i} wajib punya headline")
+        elif len(str(sl.get("headline"))) > 90 or len(str(sl.get("body") or "")) > 420:
+            errors.append(f"slide {i}: headline maks 90 dan body maks 420 karakter")
+    if errors:
+        return {"ok": False, "error": "; ".join(errors)}
+
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:40] or "konten"
+    rel_dir = f"content-queue/{stamp}-{slug}"
+    abs_dir = os.path.join(DATA_DIR, rel_dir)
+    os.makedirs(abs_dir, exist_ok=True)
+    tone = "light" if str(pkg.get("tone") or "").lower() == "light" else "dark"
+    slide_files = []
+    render_list = slides if slides else [{"headline": title, "body": str(pkg.get("hook") or "")}]
+    for i, sl in enumerate(render_list, start=1):
+        fn = f"slide-{i:02d}.png"
+        _render_slide(sl, i, len(render_list), tone if i > 1 else "dark", os.path.join(abs_dir, fn))
+        slide_files.append(f"{rel_dir}/{fn}")
+    full_caption = caption + ("\n\n" + " ".join(h if h.startswith("#") else f"#{h}" for h in hashtags) if hashtags else "")
+    with open(os.path.join(abs_dir, "caption.txt"), "w", encoding="utf-8") as f:
+        f.write(full_caption + "\n")
+    item = {
+        "id": f"post_{stamp}_{slug[:20]}",
+        "title": title,
+        "platform": platform,
+        "format": fmt,
+        "slides": slide_files,
+        "caption": full_caption,
+        "script": str(pkg.get("script") or "")[:3000],
+        "cta": str(pkg.get("cta") or "")[:200],
+        "postTime": str(pkg.get("postTime") or "")[:60],
+        "dir": rel_dir,
+        "status": "SIAP_POSTING",
+        "dept": str(room or "SOCIAL").upper(),
+        "agentName": agent_name,
+        "createdAt": time.strftime("%Y-%m-%d %H:%M:%S WITA"),
+        "ceoNote": "",
+    }
+    with open(os.path.join(abs_dir, "package.json"), "w", encoding="utf-8") as f:
+        json.dump(item, f, ensure_ascii=False, indent=2)
+    with CONTENT_QUEUE_LOCK:
+        q = load_content_queue()
+        q.insert(0, item)
+        save_content_queue(q)
+    bump_world_chat_version(toast_msg=f"🖼️ Paket posting siap: {title[:60]} ({len(slide_files)} slide) — cek Ringkasan CEO")
+    return {"ok": True, "id": item["id"], "slides": slide_files, "dir": rel_dir}
+
+
+def social_feedback_block(limit=6):
+    q = [x for x in load_content_queue() if x.get("status") in ("POSTED", "REJECTED")][:limit]
+    if not q:
+        return ""
+    lines = ["UMPAN BALIK CEO ATAS PAKET POSTING SEBELUMNYA (pakai untuk memperbaiki konten berikutnya):"]
+    for x in q:
+        lines.append(f"- [{'DIPOSTING' if x['status'] == 'POSTED' else 'DITOLAK'}] {x['title']}" + (f" — catatan CEO: {x['ceoNote']}" if x.get("ceoNote") else ""))
+    return "\n".join(lines)
+
+
 def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, prompt, attachments=None, live_mcp_ctx=None, executed_tools=None, room="", max_steps=3, agent_id=None, agent_name="", stop_check=None):
     """Executes multi-step autonomous [[TOOL_CALL:{...}]] requests with live step status updates in world_state."""
     executed_tools = executed_tools if isinstance(executed_tools, list) else []
@@ -8656,7 +9024,39 @@ def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, p
             skill_saves = re.findall(r"\[\[SAVE_SKILL:\s*(\{[\s\S]*?\})\s*\]\]", str(reply or ""))
             skill_imports = re.findall(r"\[\[IMPORT_SKILL_URL:\s*(\{[\s\S]*?\})\s*\]\]", str(reply or ""))
 
-            if (not matches and not skill_loads and not skill_searches and not skill_saves and not skill_imports) or step_idx >= max_steps:
+            # Tag kerja nyata (Paket Posting Social, Draf Tema Theme Lab) dieksekusi di langkah mana pun, termasuk yang terakhir;
+            # hasilnya ditempel ke jawaban sebagai bukti untuk QA, dan kegagalan validasi dikembalikan ke agen bila masih ada langkah.
+            post_pkgs = re.findall(r"\[\[POST_PACKAGE:\s*(\{[\s\S]*?\})\s*\]\]", str(reply or ""))
+            theme_specs = re.findall(r"\[\[THEME_DRAFT:\s*(\{[\s\S]*?\})\s*\]\]", str(reply or ""))
+            production_done, production_failed = [], []
+            for raw_pkg in post_pkgs[:4]:
+                try:
+                    pkg_res = save_post_package(json.loads(raw_pkg, strict=False), room=room, agent_name=who_label)
+                except (ValueError, TypeError) as pkg_err:
+                    pkg_res = {"ok": False, "error": f"JSON POST_PACKAGE tidak valid: {pkg_err}"}
+                if pkg_res.get("ok"):
+                    production_done.append(f"✅ Paket posting tersimpan & dirender: `{pkg_res['dir']}` ({len(pkg_res['slides'])} slide PNG) — antrean Siap Posting CEO.")
+                    executed_tools.append({"tool": "Paket Posting", "source": "CONTENT", "summary": pkg_res["dir"]})
+                else:
+                    production_failed.append(f"- POST_PACKAGE DITOLAK: {pkg_res.get('error')}. Perbaiki lalu kirim ulang tag POST_PACKAGE.")
+            for raw_spec in theme_specs[:2]:
+                try:
+                    spec_obj = json.loads(raw_spec, strict=False)
+                    th_res = create_theme_draft_from_spec(spec_obj, room=room)
+                except (ValueError, TypeError) as th_err:
+                    spec_obj, th_res = {}, {"ok": False, "error": f"JSON THEME_DRAFT tidak valid: {th_err}"}
+                if th_res.get("ok"):
+                    slug = spec_obj.get("slug")
+                    production_done.append(f"✅ Draf tema `{slug}` terkirim ke Draft Themes luxvite.id (nonaktif). Preview admin: https://luxvite.id/demo/{slug}")
+                    executed_tools.append({"tool": f"Draft Tema: {slug}", "source": "REMOTE_MCP", "summary": "DRAFT_REVIEW"})
+                else:
+                    production_failed.append(f"- THEME_DRAFT DITOLAK: {th_res.get('error')}. Perbaiki lalu kirim ulang tag THEME_DRAFT.")
+            if post_pkgs or theme_specs:
+                reply = re.sub(r"\[\[(?:POST_PACKAGE|THEME_DRAFT):\s*\{[\s\S]*?\}\s*\]\]", "", str(reply or "")).strip()
+                reply += "\n\n" + "\n".join(production_done + [x.lstrip("- ") for x in production_failed])
+            retry_production = bool(production_failed) and step_idx < max_steps
+
+            if (not matches and not skill_loads and not skill_searches and not skill_saves and not skill_imports and not retry_production) or step_idx >= max_steps:
                 clean_final = re.sub(r"\[\[TOOL_CALL:\{[\s\S]*?\}\]\]", "", str(reply or ""))
                 clean_final = re.sub(r"\[\[LOAD_SKILL:\s*\"?[A-Za-z0-9_.:-]+\"?\s*\]\]", "", clean_final)
                 clean_final = re.sub(r"\[\[SEARCH_SKILLS:\s*\"?[^\]]+?\"?\s*\]\]", "", clean_final)
@@ -8671,7 +9071,7 @@ def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, p
                 return clean_final or reply, used_engine
 
             update_world_state({"liveStepStatus": f"🔌 {who_label} mengeksekusi tool/skill (langkah {step_idx + 1})..."})
-            tool_results_lines = []
+            tool_results_lines = production_done + production_failed
             for sk_slug in skill_loads[:2]:
                 sk_res = read_hq_skill(sk_slug)
                 if sk_res.get("ok"):
@@ -10406,6 +10806,14 @@ def _execute_single_department_project(item, idx=1, total=1):
             "   Tulis juga tepat satu tag [[GATE:PASS]] atau [[GATE:REVISI]]. PASS hanya bila seluruh target rapat benar-benar "
             "terpenuhi dengan bukti tool nyata; bila ada deliverable yang gagal, tertahan, belum dieksekusi, atau berlabel "
             "'HASIL TIDAK TUNTAS', wajib [[GATE:REVISI]]."
+            + (
+                "\n   KHUSUS SOCIAL: PASS hanya bila ada minimal 1 baris '✅ Paket posting tersimpan & dirender' dari staf. Rencana, kalender, atau skrip tanpa paket posting = REVISI."
+                if dept == "SOCIAL" else ""
+            )
+            + (
+                "\n   KHUSUS THEMES: tugas membuat tema hanya PASS bila ada baris '✅ Draf tema ... terkirim ke Draft Themes'."
+                if dept == "THEMES" else ""
+            )
             + handoff_rule
         )
         mgr_prompt = (
@@ -11169,7 +11577,8 @@ def run_autonomous_department_self_plan(dept_key):
             "1. Tanpa menunggu perintah CEO, baca roadmap & catatan Memory Obsidian departemenmu di bawah.\n"
             "2. Rancang TEPAT 1 tugas operasional lanjutan yang BARU, konkret, dan TIDAK mengulang tugas yang sudah DONE. "
             "Pilih tugas yang paling mungkin menggerakkan angka TARGET BISNIS di bawah, dan tulis di instruksi metrik mana yang dikejar dan bagaimana hasilnya dipakai.\n"
-            "3. Untuk Dept THEMES: boleh merancang tema baru; pengiriman ke List Draft server (`luxvite_create_draft_theme`) menunggu ACC CEO.\n"
+            "3. Definisi selesai: Dept SOCIAL = paket posting siap unggah (tag POST_PACKAGE: slide + caption final + hashtag + jam tayang), bukan rencana atau kalender. "
+            "Dept THEMES = draf tema terkirim ke Draft Themes lewat tag THEME_DRAFT (spesifikasi palet/font/tekstur, bukan HTML).\n"
             "4. Untuk tugas berisiko produksi live di luar Draft atau pengeluaran dana, jangan dipilih (pilih kerja internal aman).\n"
             "BALAS HANYA DENGAN JSON VALID:\n"
             '{"status":"CREATE_TASK"|"IDLE","title":"Judul task baru yang spesifik & belum pernah dikerjakan","instruction":"Instruksi kerja konkret untuk tim staf departemenmu","priority":"HIGH"|"MEDIUM"}'

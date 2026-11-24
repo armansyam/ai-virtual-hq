@@ -12810,18 +12810,20 @@
 
     // ===== Ringkasan CEO: satu tempat untuk keputusan yang menunggu, target bisnis, kerja berjalan, dan hasil terbaru =====
     var CEO_TARGETS = null;
+    var CONTENT_QUEUE = [];
 
     function _ceoAttentionItems() {
       const apvs = (AUTOPILOT_STATE && Array.isArray(AUTOPILOT_STATE.pendingApprovals)) ? AUTOPILOT_STATE.pendingApprovals : [];
       const stuck = (Array.isArray(TASKBOARD_ITEMS) ? TASKBOARD_ITEMS : []).filter(t => t.status === "REVISI" || t.status === "GAGAL");
-      return { apvs, stuck };
+      const posts = CONTENT_QUEUE.filter(p => p.status === "SIAP_POSTING");
+      return { apvs, stuck, posts };
     }
 
     function renderCeoAttentionBadge() {
       const el = document.getElementById("sidebar-attention-badge");
       if (!el) return;
-      const { apvs, stuck } = _ceoAttentionItems();
-      const n = apvs.length + stuck.length;
+      const { apvs, stuck, posts } = _ceoAttentionItems();
+      const n = apvs.length + stuck.length + posts.length;
       el.textContent = String(n);
       el.classList.toggle("hidden", n === 0);
     }
@@ -12838,6 +12840,8 @@
           .catch(err => console.warn("Papan tugas gagal dimuat", err)),
         fetch("/api/targets").then(r => r.json()).then(d => { if (d && d.ok) CEO_TARGETS = d.progress; })
           .catch(err => console.warn("Target bisnis gagal dimuat", err)),
+        fetch("/api/content-queue").then(r => r.json()).then(d => { if (d && d.ok) CONTENT_QUEUE = d.items || []; })
+          .catch(err => console.warn("Antrean konten gagal dimuat", err)),
       ]);
       renderCeoSummary();
       renderCeoAttentionBadge();
@@ -12851,7 +12855,7 @@
     function renderCeoSummary() {
       const body = document.getElementById("ceo-summary-body");
       if (!body) return;
-      const { apvs, stuck } = _ceoAttentionItems();
+      const { apvs, stuck, posts } = _ceoAttentionItems();
       const tasks = Array.isArray(TASKBOARD_ITEMS) ? TASKBOARD_ITEMS : [];
       const running = tasks.filter(t => t.status === "TODO" || t.status === "IN_PROGRESS");
       const done = tasks.filter(t => t.status === "DONE").slice(0, 5);
@@ -12917,7 +12921,32 @@
           <span class="shrink-0 text-[10px] text-slate-400">${escapeHtmlSafe(t.dept || "")}</span>
         </button>`).join("");
 
+      const fileUrl = (p) => `/api/content-queue/file?path=${encodeURIComponent(p)}`;
+      const postsHtml = posts.map(p => `
+        <div class="${card} space-y-2">
+          <div class="flex flex-wrap items-start justify-between gap-2">
+            <div class="min-w-0">
+              <div class="text-[10px] text-emerald-300 font-semibold">${escapeHtmlSafe(p.platform)} · ${escapeHtmlSafe(p.format)} · ${(p.slides || []).length} slide${p.postTime ? ` · tayang ${escapeHtmlSafe(p.postTime)}` : ""}</div>
+              <div class="font-semibold text-white text-[11.5px]">${escapeHtmlSafe(p.title)}</div>
+            </div>
+            <div class="flex flex-wrap gap-1.5 shrink-0">
+              <button onclick="ceoCopyCaption('${escapeHtmlSafe(p.id)}')" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-slate-200 text-[10.5px] cursor-pointer">Salin caption</button>
+              <button onclick="ceoDecidePost('${escapeHtmlSafe(p.id)}','POSTED')" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10.5px] cursor-pointer">Sudah diposting</button>
+              <button onclick="ceoDecidePost('${escapeHtmlSafe(p.id)}','REJECTED')" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 text-[10.5px] cursor-pointer">Tolak + catatan</button>
+            </div>
+          </div>
+          <div class="flex gap-1.5 overflow-x-auto pb-1">
+            ${(p.slides || []).map(s => `<a href="${fileUrl(s)}" target="_blank" rel="noopener" download class="shrink-0"><img src="${fileUrl(s)}" alt="Slide" loading="lazy" class="h-28 w-auto rounded-md border border-white/10" /></a>`).join("")}
+          </div>
+          <div class="text-[10.5px] text-slate-400 whitespace-pre-line line-clamp-3">${escapeHtmlSafe(p.caption || "")}</div>
+          ${p.script ? `<details class="text-[10.5px] text-slate-400"><summary class="cursor-pointer text-slate-300">Naskah reel</summary><div class="whitespace-pre-line mt-1">${escapeHtmlSafe(p.script)}</div></details>` : ""}
+        </div>`).join("");
+
       body.innerHTML = `
+        <section>
+          ${sectionTitle("Siap posting dari tim Social", `${posts.length} paket`)}
+          <div class="space-y-2">${postsHtml || `<div class="${card} text-[11px] text-slate-400">Belum ada paket posting. Tim Social menghasilkan paket (gambar slide + caption) saat jam kerja.</div>`}</div>
+        </section>
         <section>
           ${sectionTitle("Menunggu keputusan Anda", `${apvs.length + stuck.length} item`)}
           <div class="space-y-2">${apvHtml}${stuckHtml}${(apvs.length + stuck.length) === 0 ? `<div class="${card} text-[11px] text-slate-400">Tidak ada yang menunggu Anda.</div>` : ""}</div>
@@ -12936,6 +12965,43 @@
             ${OFFICE_OFF_MODE && running.length ? `<div class="mt-2 text-[10.5px] text-slate-500">Kantor tutup: tugas lanjut saat jam kerja, atau tekan Aktifkan (Lembur).</div>` : ""}</div>
           <div class="${card}">${sectionTitle("Hasil terbaru (lulus QA)", done.length)}${doneHtml || `<div class="text-[11px] text-slate-400">Belum ada hasil yang lulus QA.</div>`}</div>
         </section>`;
+    }
+
+    async function ceoCopyCaption(postId) {
+      const p = CONTENT_QUEUE.find(x => x.id === postId);
+      if (!p) return;
+      try {
+        await navigator.clipboard.writeText(p.caption || "");
+        updateToast("Caption disalin. Tempel saat mengunggah slide.");
+      } catch (err) {
+        updateToast(`Gagal menyalin caption: ${err.message}`);
+      }
+    }
+
+    async function ceoDecidePost(postId, status) {
+      let note = "";
+      if (status === "REJECTED") {
+        note = prompt("Catatan untuk tim Social (apa yang perlu diperbaiki):", "") || "";
+        if (!note.trim()) return;
+      }
+      try {
+        const res = await fetch("/api/content-queue/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: postId, status, note }),
+        });
+        const data = await res.json();
+        if (!data.ok) {
+          updateToast(data.error || "Status paket gagal disimpan.");
+          return;
+        }
+        CONTENT_QUEUE = data.items || [];
+        renderCeoSummary();
+        renderCeoAttentionBadge();
+        updateToast(status === "POSTED" ? "Ditandai sudah diposting." : "Ditolak; catatan dipakai tim Social untuk paket berikutnya.");
+      } catch (err) {
+        updateToast(`Gagal menghubungi server: ${err.message}`);
+      }
     }
 
     async function ceoDecideApproval(approvalId, action) {

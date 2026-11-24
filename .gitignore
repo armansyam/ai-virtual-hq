@@ -33,6 +33,7 @@ skills/*
 !skills/README.md
 reports/
 daily-content/
+content-queue/
 uploads/
 build/
 dist/
