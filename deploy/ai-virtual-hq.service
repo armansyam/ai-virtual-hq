@@ -12,6 +12,7 @@ Environment=TZ=Asia/Makassar
 Environment=APP_HOST=0.0.0.0
 Environment=APP_PORT=8484
 Environment=PYTHONUNBUFFERED=1
+Environment="PATH=/home/ubuntu/.local/bin:/home/ubuntu/.npm-global/bin:/usr/local/bin:/usr/bin:/bin"
 ExecStart=/usr/bin/python3 -u /opt/Karyawan-Luxvite/server.py
 Restart=always
 RestartSec=5
