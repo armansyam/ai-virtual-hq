@@ -11473,12 +11473,15 @@
             ${tasks.map(t => {
               const isDone = t.status === "DONE";
               const isProg = t.status === "IN_PROGRESS";
+              const isRevisi = t.status === "REVISI";
               const bdr = isDone ? "border-emerald-500/40" : (isProg ? "border-amber-500/40" : "border-rose-500/40");
               const statusBadge = isDone
                 ? `<span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold">✓ DONE</span>`
                 : (isProg
                   ? `<span class="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-bold">⚡ IN PROGRESS</span>`
-                  : `<span class="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[10px] font-bold">📌 TODO</span>`);
+                  : (isRevisi
+                    ? `<span class="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[10px] font-bold">↺ REVISI · belum lulus QA</span>`
+                    : `<span class="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[10px] font-bold">📌 TODO</span>`));
               const ag = agents.find(a => a.id === t.assigneeId);
               const agLabel = ag ? `${ag.name} (${ag.role})` : (t.assigneeName || "Tim AI");
               return `

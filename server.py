@@ -3371,7 +3371,7 @@ def record_decision_to_obsidian_vault(room, title, decision_summary, agent_name=
             d_txt = _prepend_markdown_bullet_under_heading(
                 d_txt,
                 "## 📌 Keputusan & Pakem Disetujui CEO",
-                f"- ✅ **[{ts_short}] {clean_title}**: {clean_decision} ( oleh *{agent_name}* → {vault_wikilink}{extra_links} )",
+                f"- {'↺' if clean_decision.startswith('BELUM LULUS') else '✅'} **[{ts_short}] {clean_title}**: {clean_decision} ( oleh *{agent_name}* → {vault_wikilink}{extra_links} )",
                 max_ts_str=ts_short,
             )
             d_txt = _prepend_markdown_bullet_under_heading(
@@ -4696,7 +4696,7 @@ def call_remote_mcp(method, params=None, timeout=12, room="", api_key_override=N
 def call_remote_mcp_tool(tool_name, arguments=None, room="", api_key_override=None, url_override=None, server_id=""):
     ts_cfg = load_token_saver_config()
     ttl_sec = int(ts_cfg.get("mcpCacheTtlSec") or 0) if ts_cfg.get("compressContext") else 0
-    is_read_only = bool(re.match(r"^(luxvite_)?(get|list|search|check|read|audit)_", str(tool_name or "").lower()))
+    is_read_only = _is_read_only_mcp_tool(tool_name)
     cache_key = ""
     if ttl_sec > 0 and is_read_only and not api_key_override and not url_override:
         try:
@@ -7062,8 +7062,13 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             self.send_header("X-Frame-Options", "SAMEORIGIN")
 
     def _get_client_ip(self):
-        xf = self.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-        return xf or (self.client_address[0] if self.client_address else "unknown")
+        peer = self.client_address[0] if self.client_address else "unknown"
+        # Header IP hanya dipercaya dari reverse proxy/tunnel di mesin yang sama; klien LAN langsung bisa memalsukannya
+        # untuk melewati batas percobaan login.
+        if peer in ("127.0.0.1", "::1"):
+            fwd = self.headers.get("CF-Connecting-IP", "").strip() or self.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+            return fwd or peer
+        return peer
 
     def _is_https_request(self):
         return _env_bool("APP_COOKIE_SECURE", False) or (self.headers.get("X-Forwarded-Proto", "").lower() == "https")
@@ -8492,6 +8497,72 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
         self._send_json(404, {"ok": False, "error": "Endpoint tidak ditemukan"})
 
 
+def _is_read_only_mcp_tool(tool_name):
+    return bool(re.match(r"^(luxvite_)?(get|list|search|check|read|audit)_", str(tool_name or "").lower()))
+
+
+def _queue_agent_action_for_ceo_approval(kind, title, detail, payload, room="", agent_id=None, agent_name=""):
+    """Aksi agen yang mengubah sistem luar (tool MCP tulis) atau menanam instruksi permanen (impor skill dari URL)
+    tidak dijalankan langsung: masuk antrean pendingApprovals dan baru dieksekusi setelah CEO menyetujui (UI/Telegram)."""
+    now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
+    apv = {
+        "id": f"appr_{kind.lower()}_{int(time.time() * 1000)}",
+        "createdAt": now_str,
+        "title": title[:110],
+        "dept": str(room or "ADMIN").upper(),
+        "agentId": int(agent_id) if agent_id is not None else 10,
+        "agentName": agent_name or "Tim AI",
+        "agentRole": "Permintaan aksi agen",
+        "detail": detail[:600],
+        "reason": "Aksi agen yang mengubah sistem atau memasang skill baru wajib ACC CEO.",
+        "status": "PENDING",
+        "kind": kind,
+        "payload": payload,
+    }
+    with AUTOPILOT_LOCK:
+        ap_cfg = load_autopilot_config()
+        p_list = list(ap_cfg.get("pendingApprovals") or [])
+        p_list.insert(0, apv)
+        ap_cfg["pendingApprovals"] = p_list[:20]
+        _save_autopilot_config_unlocked(ap_cfg)
+    try:
+        notify_telegram_approval_proposal(apv)
+    except Exception as tg_err:
+        print(f"[approval] Telegram notify gagal untuk {apv['id']}: {tg_err}", flush=True)
+    bump_world_chat_version(toast_msg=f"📋 {apv['agentName']} meminta ACC CEO: {apv['title'][:70]}")
+    return apv["id"]
+
+
+def _execute_approved_agent_action(item):
+    kind = str(item.get("kind") or "")
+    payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
+    if kind == "MCP_TOOL":
+        res = call_remote_mcp_tool(
+            str(payload.get("tool") or ""),
+            payload.get("args") if isinstance(payload.get("args"), dict) else {},
+            room=str(payload.get("room") or ""),
+            server_id=str(payload.get("serverId") or ""),
+        )
+    elif kind == "IMPORT_SKILL":
+        res = import_skill_from_url(payload)
+    else:
+        res = {"ok": False, "error": f"Jenis aksi tidak dikenal: {kind}"}
+    ts_file = time.strftime("%Y%m%d-%H%M%S")
+    rel_file = f"reports/{ts_file}-acc-ceo-{kind.lower().replace('_', '-')}.md"
+    os.makedirs(REPORTS_DIR, exist_ok=True)
+    with open(os.path.join(BASE_DIR, rel_file), "w", encoding="utf-8") as f:
+        f.write(
+            f"# Hasil Aksi yang Disetujui CEO — {item.get('title', '')}\n"
+            f"- **Jenis:** `{kind}`\n- **Peminta:** {item.get('agentName', '')} (`{item.get('dept', '')}`)\n"
+            f"- **Waktu:** {time.strftime('%Y-%m-%d %H:%M:%S WITA')}\n- **Status:** `{'OK' if res.get('ok') else 'GAGAL'}`\n\n"
+            f"```json\n{json.dumps(res, ensure_ascii=False, indent=2)[:6000]}\n```\n"
+        )
+    bump_world_chat_version(
+        toast_msg=(f"✅ Aksi ACC CEO berhasil: {item.get('title', '')[:60]}" if res.get("ok") else f"⚠️ Aksi ACC CEO gagal: {str(res.get('error') or '')[:80]}"),
+    )
+    return res
+
+
 def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, prompt, attachments=None, live_mcp_ctx=None, executed_tools=None, room="", max_steps=3, agent_id=None, agent_name=""):
     """Executes multi-step autonomous [[TOOL_CALL:{...}]] requests with live step status updates in world_state."""
     executed_tools = executed_tools if isinstance(executed_tools, list) else []
@@ -8578,16 +8649,18 @@ def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, p
                     if room and not im_obj.get("scope"):
                         im_obj["scope"] = "DEPT"
                         im_obj["depts"] = [room]
-                    im_res = import_skill_from_url(im_obj)
-                    if im_res.get("ok"):
-                        executed_tools.append({
-                            "tool": f"Import Skill: {im_res.get('slug', '')}",
-                            "source": "SKILL",
-                            "summary": f"skills/{im_res.get('slug')}/SKILL.md",
-                        })
-                        tool_results_lines.append(f"- SKILL TERPERCAYA BERHASIL DIIMPOR: skills/{im_res.get('slug')}/SKILL.md")
-                    else:
-                        tool_results_lines.append(f"- Gagal import skill URL: {im_res.get('error')}")
+                    im_url = str(im_obj.get("url") or "").strip()
+                    apv_id = _queue_agent_action_for_ceo_approval(
+                        "IMPORT_SKILL",
+                        f"Impor skill dari URL: {im_url[:80]}",
+                        f"{who_label} ingin mengimpor SKILL.md dari {im_url} (scope {im_obj.get('scope')}). Isi skill akan masuk ke prompt agen berikutnya.",
+                        im_obj,
+                        room=room,
+                        agent_id=agent_id,
+                        agent_name=agent_name,
+                    )
+                    executed_tools.append({"tool": f"Import Skill (menunggu ACC): {im_url[:40]}", "source": "SKILL", "summary": apv_id})
+                    tool_results_lines.append(f"- IMPORT SKILL BELUM DIJALANKAN: menunggu ACC CEO (antrean {apv_id}). Jangan laporkan skill ini sudah terpasang.")
                 except Exception as ime:
                     tool_results_lines.append(f"- Parse error IMPORT_SKILL_URL: {ime}")
 
@@ -8626,6 +8699,23 @@ def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, p
                     sid = str(req_obj.get("serverId") or "").strip()
                     tname = str(req_obj.get("tool") or "").strip()
                     targs = req_obj.get("args") if isinstance(req_obj.get("args"), dict) else {}
+                    if not _is_read_only_mcp_tool(tname):
+                        args_preview = json.dumps({k: (v if len(str(v)) <= 120 else f"<{len(str(v))} karakter>") for k, v in targs.items()}, ensure_ascii=False)
+                        apv_id = _queue_agent_action_for_ceo_approval(
+                            "MCP_TOOL",
+                            f"Jalankan tool MCP tulis: {tname}",
+                            f"{who_label} meminta tool `{tname}` (ruang {room or '-'}) dengan argumen {args_preview}",
+                            {"tool": tname, "args": targs, "room": room, "serverId": sid},
+                            room=room,
+                            agent_id=agent_id,
+                            agent_name=agent_name,
+                        )
+                        executed_tools.append({"tool": f"{tname} (menunggu ACC)", "source": "REMOTE_MCP", "summary": apv_id})
+                        tool_results_lines.append(
+                            f"- TOOL `{tname}` BELUM DIJALANKAN: tool ini mengubah sistem produksi dan menunggu ACC CEO (antrean {apv_id}). "
+                            "Laporkan statusnya sebagai menunggu persetujuan, bukan selesai."
+                        )
+                        continue
                     res = call_remote_mcp_tool(tname, targs, room=room, server_id=sid)
                     executed_tools.append({
                         "tool": tname,
@@ -9523,7 +9613,7 @@ def run_gm_autopilot_cycle(manual=False):
 
         vault_idx = ""
         try:
-            idx_path = os.path.join(get_obsidian_vault_path(), "00-INDEX.md")
+            idx_path = os.path.join(get_active_memory_dir(), "00-INDEX.md")
             if os.path.exists(idx_path):
                 with open(idx_path, "r", encoding="utf-8", errors="ignore") as vf:
                     vault_idx = vf.read()[:2200]
@@ -9814,6 +9904,10 @@ def handle_autopilot_approval_action(approval_id, action):
     if not target_item:
         return {"ok": False, "error": "Usulan tidak ditemukan.", "autopilot": load_autopilot_config()}
 
+    if action == "approve" and target_item.get("kind") in ("MCP_TOOL", "IMPORT_SKILL"):
+        threading.Thread(target=_execute_approved_agent_action, args=(target_item,), daemon=True).start()
+        return {"ok": True, "action": "approved", "autopilot": load_autopilot_config()}
+
     if action == "approve":
         def _exec_approved():
             aid = int(target_item.get("agentId") or 10)
@@ -9932,6 +10026,25 @@ def _pick_squad_members(dept, task_text, manager_id=None, max_staff=2):
         scored.append((hits, -idx_s, st))
     scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
     return [x[2] for x in scored[:max_staff]]
+
+
+QUALITY_GATE_TAG_RE = re.compile(r"\[\[GATE:\s*(PASS|REVISI)\s*\]\]", re.I)
+
+
+def _parse_quality_gate(report_md):
+    """True hanya bila laporan manajer menyatakan PASS. Ragu dianggap REVISI: pekerjaan yang belum terbukti selesai
+    tidak boleh tercatat lulus di Papan Tugas, Obsidian, maupun webhook."""
+    txt = str(report_md or "")
+    tag = QUALITY_GATE_TAG_RE.search(txt)
+    if tag:
+        return tag.group(1).upper() == "PASS"
+    m = re.search(r"Status Quality Gate([\s\S]{0,200})", txt, re.I)
+    if not m:
+        return False
+    verdict = re.sub(r"\(\s*PASS\s*/\s*REVISI\s*\)", "", m.group(1), flags=re.I)
+    if re.search(r"REVISI|HOLD|BLOCK|GAGAL|FAIL|TIDAK LULUS|BELUM|PARTIAL|PERLU VERIFIKASI", verdict, re.I):
+        return False
+    return bool(re.search(r"\bPASS\b|\bLULUS\b", verdict, re.I))
 
 
 def _execute_single_department_project(item, idx=1, total=1):
@@ -10189,7 +10302,9 @@ def _execute_single_department_project(item, idx=1, total=1):
             "   (a) Memverifikasi apakah semua deliverable staf sudah akurat, lengkap, dan bebas halusinasi;\n"
             "   (b) Mencatat koreksi/penyelarasan bila ada celah antar-staf;\n"
             "   (c) Menyusun Ringkasan Eksekutif & Daftar File Hasil Kerja Tim yang siap dilaporkan ke GM Raka & CEO.\n"
-            "2. Sertakan bagian jelas: **Status Quality Gate (PASS/REVISI)**, **Daftar Deliverable Staf (nama + file)**, dan **Ringkasan Eksekutif Siap Pakai**."
+            "2. Sertakan bagian jelas: **Status Quality Gate (PASS/REVISI)**, **Daftar Deliverable Staf (nama + file)**, dan **Ringkasan Eksekutif Siap Pakai**.\n"
+            "   Tulis juga tepat satu tag [[GATE:PASS]] atau [[GATE:REVISI]]. PASS hanya bila seluruh target rapat benar-benar "
+            "terpenuhi dengan bukti tool nyata; bila ada deliverable yang gagal, tertahan, atau belum dieksekusi, wajib [[GATE:REVISI]]."
             + handoff_rule
         )
         mgr_prompt = (
@@ -10221,6 +10336,13 @@ def _execute_single_department_project(item, idx=1, total=1):
                 except Exception:
                     handoff_obj = None
 
+        gate_passed = _parse_quality_gate(deliv_md)
+        deliv_md = QUALITY_GATE_TAG_RE.sub("", deliv_md).strip()
+        gate_label = "PASS" if gate_passed else "REVISI"
+        # Pekerjaan yang belum lulus tidak diserahkan ke departemen lain.
+        if not gate_passed:
+            handoff_obj = None
+
         now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
         ts_file = time.strftime("%Y%m%d-%H%M%S")
         slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:36] or "task"
@@ -10236,6 +10358,7 @@ def _execute_single_department_project(item, idx=1, total=1):
             f"# Laporan Quality Gate & Konsolidasi Tim {dept} — {title}\n"
             f"- **Manajer QA & Tim Eksekutor:** {team_credit}\n"
             f"- **Departemen:** `{dept}`\n"
+            f"- **Status Gate (tercatat sistem):** `{gate_label}`\n"
             f"- **Waktu Selesai:** {now_str}\n"
             f"- **Engine QA:** `{used_engine}`\n"
             + (f"\n### 📁 Berkas Kerja Mandiri Staf:\n{staff_links_md}\n" if staff_links_md else "")
@@ -10247,13 +10370,17 @@ def _execute_single_department_project(item, idx=1, total=1):
         obs_related_depts = []
         if handoff_obj and handoff_obj.get("toDept"):
             obs_related_depts.append(handoff_obj["toDept"])
-        if task_item.get("handoffFrom"):
-            obs_related_depts.append(str(task_item.get("handoffFrom")).upper())
+        if item.get("handoffFrom"):
+            obs_related_depts.append(str(item.get("handoffFrom")).upper())
 
         record_decision_to_obsidian_vault(
             room=dept,
             title=title,
-            decision_summary=f"Selesai dieksekusi mandiri oleh staf ({squad_names}) & lulus Quality Gate {aname} ({rel_file})",
+            decision_summary=(
+                f"Selesai dieksekusi mandiri oleh staf ({squad_names}) & lulus Quality Gate {aname} ({rel_file})"
+                if gate_passed
+                else f"BELUM LULUS — Quality Gate {aname} meminta REVISI atas hasil staf ({squad_names}); lihat {rel_file}"
+            ),
             agent_name=team_credit,
             agent_role=arole,
             deliverable_md=str(deliv_md or ""),
@@ -10266,7 +10393,7 @@ def _execute_single_department_project(item, idx=1, total=1):
         )
         update_agent_deliverable(
             aid,
-            f"Quality Gate PASS ({squad_names}): {title}",
+            f"Quality Gate {gate_label} ({squad_names}): {title}",
             f"[QUALITY GATE MANAJER — {team_credit}]\n{str(deliv_md or '')[:650]}",
             rel_file,
         )
@@ -10275,7 +10402,11 @@ def _execute_single_department_project(item, idx=1, total=1):
                 dept=dept,
                 title=title,
                 rel_file=rel_file,
-                summary=f"Lulus Quality Gate {aname} (Eksekutor: {squad_names})",
+                summary=(
+                    f"Lulus Quality Gate {aname} (Eksekutor: {squad_names})"
+                    if gate_passed
+                    else f"BELUM LULUS — REVISI dari Quality Gate {aname} (Eksekutor: {squad_names})"
+                ),
                 staff_names=squad_names or aname,
                 deliverable_md=str(deliv_md or ""),
                 task_id=tid,
@@ -10283,14 +10414,20 @@ def _execute_single_department_project(item, idx=1, total=1):
         except Exception:
             pass
 
+        task_status = "DONE" if gate_passed else "REVISI"
+        task_detail = (
+            f"Dieksekusi mandiri oleh {squad_names} & lulus QA {aname} pada {now_str}. File: {rel_file}"
+            if gate_passed
+            else f"REVISI dari QA {aname} pada {now_str}: hasil {squad_names} belum memenuhi target. Lihat {rel_file}"
+        )
         with TASKBOARD_LOCK:
             tb = load_taskboard()
             found = False
             for t in tb:
                 if t.get("id") == tid:
-                    t["status"] = "DONE"
+                    t["status"] = task_status
                     t["agentName"] = team_credit
-                    t["detail"] = f"Dieksekusi mandiri oleh {squad_names} & lulus QA {aname} pada {now_str}. File: {rel_file}"
+                    t["detail"] = task_detail
                     t["artifactFile"] = rel_file
                     t["updatedAt"] = now_str
                     found = True
@@ -10298,8 +10435,8 @@ def _execute_single_department_project(item, idx=1, total=1):
             if not found:
                 tb.insert(0, {
                     "id": tid, "title": title, "dept": dept, "agentId": aid, "agentName": team_credit,
-                    "taskType": "meeting_action_item", "priority": "HIGH", "status": "DONE",
-                    "detail": f"Dieksekusi mandiri oleh {squad_names} & lulus QA {aname} pada {now_str}. File: {rel_file}",
+                    "taskType": "meeting_action_item", "priority": "HIGH", "status": task_status,
+                    "detail": task_detail,
                     "artifactFile": rel_file, "updatedAt": now_str,
                 })
             save_taskboard(tb)
@@ -10349,6 +10486,10 @@ def _execute_single_department_project(item, idx=1, total=1):
             bump_world_chat_version(
                 toast_msg=f"🤝 [{dept} → {to_dept}] {aname} menyerahkan task lanjutan ke {to_mgr['name']}: {ho_title[:50]}",
                 coord_event=coord,
+            )
+        elif not gate_passed:
+            bump_world_chat_version(
+                toast_msg=f"⚠️ [{dept}] QA REVISI: hasil {squad_names} untuk '{title[:48]}' belum lulus. Lihat {rel_file}",
             )
         else:
             coord = generate_data_driven_coordination_event(custom_context={

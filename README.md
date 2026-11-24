@@ -6,7 +6,9 @@ Aplikasi server mandiri **3D Virtual HQ** dengan **35 Karyawan AI lintas 6 Depar
 - **Halaman Utama (`/`) = Public Live View (Read-Only 100% Aman)**: Pengunjung publik langsung melihat aktivitas 3D secara real-time melalui endpoint terisolasi `GET /api/public/live-state` — tanpa kebocoran chat CEO, keuangan, API Key, maupun konfigurasi MCP.
 - **Sistem Login CEO/Admin & Keamanan Backend**:
   - Password di-hash dengan **PBKDF2-HMAC-SHA256 (200.000 iterasi)**.
-  - Sesi memakai **Signed Cookie (`HttpOnly`, `SameSite=Lax`, `Secure` di HTTPS)** + **Rate Limiting** anti brute-force.
+  - Sesi memakai **Signed Cookie (`HttpOnly`, `SameSite=Lax`, `Secure` di HTTPS)** + **Rate Limiting** anti brute-force (8 percobaan gagal / 10 menit per IP; header `X-Forwarded-For`/`CF-Connecting-IP` hanya dipercaya dari reverse proxy di `127.0.0.1`).
+  - **ACC CEO untuk aksi agen**: tool Remote MCP yang mengubah sistem (selain `get/list/search/check/read/audit_*`) dan impor skill dari URL yang diminta agen masuk antrean persetujuan (UI & Telegram), baru dijalankan setelah disetujui.
+  - **Status Quality Gate jujur**: laporan manajer berstatus REVISI tercatat `REVISI` di Papan Tugas, memori, dan webhook — bukan `DONE`.
   - Firewall strict pada seluruh endpoint `/api/*` dan whitelist static file (file `.env`, `config/`, `reports/`, `*.py`, `*.md` diblokir `403`).
 - **Setup 1 Pintu (Zero Hardcode)**: Ubah Nama Perusahaan, Tagline, Industri, Website, Brief Bisnis/SOP, dan Nama 6 Departemen langsung dari UI — seluruh branding dan konteks 35 karyawan AI otomatis menyesuaikan.
 - **Multi-Provider AI & Multi-Remote MCP**: Hubungkan Gemini, OpenAI, Anthropic, Groq, Ollama, OpenRouter, serta satu atau banyak server aplikasi Remote MCP (`/api/mcp`).
