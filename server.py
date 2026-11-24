@@ -8841,7 +8841,22 @@ def run_gm_autopilot_cycle(manual=False):
                     save_taskboard(tb_ap)
             bump_world_chat_version(toast_msg=f"⚡ {gm_name} mendelegasikan ke tim {target_dept} ({target_aname} + staf squad): {proj_title[:75]}")
             try:
-                _execute_single_department_project(proj_item, 1, 1)
+                # Also launch up to 2 other pending tasks from DIFFERENT departments in parallel so the whole office works simultaneously!
+                extra_parallel = []
+                if cfg.get("autoExecutePending", True):
+                    used_depts = {target_dept}
+                    for pt in load_taskboard():
+                        pt_id = str(pt.get("id") or "")
+                        pt_st = str(pt.get("status") or "").upper()
+                        pt_dept = str(pt.get("dept") or "").upper()
+                        if pt_id and pt_id != proj_tid and pt_st in ("TODO", "IN_PROGRESS") and pt_dept in DEPT_SQUADS and pt_dept not in used_depts:
+                            used_depts.add(pt_dept)
+                            extra_parallel.append(pt)
+                            if len(extra_parallel) >= 2:
+                                break
+                if extra_parallel:
+                    _execute_meeting_tasks_background(extra_parallel)
+                _execute_single_department_project(proj_item, 1, 1 + len(extra_parallel))
                 tb_after = load_taskboard()
                 done_row = next((t for t in tb_after if t.get("id") == proj_tid), None)
                 artifact_file = (done_row or {}).get("artifactFile") or ""
@@ -9087,8 +9102,8 @@ def _execute_single_department_project(item, idx=1, total=1):
             )
             plan_sys = (
                 f"Kamu adalah {aname} ({arole}) di {comp_name}. "
-                "Tugasmu sebagai MANAJER adalah membagi proyek ini menjadi 2 sampai maksimal 3 sub-tugas SPESIFIK "
-                "dan TIDAK TUMPANG TINDIH untuk staf spesialis di departemenmu. "
+                "Tugasmu sebagai MANAJER adalah membagi proyek ini menjadi 3 sub-tugas SPESIFIK "
+                "(atau seluruh staf yang tersedia jika <3) yang TIDAK TUMPANG TINDIH untuk staf spesialis di departemenmu. "
                 "Setiap staf memiliki hak akses penuh ke seluruh tool (Remote MCP, Local MCP, Folder Lokal, Skills) untuk mengeksekusi tugasnya sendiri.\n"
                 "BALAS HANYA DENGAN JSON VALID:\n"
                 '{"assignments":[{"staffId":0,"staffName":"Nadia","subTitle":"Judul sub-tugas spesifik","subBrief":"Instruksi kerja konkret & output yang diharapkan dari staf ini"}]}'
@@ -9097,7 +9112,7 @@ def _execute_single_department_project(item, idx=1, total=1):
                 f"PROYEK DEPARTEMEN {dept}: {title}\n"
                 f"INSTRUKSI RAPAT:\n{instr}\n\n"
                 f"DAFTAR STAF DEPARTEMEN {dept}:\n{staff_catalog}\n\n"
-                "Pilih 2-3 staf paling tepat dan berikan sub-brief yang berbeda & saling melengkapi dalam JSON."
+                "Pilih 3 staf paling tepat (atau seluruh staf jika hanya 2) dan berikan sub-brief yang berbeda & saling melengkapi dalam JSON."
             )
             try:
                 plan_raw, _ = run_agent_llm_unified(

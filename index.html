@@ -5644,17 +5644,19 @@
         const sc = toScreenXY(p);
         const inFront = sc.z < 1.0;
 
-        // Clean Hover-Only Micro Name Pill! Also shown automatically whenever the agent is actively executing a real task!
+        // Clean Hover-Only Micro Name Pill! Always visible with glowing WORK badge whenever agent is actively working!
+        const isWorkingNow = Boolean(agent.isBusyWorking) || (typeof SERVER_BUSY_AGENT_IDS !== "undefined" && SERVER_BUSY_AGENT_IDS && SERVER_BUSY_AGENT_IDS.has(agent.id));
         const showPill = inFront && (
           labelDisplayMode === "ALL" ||
           hoveredAgentId === agent.id ||
           activeContextMenuAgentId === agent.id ||
-          Boolean(agent.isBusyWorking)
+          isWorkingNow
         );
         pill.style.display = showPill ? "" : "none";
         if (showPill) {
           pill.style.left = `${sc.x}px`;
-          pill.style.top = `${sc.y}px`;
+          pill.style.top = `${isWorkingNow ? (sc.y - 6) : sc.y}px`;
+          pill.style.zIndex = isWorkingNow ? "35" : "20";
         }
 
         if (bub) {
@@ -5662,13 +5664,13 @@
             bub.textContent = agent.activeBubbleText;
             bub.classList.remove("hidden");
             bub.style.left = `${sc.x}px`;
-            bub.style.top = `${sc.y - 16}px`;
+            bub.style.top = `${sc.y - 22}px`;
           } else {
             bub.classList.add("hidden");
           }
         }
 
-        if (activeRoomFilter !== "ALL" && activeRoomFilter !== "TOWNHALL" && activeRoomFilter !== "CEO_OFFICE" && activeRoomFilter !== "REST_MESS" && agent.room !== activeRoomFilter) {
+        if (!isWorkingNow && activeRoomFilter !== "ALL" && activeRoomFilter !== "TOWNHALL" && activeRoomFilter !== "CEO_OFFICE" && activeRoomFilter !== "REST_MESS" && agent.room !== activeRoomFilter) {
           pill.style.opacity = "0.30";
         } else {
           pill.style.opacity = "1";
@@ -6275,7 +6277,7 @@
     let _WORLD_POLL_TIMER = null;
     function scheduleNextWorldPoll() {
       if (_WORLD_POLL_TIMER) clearTimeout(_WORLD_POLL_TIMER);
-      const busyNow = (typeof SERVER_BUSY_AGENT_IDS !== "undefined" && SERVER_BUSY_AGENT_IDS && SERVER_BUSY_AGENT_IDS.size > 0);
+      const busyNow = agents.some(a => Boolean(a.isBusyWorking));
       const chatOpen = Boolean(document.getElementById("modal-progress") && !document.getElementById("modal-progress").classList.contains("hidden"));
       const delayMs = (busyNow || chatOpen) ? 2200 : 8000;
       _WORLD_POLL_TIMER = setTimeout(async () => {
@@ -9777,10 +9779,11 @@
         const st = evaluateAgentModelStatus(ag);
         const isLeader = (ag.shortPill || "").includes("⭐") || (ag.shortPill || "").includes("👑");
         const isRest = ag.workState === "RESTING";
-        if (ag.isBusyWorking) {
-          pill.className = "agent-pill px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 font-extrabold text-[9.5px] shadow-lg shadow-emerald-500/40 border border-white flex items-center gap-1 animate-pulse";
-          pill.title = `${ag.name} sedang mengeksekusi tugas nyata & menulis deliverable`;
-          pill.innerHTML = `<span>⚡</span><span>${ag.name} · Kerja...</span>`;
+        const isWorkingNow = Boolean(ag.isBusyWorking) || (typeof SERVER_BUSY_AGENT_IDS !== "undefined" && SERVER_BUSY_AGENT_IDS && SERVER_BUSY_AGENT_IDS.has(ag.id));
+        if (isWorkingNow) {
+          pill.className = "agent-pill px-2 py-0.5 rounded-full bg-[#091c15]/95 text-white font-bold text-[9.5px] shadow-lg shadow-emerald-500/45 border border-emerald-400 flex items-center gap-1.5";
+          pill.title = `${ag.name} (${ag.role}) sedang bekerja mengeksekusi tugas nyata`;
+          pill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping shrink-0"></span><span class="px-1.5 py-[1px] rounded bg-emerald-400 text-slate-950 font-black tracking-wider text-[8.5px] uppercase leading-none">WORK</span><span class="text-emerald-100">${ag.name}</span>`;
         } else if (isRest) {
           pill.className = "agent-pill px-1.5 py-0.5 rounded-full bg-indigo-950/90 text-indigo-200 font-semibold text-[9.5px] shadow border border-indigo-400/60 flex items-center gap-1";
           pill.title = `${ag.name} sedang istirahat di Gedung D (Mess Istirahat)`;
