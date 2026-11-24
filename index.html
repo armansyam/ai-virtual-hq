@@ -869,7 +869,8 @@
         <button onclick="switchLogTab('INTERDEPT')" id="log-tab-INTERDEPT" class="px-3 py-1.5 rounded-lg bg-sky-600 text-white font-bold cursor-pointer">🔄 Log Antar-Departemen</button>
         <button onclick="switchLogTab('RECENT_CHATS')" id="log-tab-RECENT_CHATS" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 cursor-pointer">💬 Recent Obrolan CEO</button>
         <button onclick="switchLogTab('DIRECTIVES')" id="log-tab-DIRECTIVES" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 cursor-pointer">📌 Keputusan & Arahan CEO</button>
-        <button onclick="switchLogTab('TASKBOARD')" id="log-tab-TASKBOARD" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 cursor-pointer">✅ Papan Tugas Nyata Day-1</button>
+        <button onclick="switchLogTab('TASKBOARD')" id="log-tab-TASKBOARD" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 cursor-pointer">✅ Papan Tugas Nyata</button>
+        <button onclick="resumeInProgressTasksUI()" class="ml-auto px-3 py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-500 text-white font-bold cursor-pointer" title="Jalankan seluruh task IN_PROGRESS secara paralel bersama tim squad masing-masing departemen">🚀 Jalankan Semua Task (Paralel)</button>
       </div>
 
       <div id="interdept-log-body" class="flex-1 overflow-y-auto p-5 space-y-3 text-xs"></div>
@@ -6162,6 +6163,23 @@
         }
       } catch (e) {}
       await syncWorldStateFromServer(true);
+    }
+
+    async function resumeInProgressTasksUI() {
+      try {
+        const res = await fetch("/api/tasks/resume-in-progress", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const data = await res.json();
+        if (data.ok) {
+          if (data.resumedCount > 0) {
+            updateToast(`🚀 ${data.resumedCount} proyek departemen langsung dijalankan PARALEL bersama tim squad masing-masing!`);
+          } else {
+            updateToast(`✅ ${data.message || "Semua task sudah selesai atau sedang aktif dikerjakan."}`);
+          }
+          syncWorldStateFromServer(false);
+        }
+      } catch (e) {
+        updateToast(`⚠️ Gagal memulai task paralel: ${e.message}`);
+      }
     }
 
     async function finishMeetingAndExecuteTasks() {

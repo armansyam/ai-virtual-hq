@@ -2942,7 +2942,7 @@ def _prepend_markdown_bullet_under_heading(md_text, heading_prefix, bullet_line,
     return "\n".join(lines).rstrip() + "\n"
 
 
-def record_decision_to_obsidian_vault(room, title, decision_summary, agent_name="Tim AI", agent_role="Staf", deliverable_md="", related_depts=None, used_engine="Live AI", task_id=""):
+def record_decision_to_obsidian_vault(room, title, decision_summary, agent_name="Tim AI", agent_role="Staf", deliverable_md="", related_depts=None, used_engine="Live AI", task_id="", skip_taskboard_write=False, existing_report_file="", agent_id=None):
     """Writes the executed deliverable to reports/ or daily-content/, creates an atomic note in memory/deliverables/ with [[wikilinks]],
     and updates memory/DEPT-<ROOM>.md + memory/00-INDEX.md + taskboard.json + ceo_directives.json."""
     vault_dir = ensure_obsidian_vault_seeded()
@@ -3051,37 +3051,51 @@ def record_decision_to_obsidian_vault(room, title, decision_summary, agent_name=
 
     updated_notes.append(vault_deliv_rel)
 
-    # 5. Update CEO Directives, Agent Deliverables, Taskboard & 3D Coordination Event
+    # 5. Update CEO Directives, Agent Deliverables, Taskboard (upsert by task_id — zero duplicates!)
+    final_report_file = existing_report_file or rel_file
     append_ceo_directive({
         "id": f"dir_{int(time.time() * 1000)}",
         "timestamp": ts,
         "scope": room_u,
         "summary": f"{clean_title}: {clean_decision}",
-        "artifactFile": rel_file,
+        "artifactFile": final_report_file,
     })
 
-    tb = load_taskboard()
-    tb.insert(0, {
-        "id": task_id or f"task_{int(time.time() * 1000)}",
-        "title": clean_title,
-        "dept": room_u,
-        "agentId": 10,
-        "agentName": agent_name,
-        "taskType": "execute_custom_directive",
-        "priority": "HIGH",
-        "status": "DONE",
-        "detail": f"{clean_decision} (Tersimpan di Memory [[DEPT-{room_u}]] & {rel_file})",
-        "artifactFile": rel_file,
-        "updatedAt": ts,
-    })
-    save_taskboard(tb[:35])
+    if not skip_taskboard_write:
+        with TASKBOARD_LOCK:
+            tb = load_taskboard()
+            new_tid = task_id or f"task_{int(time.time() * 1000)}"
+            updated_existing = False
+            for t in tb:
+                if t.get("id") == new_tid:
+                    t["status"] = "DONE"
+                    t["detail"] = f"{clean_decision} (Tersimpan di Memory [[DEPT-{room_u}]] & {final_report_file})"
+                    t["artifactFile"] = final_report_file
+                    t["updatedAt"] = ts
+                    updated_existing = True
+                    break
+            if not updated_existing:
+                tb.insert(0, {
+                    "id": new_tid,
+                    "title": clean_title,
+                    "dept": room_u,
+                    "agentId": agent_id if agent_id is not None else 10,
+                    "agentName": agent_name,
+                    "taskType": "execute_custom_directive",
+                    "priority": "HIGH",
+                    "status": "DONE",
+                    "detail": f"{clean_decision} (Tersimpan di Memory [[DEPT-{room_u}]] & {final_report_file})",
+                    "artifactFile": final_report_file,
+                    "updatedAt": ts,
+                })
+            save_taskboard(tb[:40])
 
     return {
         "executed": True,
         "title": clean_title,
         "decision": clean_decision,
         "dept": room_u,
-        "artifactFile": rel_file,
+        "artifactFile": final_report_file,
         "vaultDeliverableNote": vault_deliv_rel,
         "updatedMemoryNotes": updated_notes,
         "vaultPath": vault_dir,
@@ -5609,9 +5623,24 @@ def load_taskboard():
     return seeded
 
 
+TASKBOARD_LOCK = threading.Lock()
+
+
 def save_taskboard(tasks):
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    seen = set()
+    clean_tasks = []
+    for t in (tasks or []):
+        if not isinstance(t, dict):
+            continue
+        tid = str(t.get("id") or "")
+        if tid and tid in seen:
+            continue
+        if tid:
+            seen.add(tid)
+        clean_tasks.append(t)
     with open(TASKBOARD_FILE, "w", encoding="utf-8") as f:
-        json.dump(tasks, f, indent=2, ensure_ascii=False)
+        json.dump(clean_tasks, f, indent=2, ensure_ascii=False)
     bump_world_chat_version()
 
 
@@ -7628,6 +7657,11 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             self._send_json(200, res)
             return
 
+        if self.path.startswith("/api/tasks/resume-in-progress"):
+            res = resume_in_progress_tasks()
+            self._send_json(200, res)
+            return
+
         if self.path.startswith("/api/townhall-chat"):
             prompt = body.get("prompt", "").strip()
             endpoint = body.get("endpoint", "").strip()
@@ -8886,126 +8920,353 @@ def handle_autopilot_approval_action(approval_id, action):
     return {"ok": True, "action": "dismissed", "autopilot": load_autopilot_config()}
 
 
+DEPT_SQUADS = {
+    "SOCIAL": {
+        "manager": {"id": 17, "name": "Senna", "role": "Manajer Departemen 1 (Social Media & Content)"},
+        "staff": [
+            {"id": 0, "name": "Nadia", "role": "Spesialis Riset Tren & Kompetitor", "kw": ["riset", "tren", "kompetitor", "benchmark", "hook", "tiktok", "threads", "ig"]},
+            {"id": 2, "name": "Cleo", "role": "Spesialis Carousel Editorial", "kw": ["carousel", "slide", "grid", "editorial", "desain", "ig", "instagram"]},
+            {"id": 1, "name": "Arka", "role": "Spesialis Skrip Reels & TikTok", "kw": ["reels", "tiktok", "video", "skrip", "hook", "konten"]},
+            {"id": 3, "name": "Sora", "role": "Spesialis Caption & Bio IG", "kw": ["caption", "bio", "copy", "threads", "cta", "naskah"]},
+            {"id": 7, "name": "Maya", "role": "Spesialis Upload & Jadwal Konten", "kw": ["jadwal", "upload", "publish", "kalender", "posting"]},
+            {"id": 25, "name": "Kiki", "role": "Staf Community, Balas Komentar & DM", "kw": ["komentar", "dm", "community", "engagement", "audiens"]},
+        ],
+    },
+    "THEMES": {
+        "manager": {"id": 5, "name": "Bima", "role": "Manajer Departemen 2 (Theme Product & Portfolio)"},
+        "staff": [
+            {"id": 14, "name": "Zaki", "role": "Spesialis QA Tester Tema & Pengalaman Tamu", "kw": ["qa", "audit", "validasi", "zero-hardcode", "bug", "cek", "test"]},
+            {"id": 4, "name": "Damar", "role": "Spesialis Visual, Aset & Thumbnail Retina", "kw": ["aset", "visual", "screenshot", "thumbnail", "ui", "retina", "rekaman"]},
+            {"id": 26, "name": "Bela", "role": "Staf Kurator Mock Data 3 Mode & Portfolio Showcase", "kw": ["hero", "shortlist", "katalog", "demo", "portfolio", "tema"]},
+            {"id": 12, "name": "Kael", "role": "Perencana Desain, Palet :root & Blueprint Tema", "kw": ["palet", "root", "blueprint", "warna", "desain"]},
+            {"id": 13, "name": "Vino", "role": "Developer Master Tema HTML & Theme Builder 3.0", "kw": ["html", "builder", "master", "kode", "tema"]},
+            {"id": 11, "name": "Elena", "role": "Spesialis Riset Tren Tema Undangan Internet", "kw": ["riset", "tren", "referensi", "inspirasi"]},
+        ],
+    },
+    "GROWTH": {
+        "manager": {"id": 15, "name": "Aldo", "role": "Manajer Departemen 3 (Growth, B2B & SEO)"},
+        "staff": [
+            {"id": 6, "name": "Tara", "role": "Staf Optimasi Konversi, Trial 14 Hari & Funnel", "kw": ["konversi", "funnel", "objection", "pembeli", "draf", "trial", "naskah"]},
+            {"id": 19, "name": "Rendy", "role": "Staf Akuisisi Mitra WO, MUA & Studio Foto", "kw": ["wo", "mitra", "b2b", "vendor", "outreach", "partner"]},
+            {"id": 28, "name": "Hana", "role": "Staf Data Analytics & Retention", "kw": ["riset", "kompetitor", "segmen", "data", "matrix", "analitik"]},
+            {"id": 16, "name": "Laras", "role": "Staf Spesialis SEO Pencarian & Artikel", "kw": ["seo", "artikel", "google", "pencarian", "blog"]},
+            {"id": 27, "name": "Bagas", "role": "Staf Performance Ads (Meta, TikTok & Google Ads)", "kw": ["ads", "iklan", "meta", "pixel", "tiktok"]},
+            {"id": 18, "name": "Gita", "role": "Staf Kurator Musik & Kalimat Undangan", "kw": ["musik", "doa", "kalimat", "wa"]},
+        ],
+    },
+    "ENGINEERING": {
+        "manager": {"id": 22, "name": "Arya", "role": "Manajer Dept 5 (Head of Engineering & Full-Stack Next.js 16)"},
+        "staff": [
+            {"id": 9, "name": "Hermes", "role": "Staf DevOps, MCP Server & Server Watchdog", "kw": ["vps", "sync", "sinkronisasi", "api", "mcp", "server", "disk", "health"]},
+            {"id": 23, "name": "Rian", "role": "Senior Backend, PostgreSQL 16 (Prisma 7) & Payment Dev", "kw": ["db", "database", "prisma", "api", "backend", "midtrans", "endpoint"]},
+            {"id": 24, "name": "Niko", "role": "Security, Performance, Test Suite & Bug-Fix Engineer", "kw": ["audit", "bug", "aset", "security", "test", "validasi"]},
+            {"id": 30, "name": "Kevin", "role": "Staf Frontend UI/UX Next.js 16 & Studio Editor", "kw": ["ui", "frontend", "studio", "next", "halaman"]},
+            {"id": 31, "name": "Dika", "role": "Staf Automated Testing, CI/CD Deploy & Backup PostgreSQL", "kw": ["ci", "deploy", "backup", "testing", "otomatis"]},
+        ],
+    },
+    "FINANCE": {
+        "manager": {"id": 29, "name": "Tika", "role": "Manajer Dept 6 (Head of Finance, Cashflow & Profitability)"},
+        "staff": [
+            {"id": 32, "name": "Nanda", "role": "Staf Unit Economics, Harga, Diskon, Margin Mitra & BEP", "kw": ["unit", "economics", "bep", "margin", "harga", "diskon"]},
+            {"id": 33, "name": "Reza", "role": "Staf Pengendalian OPEX (VPS, Domain, R2, Ads) & PPh 0,5%", "kw": ["opex", "biaya", "pph", "vps", "tutup buku", "anggaran"]},
+            {"id": 34, "name": "Sinta", "role": "Staf Kasir, Rekonsiliasi Midtrans/Transfer & Payout Mitra", "kw": ["rekonsiliasi", "kas", "midtrans", "order", "transaksi"]},
+        ],
+    },
+    "ADMIN": {
+        "manager": {"id": 8, "name": "Putri", "role": "Manajer Departemen 4 (Client Ops & Admin)"},
+        "staff": [
+            {"id": 20, "name": "Dinda", "role": "Staf CS Fast-Response, OTP & Draf Gratis", "kw": ["cs", "otp", "klien", "draf", "respon", "onboarding"]},
+            {"id": 21, "name": "Fajar", "role": "Staf Teknis DNS Custom Domain & Resepsionis QR", "kw": ["dns", "domain", "cname", "ssl", "qr", "resepsionis"]},
+        ],
+    },
+}
+
+_ACTIVE_TASK_IDS_LOCK = threading.Lock()
+_ACTIVE_RUNNING_TASK_IDS = set()
+
+
+def _pick_squad_members(dept, task_text, manager_id=None, max_staff=2):
+    """Selects the 2 most relevant specialist staff in a department to collaborate with the Manager."""
+    dept_u = str(dept or "ADMIN").strip().upper()
+    info = DEPT_SQUADS.get(dept_u) or DEPT_SQUADS["ADMIN"]
+    low = str(task_text or "").lower()
+    scored = []
+    for idx_s, st in enumerate(info.get("staff") or []):
+        if manager_id is not None and int(st["id"]) == int(manager_id):
+            continue
+        hits = sum(1 for kw in (st.get("kw") or []) if kw in low)
+        scored.append((hits, -idx_s, st))
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return [x[2] for x in scored[:max_staff]]
+
+
+def _execute_single_department_project(item, idx=1, total=1):
+    """2-Stage Real Team Execution: (1) Specialist Staff run parallel sub-tasks -> (2) Manager Quality Gate & Final Report."""
+    import concurrent.futures
+
+    tid = item["id"]
+    with _ACTIVE_TASK_IDS_LOCK:
+        if tid in _ACTIVE_RUNNING_TASK_IDS:
+            return
+        _ACTIVE_RUNNING_TASK_IDS.add(tid)
+
+    dept = str(item.get("dept") or "ADMIN").strip().upper()
+    dept_info = DEPT_SQUADS.get(dept) or DEPT_SQUADS["ADMIN"]
+    mgr_def = dept_info["manager"]
+    aid = int(item.get("agentId") or mgr_def["id"])
+    aname = str(item.get("agentName") or mgr_def["name"]).strip()
+    arole = str(item.get("agentRole") or mgr_def["role"]).strip()
+    title = str(item.get("title") or "Tugas Hasil Rapat").strip()
+    instr = str(item.get("instruction") or item.get("detail") or title).strip()
+
+    squad_staff = _pick_squad_members(dept, f"{title} {instr}", manager_id=aid, max_staff=2)
+    squad_ids = [aid] + [int(s["id"]) for s in squad_staff]
+    squad_names = ", ".join(s["name"] for s in squad_staff)
+
+    comp_prof = load_company_profile()
+    comp_name = comp_prof.get("companyName") or "AI Virtual HQ"
+
+    # Mobilize ENTIRE department squad simultaneously (Manager + Specialist Staff visible WORKING in 3D!)
+    set_agents_busy(squad_ids, True)
+    update_world_state({"liveStepStatus": f"👥 [{dept}] {aname} mengerahkan tim ({squad_names}) mengerjakan: {title[:45]}..."})
+
+    if squad_staff:
+        kickoff_ev = generate_data_driven_coordination_event(custom_context={
+            "fromId": aid,
+            "fromName": aname,
+            "fromRole": arole,
+            "toId": squad_staff[0]["id"],
+            "toName": squad_staff[0]["name"],
+            "toRole": squad_staff[0]["role"],
+            "walkMsg": f"📋 {aname} mendelegasikan sub-tugas '{title[:42]}' ke tim {dept} ({squad_names})...",
+            "fromBubble": f"📋 \"{squad_names}, langsung kerjakan bagian masing-masing untuk '{title[:36]}'!\"",
+            "toBubble": f"⚡ \"Siap {aname}! Kami langsung eksekusi paralel sekarang!\"",
+            "artifactFile": "",
+        })
+        bump_world_chat_version(
+            toast_msg=f"👥 [{dept}] {aname} + {squad_names} mulai mengerjakan: {title[:52]}",
+            coord_event=kickoff_ev,
+        )
+
+    try:
+        # Shared live MCP context fetched once per department (token-efficient & TTL cached!)
+        live_ctx, exec_tools = build_dynamic_mcp_context_with_trace(f"{title} {instr}", room=dept, agent_id=aid)
+
+        # STAGE 1: Parallel Specialist Staff Execution!
+        staff_outputs = []
+
+        def _run_specialist(st_obj, slot_idx):
+            sid = int(st_obj["id"])
+            sname = st_obj["name"]
+            srole = st_obj["role"]
+            try:
+                s_mid, s_ep, s_key = _resolve_agent_model_creds(sid)
+                s_sys = (
+                    f"Kamu adalah {sname}, menjabat sebagai {srole} (Departemen {dept}) di {comp_name}.\n"
+                    f"{build_company_context_block(comp_prof)}\n\n"
+                    "TUGAS SPESIALIS SQUAD (SUB-DELIVERABLE PADAT & NYATA):\n"
+                    "- Fokus kerjakan bagian spesifik sesuai keahlianmu untuk membantu Manajer departemenmu.\n"
+                    "- Tulis temuan/draf konkret dan langsung pakai (maksimal ~350 kata, padat, bebas halusinasi, berbasis data live di bawah)."
+                )
+                s_prompt = (
+                    f"PROYEK DEPARTEMEN {dept}: {title}\n"
+                    f"ARAHAN MANAJER ({aname}):\n{instr}\n\n"
+                    f"Kerjakan kontribusi spesialismu sebagai {srole} sekarang."
+                )
+                s_out, s_eng = run_agent_llm_unified(
+                    s_mid, s_ep, s_key, s_sys, [], s_prompt,
+                    live_mcp_ctx=live_ctx, agent_id=sid, room=dept, agent_name=sname
+                )
+                update_agent_deliverable(
+                    sid,
+                    f"Menyerahkan kontribusi '{title[:55]}' ke {aname}",
+                    f"[KONTRIBUSI SPESIALIS — {sname} ({srole})]\n{str(s_out or '')[:700]}",
+                    "",
+                )
+                return {"name": sname, "role": srole, "id": sid, "engine": s_eng, "output": str(s_out or "").strip()}
+            except Exception as se:
+                return {"name": sname, "role": srole, "id": sid, "engine": "fallback", "output": f"(Catatan kendala {sname}: {str(se)[:120]})"}
+
+        if squad_staff:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(squad_staff)) as st_pool:
+                futs = [st_pool.submit(_run_specialist, st, i) for i, st in enumerate(squad_staff)]
+                for f in concurrent.futures.as_completed(futs):
+                    staff_outputs.append(f.result())
+
+        # STAGE 2: Department Manager Quality Gate & Final Consolidation!
+        update_world_state({"liveStepStatus": f"🔍 [{dept}] {aname} melakukan Quality Gate & finalisasi hasil {squad_names}..."})
+        mid, ep, key = _resolve_agent_model_creds(aid)
+        squad_block = "\n\n".join(
+            f"### Kontribusi {so['name']} ({so['role']}):\n{so['output'][:1600]}"
+            for so in staff_outputs if so.get("output")
+        )
+        mgr_sys = (
+            f"Kamu adalah {aname}, menjabat sebagai {arole} (Departemen {dept}) di {comp_name}.\n"
+            f"{build_company_context_block(comp_prof)}\n\n"
+            "TUGAS QUALITY GATE & FINALISASI MANAJER DEPARTEMEN:\n"
+            "1. Review, verifikasi, dan gabungkan kontribusi nyata dari staf squad-mu di bawah ini menjadi 1 dokumen hasil akhir yang tuntas, rapi, dan siap dipakai CEO.\n"
+            "2. Jika butuh data live tambahan dari MCP/folder, panggil [[TOOL_CALL:...]] secukupnya.\n"
+            "3. Sertakan bagian singkat 'Status Quality Gate & Kontribusi Tim' di dokumen akhir. Jangan bertanya balik."
+        )
+        mgr_prompt = (
+            f"JUDUL TUGAS: {title}\n"
+            f"DEPARTEMEN: {dept}\n"
+            f"INSTRUKSI RAPAT:\n{instr}\n\n"
+            + (f"HASIL KERJA TIM STAF SQUAD ({squad_names}):\n{squad_block}\n\n" if squad_block else "")
+            + "Lakukan Quality Gate dan susun laporan final lengkapnya dalam Markdown sekarang."
+        )
+        deliv_md, used_engine = run_agent_with_tool_loop(
+            mid, ep, key, mgr_sys, [], mgr_prompt,
+            live_mcp_ctx=live_ctx, executed_tools=exec_tools,
+            room=dept, max_steps=2, agent_id=aid, agent_name=aname
+        )
+
+        now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
+        ts_file = time.strftime("%Y%m%d-%H%M%S")
+        slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:36] or "task"
+        os.makedirs(REPORTS_DIR, exist_ok=True)
+        rel_file = f"reports/{ts_file}-rapat-{slug}.md"
+        abs_file = os.path.join(BASE_DIR, rel_file)
+        team_credit = f"{aname} + Tim ({squad_names})" if squad_names else aname
+        header = (
+            f"# Hasil Eksekusi Tim {dept} — {title}\n"
+            f"- **Penanggung Jawab & Tim:** {team_credit}\n"
+            f"- **Departemen:** `{dept}`\n"
+            f"- **Waktu Selesai:** {now_str}\n"
+            f"- **Engine AI (Quality Gate):** `{used_engine}`\n\n---\n\n"
+        )
+        with open(abs_file, "w", encoding="utf-8") as rf:
+            rf.write(header + str(deliv_md or "").strip() + "\n")
+
+        # Update Obsidian Memory Vault WITHOUT duplicating taskboard row!
+        record_decision_to_obsidian_vault(
+            room=dept,
+            title=title,
+            decision_summary=f"Selesai dikerjakan kolaboratif oleh {team_credit} ({rel_file})",
+            agent_name=team_credit,
+            agent_role=arole,
+            deliverable_md=str(deliv_md or ""),
+            used_engine=used_engine,
+            task_id=tid,
+            skip_taskboard_write=True,
+            existing_report_file=rel_file,
+            agent_id=aid,
+        )
+        update_agent_deliverable(
+            aid,
+            f"Selesai (Quality Gate + {squad_names}): {title}",
+            f"[HASIL KERJA TIM {dept} — {team_credit}]\n{str(deliv_md or '')[:650]}",
+            rel_file,
+        )
+        for st_obj in squad_staff:
+            update_agent_deliverable(
+                int(st_obj["id"]),
+                f"Selesai berkontribusi bersama {aname}: {title}",
+                f"[KONTRIBUSI TIM {dept}] Selesai & digabungkan oleh {aname} ke {rel_file}",
+                rel_file,
+            )
+
+        with TASKBOARD_LOCK:
+            tb = load_taskboard()
+            found = False
+            for t in tb:
+                if t.get("id") == tid:
+                    t["status"] = "DONE"
+                    t["agentName"] = team_credit
+                    t["detail"] = f"Selesai dikerjakan oleh {team_credit} ({used_engine}) pada {now_str}. File: {rel_file}"
+                    t["artifactFile"] = rel_file
+                    t["updatedAt"] = now_str
+                    found = True
+                    break
+            if not found:
+                tb.insert(0, {
+                    "id": tid, "title": title, "dept": dept, "agentId": aid, "agentName": team_credit,
+                    "taskType": "meeting_action_item", "priority": "HIGH", "status": "DONE",
+                    "detail": f"Selesai dikerjakan oleh {team_credit} pada {now_str}. File: {rel_file}",
+                    "artifactFile": rel_file, "updatedAt": now_str,
+                })
+            save_taskboard(tb)
+
+        coord = generate_data_driven_coordination_event(custom_context={
+            "fromId": aid,
+            "fromName": aname,
+            "fromRole": arole,
+            "toId": 10 if aid != 10 else 8,
+            "toName": "👑 Raka" if aid != 10 else "⭐ Putri",
+            "toRole": "Laporan Selesai Tim Departemen",
+            "walkMsg": f"✅ Tim {dept} ({team_credit}) menuntaskan '{title[:44]}' → {rel_file}",
+            "fromBubble": f"✅ \"Tim {dept} ({squad_names}) sudah tuntas & lolos Quality Gate: {rel_file}!\"",
+            "toBubble": f"👏 \"Keren {aname} & tim! Papan Tugas & Memory Obsidian sudah DONE!\"",
+            "artifactFile": rel_file,
+        })
+        bump_world_chat_version(
+            toast_msg=f"✅ Tim {dept} ({team_credit}) selesai: {title[:50]}",
+            coord_event=coord,
+        )
+    except Exception as err:
+        now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
+        with TASKBOARD_LOCK:
+            tb = load_taskboard()
+            for t in tb:
+                if t.get("id") == tid:
+                    t["status"] = "TODO"
+                    t["detail"] = f"Kendala eksekusi ({str(err)[:160]}). Siap dijalankan ulang."
+                    t["updatedAt"] = now_str
+                    break
+            save_taskboard(tb)
+        bump_world_chat_version(toast_msg=f"⚠️ Tim {dept} ({aname}) kendala di '{title[:40]}': {str(err)[:90]}")
+    finally:
+        set_agents_busy(squad_ids, False)
+        update_world_state({"liveStepStatus": ""})
+        with _ACTIVE_TASK_IDS_LOCK:
+            _ACTIVE_RUNNING_TASK_IDS.discard(tid)
+
+
 def _execute_meeting_tasks_background(queued_tasks):
-    """Background daemon worker: executes each post-meeting task by its assigned agent, saves real deliverables, and marks tasks DONE."""
+    """Launches ALL assigned department projects IN PARALLEL (up to 4 departments + their squads simultaneously!)."""
     if not queued_tasks:
         return
 
-    def _worker():
+    def _orchestrator():
+        import concurrent.futures
         total = len(queued_tasks)
-        comp_prof = load_company_profile()
-        comp_name = comp_prof.get("companyName") or "AI Virtual HQ"
-        for idx, item in enumerate(queued_tasks, start=1):
-            tid = item["id"]
-            aid = int(item.get("agentId") or 10)
-            aname = str(item.get("agentName") or "Raka").strip()
-            arole = str(item.get("agentRole") or "Spesialis").strip()
-            dept = str(item.get("dept") or "ADMIN").strip().upper()
-            title = str(item.get("title") or "Tugas Hasil Rapat").strip()
-            instr = str(item.get("instruction") or title).strip()
+        max_w = min(4, max(1, total))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_w) as pool:
+            futs = [pool.submit(_execute_single_department_project, item, i, total) for i, item in enumerate(queued_tasks, start=1)]
+            for f in concurrent.futures.as_completed(futs):
+                try:
+                    f.result()
+                except Exception:
+                    pass
 
-            set_agents_busy([aid], True)
-            update_world_state({"liveStepStatus": f"🚀 [{idx}/{total}] {aname} sedang mengerjakan: {title[:55]}..."})
-            bump_world_chat_version(toast_msg=f"🚀 [{idx}/{total}] {aname} mulai mengerjakan tugas rapat: {title[:60]}")
-
-            try:
-                mid, ep, key = _resolve_agent_model_creds(aid)
-                live_ctx, exec_tools = build_dynamic_mcp_context_with_trace(f"{title} {instr}", room=dept, agent_id=aid)
-                sys_prompt = (
-                    f"Kamu adalah {aname}, menjabat sebagai {arole} (Departemen {dept}) di {comp_name}.\n"
-                    f"{build_company_context_block(comp_prof)}\n\n"
-                    "TUGAS EKSEKUSI HASIL RAPAT (KERJA NYATA MANDIRI):\n"
-                    "1. Kerjakan tugas di bawah secara tuntas, konkret, dan siap pakai dalam format Markdown rapi.\n"
-                    "2. Jika membutuhkan data live/folder/skill, panggil [[TOOL_CALL:...]] secukupnya lalu langsung susun hasil final.\n"
-                    "3. Jangan bertanya balik ke CEO — langsung serahkan hasil kerja lengkapnya."
-                )
-                user_prompt = (
-                    f"JUDUL TUGAS HASIL RAPAT: {title}\n"
-                    f"DEPARTEMEN: {dept}\n"
-                    f"INSTRUKSI DETAIL DARI RAPAT:\n{instr}\n\n"
-                    "Silakan eksekusi sekarang dan tulis hasil kerja lengkapnya."
-                )
-                deliv_md, used_engine = run_agent_with_tool_loop(
-                    mid, ep, key, sys_prompt, [], user_prompt,
-                    live_mcp_ctx=live_ctx, executed_tools=exec_tools,
-                    room=dept, max_steps=2, agent_id=aid, agent_name=aname
-                )
-                now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
-                ts_file = time.strftime("%Y%m%d-%H%M%S")
-                slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:36] or "task"
-                os.makedirs(REPORTS_DIR, exist_ok=True)
-                rel_file = f"reports/{ts_file}-rapat-{slug}.md"
-                abs_file = os.path.join(BASE_DIR, rel_file)
-                header = (
-                    f"# Hasil Eksekusi Tugas Rapat — {title}\n"
-                    f"- **Dikerjakan Oleh:** {aname} ({arole})\n"
-                    f"- **Departemen:** `{dept}`\n"
-                    f"- **Waktu Selesai:** {now_str}\n"
-                    f"- **Engine AI:** `{used_engine}`\n\n---\n\n"
-                )
-                with open(abs_file, "w", encoding="utf-8") as rf:
-                    rf.write(header + str(deliv_md or "").strip() + "\n")
-
-                record_decision_to_obsidian_vault(
-                    room=dept,
-                    title=title,
-                    decision_summary=f"Selesai dikerjakan otomatis oleh {aname} pasca-rapat ({rel_file})",
-                    agent_name=aname,
-                    agent_role=arole,
-                    deliverable_md=str(deliv_md or ""),
-                    used_engine=used_engine,
-                    task_id=tid,
-                )
-                update_agent_deliverable(
-                    aid,
-                    f"Selesai mengerjakan tugas rapat: {title}",
-                    f"[HASIL KERJA OTOMATIS PASCA-RAPAT — {dept}]\n{str(deliv_md or '')[:600]}",
-                    rel_file,
-                )
-
-                tb = load_taskboard()
-                for t in tb:
-                    if t.get("id") == tid:
-                        t["status"] = "DONE"
-                        t["detail"] = f"Selesai dikerjakan oleh {aname} ({used_engine}) pada {now_str}. File: {rel_file}"
-                        t["artifactFile"] = rel_file
-                        t["updatedAt"] = now_str
-                        break
-                save_taskboard(tb)
-
-                coord = generate_data_driven_coordination_event(custom_context={
-                    "fromId": aid,
-                    "fromName": aname,
-                    "fromRole": arole,
-                    "toId": 10 if aid != 10 else 8,
-                    "toName": "👑 Raka" if aid != 10 else "⭐ Putri",
-                    "toRole": "Laporan Selesai Tugas Rapat",
-                    "walkMsg": f"✅ {aname} menyelesaikan tugas rapat '{title[:48]}' → tersimpan di {rel_file}",
-                    "fromBubble": f"✅ \"Tugas '{title[:42]}' sudah beres & tersimpan di {rel_file}!\"",
-                    "toBubble": f"👏 \"Mantap {aname}! Papan Tugas & Memory Obsidian sudah update DONE!\"",
-                    "artifactFile": rel_file,
-                })
-                bump_world_chat_version(
-                    toast_msg=f"✅ [{idx}/{total}] {aname} selesai mengerjakan: {title[:55]} ({rel_file})",
-                    coord_event=coord,
-                )
-            except Exception as err:
-                now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
-                tb = load_taskboard()
-                for t in tb:
-                    if t.get("id") == tid:
-                        t["status"] = "TODO"
-                        t["detail"] = f"Gagal auto-eksekusi ({str(err)[:160]}). Siap dijalankan ulang."
-                        t["updatedAt"] = now_str
-                        break
-                save_taskboard(tb)
-                bump_world_chat_version(toast_msg=f"⚠️ [{idx}/{total}] {aname} kendala saat mengerjakan '{title[:40]}': {str(err)[:90]}")
-            finally:
-                set_agents_busy([aid], False)
-                update_world_state({"liveStepStatus": ""})
-
-    t = threading.Thread(target=_worker, daemon=True)
+    t = threading.Thread(target=_orchestrator, daemon=True)
     t.start()
+
+
+def resume_in_progress_tasks():
+    """Resumes all IN_PROGRESS tasks currently on Taskboard in parallel across their department squads."""
+    tb = load_taskboard()
+    # Deduplicate & find IN_PROGRESS tasks that are not already running in memory
+    seen_ids = set()
+    to_run = []
+    for t in tb:
+        tid = str(t.get("id") or "")
+        if not tid or tid in seen_ids:
+            continue
+        seen_ids.add(tid)
+        if str(t.get("status") or "").upper() == "IN_PROGRESS":
+            with _ACTIVE_TASK_IDS_LOCK:
+                if tid in _ACTIVE_RUNNING_TASK_IDS:
+                    continue
+            to_run.append(t)
+    if not to_run:
+        return {"ok": True, "resumedCount": 0, "message": "Semua task sudah selesai atau sedang aktif dikerjakan."}
+    _execute_meeting_tasks_background(to_run[:4])
+    return {
+        "ok": True,
+        "resumedCount": len(to_run[:4]),
+        "tasks": [{"id": x["id"], "dept": x.get("dept"), "title": x.get("title")} for x in to_run[:4]],
+    }
 
 
 def finish_meeting_and_execute_tasks(body):
