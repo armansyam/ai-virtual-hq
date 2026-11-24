@@ -9244,21 +9244,26 @@ def _execute_meeting_tasks_background(queued_tasks):
 
 
 def resume_in_progress_tasks():
-    """Resumes all IN_PROGRESS tasks currently on Taskboard in parallel across their department squads."""
-    tb = load_taskboard()
-    # Deduplicate & find IN_PROGRESS tasks that are not already running in memory
-    seen_ids = set()
-    to_run = []
-    for t in tb:
-        tid = str(t.get("id") or "")
-        if not tid or tid in seen_ids:
-            continue
-        seen_ids.add(tid)
-        if str(t.get("status") or "").upper() == "IN_PROGRESS":
-            with _ACTIVE_TASK_IDS_LOCK:
-                if tid in _ACTIVE_RUNNING_TASK_IDS:
-                    continue
-            to_run.append(t)
+    """Resumes all IN_PROGRESS or TODO tasks on Taskboard in parallel across their department squads."""
+    with TASKBOARD_LOCK:
+        tb = load_taskboard()
+        seen_ids = set()
+        to_run = []
+        now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
+        for t in tb:
+            tid = str(t.get("id") or "")
+            if not tid or tid in seen_ids:
+                continue
+            seen_ids.add(tid)
+            if str(t.get("status") or "").upper() in ("IN_PROGRESS", "TODO"):
+                with _ACTIVE_TASK_IDS_LOCK:
+                    if tid in _ACTIVE_RUNNING_TASK_IDS:
+                        continue
+                t["status"] = "IN_PROGRESS"
+                t["updatedAt"] = now_str
+                to_run.append(t)
+        if to_run:
+            save_taskboard(tb)
     if not to_run:
         return {"ok": True, "resumedCount": 0, "message": "Semua task sudah selesai atau sedang aktif dikerjakan."}
     _execute_meeting_tasks_background(to_run[:4])
