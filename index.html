@@ -98,6 +98,196 @@
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   </style>
+  <!--
+    HQ visual theme layer. The Tailwind CDN injects its stylesheet after this one at runtime,
+    so every rule is prefixed with "html body" to win on specificity without !important.
+    Colours live in the tokens below; the arbitrary-hex classes used across the markup and the
+    JS-generated HTML are mapped onto them here instead of editing ~300 class strings.
+  -->
+  <style id="hq-theme">
+    :root {
+      --hq-bg: #0e1013;
+      --hq-panel: #131519;
+      --hq-panel-2: #171a1f;
+      --hq-raised: #1e2127;
+      --hq-raised-2: #262a31;
+      --hq-sunken: #0f1114;
+      --hq-line: rgba(255, 255, 255, 0.075);
+      --hq-line-strong: rgba(255, 255, 255, 0.14);
+      --hq-glass: rgba(19, 21, 25, 0.84);
+      --hq-gold: #c9a227;
+      --hq-gold-hi: #d9b443;
+      --hq-accent: #2f7d74;
+      --hq-accent-hi: #38948a;
+      --hq-accent-soft: rgba(56, 148, 138, 0.16);
+      --hq-accent-line: rgba(94, 186, 174, 0.38);
+      --hq-accent-text: #93d5cb;
+      --hq-accent-text-hi: #bfe7e1;
+      --hq-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.55), 0 2px 6px -2px rgba(0, 0, 0, 0.35);
+      --hq-scene-label: rgba(255, 255, 255, 0.94);
+      --hq-scene-label-text: #1f2328;
+    }
+
+    html body { background-color: var(--hq-bg); letter-spacing: -0.005em; -webkit-font-smoothing: antialiased; }
+    html body ::selection { background: rgba(201, 162, 39, 0.35); color: #fff; }
+    html body * { -webkit-tap-highlight-color: transparent; }
+
+    /* Surfaces */
+    html body .bg-\[\#11121a\] { background-color: var(--hq-bg); }
+    html body .bg-\[\#13131a\],
+    html body .bg-\[\#0e0e16\],
+    html body .bg-\[\#0d0d14\],
+    html body .bg-\[\#101016\] { background-color: var(--hq-panel); }
+    html body .bg-\[\#13131b\],
+    html body .bg-\[\#12121a\],
+    html body .bg-\[\#14141d\],
+    html body .bg-\[\#15151e\],
+    html body .bg-\[\#16161f\] { background-color: var(--hq-panel-2); }
+    html body .bg-\[\#181820\],
+    html body .bg-\[\#181824\],
+    html body .bg-\[\#181822\],
+    html body .bg-\[\#191923\],
+    html body .bg-\[\#191924\],
+    html body .bg-\[\#1a1a26\],
+    html body .bg-\[\#1d1d26\],
+    html body .bg-\[\#1d1d29\] { background-color: var(--hq-panel-2); }
+    html body .bg-\[\#1c1c28\],
+    html body .bg-\[\#1c1c26\] { background-color: var(--hq-raised); }
+    html body .bg-\[\#272734\],
+    html body .bg-\[\#222230\] { background-color: var(--hq-raised-2); }
+    html body .hover\:bg-\[\#1a1a26\]:hover,
+    html body .hover\:bg-\[\#1e1e2e\]:hover { background-color: var(--hq-raised-2); }
+
+    /* Translucent HUD glass. These "/88" style opacities are not Tailwind steps, so before this
+       layer the bars rendered fully transparent over the scene. */
+    html body .bg-\[\#13131a\]\/88,
+    html body .bg-\[\#141420\]\/90,
+    html body .bg-\[\#12121a\]\/85,
+    html body .bg-\[\#13131a\]\/92,
+    html body .bg-\[\#13131e\]\/92,
+    html body .bg-\[\#181824\]\/95 {
+      background-color: var(--hq-glass);
+      -webkit-backdrop-filter: blur(14px) saturate(1.2);
+      backdrop-filter: blur(14px) saturate(1.2);
+    }
+
+    /* Gold primary */
+    html body .bg-\[\#C9A227\] { background-color: var(--hq-gold); }
+    html body .hover\:bg-\[\#d8b136\]:hover,
+    html body .bg-\[\#d8b136\] { background-color: var(--hq-gold-hi); }
+
+    /* Secondary accent: deep teal replaces the old violet across buttons, chips and focus rings. */
+    html body .bg-\[\#6d3fc0\],
+    html body .bg-\[\#58359e\],
+    html body .bg-purple-600 { background-color: var(--hq-accent); }
+    html body .hover\:bg-\[\#6941ba\]:hover { background-color: var(--hq-accent-hi); }
+    html body .bg-\[\#7d4bd6\],
+    html body .bg-purple-500,
+    html body .hover\:bg-\[\#7d4bd6\]:hover,
+    html body .hover\:bg-purple-500:hover,
+    html body .hover\:bg-\[\#6d3fc0\]\/60:hover { background-color: var(--hq-accent-hi); }
+    html body .bg-\[\#6d3fc0\]\/60 { background-color: rgba(47, 125, 116, 0.6); }
+    html body .bg-\[\#6d3fc0\]\/40 { background-color: rgba(47, 125, 116, 0.4); }
+    html body .bg-purple-500\/15 { background-color: rgba(56, 148, 138, 0.15); }
+    html body .bg-purple-500\/20,
+    html body .hover\:bg-purple-500\/20:hover { background-color: rgba(56, 148, 138, 0.2); }
+    html body .hover\:bg-purple-500\/25:hover { background-color: rgba(56, 148, 138, 0.25); }
+    html body .bg-purple-500\/30,
+    html body .bg-purple-600\/30,
+    html body .hover\:bg-purple-500\/30:hover { background-color: rgba(56, 148, 138, 0.3); }
+    html body .bg-purple-500\/40,
+    html body .hover\:bg-purple-500\/40:hover,
+    html body .hover\:bg-purple-600\/45:hover { background-color: rgba(56, 148, 138, 0.42); }
+    html body .bg-purple-600\/50,
+    html body .hover\:bg-purple-600\/50:hover { background-color: rgba(47, 125, 116, 0.5); }
+    html body .text-purple-300 { color: var(--hq-accent-text); }
+    html body .text-purple-200 { color: var(--hq-accent-text-hi); }
+    html body .border-purple-500\/25,
+    html body .border-purple-500\/30,
+    html body .border-purple-400\/30 { border-color: rgba(94, 186, 174, 0.28); }
+    html body .border-purple-500\/35,
+    html body .border-purple-400\/35,
+    html body .border-purple-500\/40,
+    html body .border-purple-400\/40,
+    html body .hover\:border-purple-400\/40:hover { border-color: var(--hq-accent-line); }
+    html body .border-purple-400\/60,
+    html body .border-purple-400,
+    html body .focus\:border-purple-400:focus { border-color: rgba(94, 186, 174, 0.7); }
+    html body .shadow-purple-900\/30 { --tw-shadow-color: rgba(10, 40, 37, 0.3); }
+
+    /* Hairlines and depth */
+    html body .border-white\/10 { border-color: var(--hq-line); }
+    html body .border-white\/15 { border-color: var(--hq-line-strong); }
+    html body .shadow-2xl { box-shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.03); }
+    html body .shadow-lg { box-shadow: var(--hq-shadow); }
+
+    /* Sidebar */
+    html body #sidebar { background: linear-gradient(180deg, var(--hq-panel) 0%, #111317 100%); border-right-color: var(--hq-line); }
+    html body #sidebar nav a { border-radius: 8px; transition: background-color .15s ease, color .15s ease; }
+    html body #sidebar nav a.bg-white\/10 { background-color: rgba(255, 255, 255, 0.07); box-shadow: inset 2px 0 0 var(--hq-gold); }
+
+    /* Form controls */
+    html body select,
+    html body input[type="text"],
+    html body input[type="password"],
+    html body input[type="number"],
+    html body input[type="email"],
+    html body textarea { transition: border-color .15s ease, box-shadow .15s ease; }
+    html body select:focus,
+    html body input:focus,
+    html body textarea:focus { outline: none; border-color: rgba(201, 162, 39, 0.55); box-shadow: 0 0 0 3px rgba(201, 162, 39, 0.14); }
+    html body input, html body textarea { user-select: text; }
+
+    /* Modal backdrops: soft blur instead of a flat black wall */
+    html body .fixed.inset-0.bg-black\/65,
+    html body .fixed.inset-0.bg-black\/70,
+    html body .fixed.inset-0.bg-black\/75 { background-color: rgba(8, 9, 11, 0.62); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+    html body .fixed.inset-0 > .rounded-2xl { animation: hqModalIn .18s ease-out; }
+    @keyframes hqModalIn { from { opacity: 0; transform: translateY(6px) scale(.985); } to { opacity: 1; transform: none; } }
+
+    /* 3D scene labels: light cards that sit cleanly on the bright office floor */
+    html body .zone-badge.hq-zone {
+      background: var(--hq-scene-label);
+      color: var(--hq-scene-label-text);
+      border: 1px solid rgba(15, 17, 20, 0.08);
+      box-shadow: 0 6px 16px -8px rgba(20, 24, 30, 0.45);
+      -webkit-backdrop-filter: blur(8px);
+      backdrop-filter: blur(8px);
+    }
+    html body .zone-badge.hq-zone:hover { background: #fff; border-color: rgba(201, 162, 39, 0.6); }
+    html body .agent-pill {
+      letter-spacing: 0;
+      box-shadow: 0 4px 12px -6px rgba(15, 18, 24, 0.55);
+      -webkit-backdrop-filter: blur(6px);
+      backdrop-filter: blur(6px);
+    }
+    html body .speech-bubble-3d { box-shadow: 0 10px 24px -10px rgba(15, 18, 24, 0.6); }
+    html body .speech-bubble-3d::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      bottom: -5px;
+      width: 10px;
+      height: 10px;
+      background: inherit;
+      border-right: inherit;
+      border-bottom: inherit;
+      transform: translateX(-50%) rotate(45deg);
+    }
+
+    /* Phones: the sidebar floats over the scene instead of squeezing it. */
+    @media (max-width: 767px) {
+      html body #sidebar:not(.hidden) {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: min(86vw, 300px);
+        z-index: 45;
+        box-shadow: 0 0 0 100vmax rgba(8, 9, 11, 0.45), 24px 0 60px -20px rgba(0, 0, 0, 0.75);
+      }
+    }
+  </style>
 </head>
 <body class="flex h-screen w-screen overflow-hidden">
 
@@ -3174,8 +3364,8 @@
     const labelLayer = document.getElementById("label-layer");
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x1b1d2e);
-    scene.fog = new THREE.Fog(0x1b1d2e, 58, 130);
+    scene.background = new THREE.Color(0xc9cdc6);
+    scene.fog = new THREE.Fog(0xc9cdc6, 70, 150);
 
     const camera = new THREE.PerspectiveCamera(35, container.clientWidth / container.clientHeight, 0.1, 1000);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -3203,23 +3393,32 @@
     }
     updateCameraPosition();
 
-    const ambientLight = new THREE.AmbientLight(0xfff7ed, 0.65);
+    const ambientLight = new THREE.AmbientLight(0xfffaf2, 0.16);
     scene.add(ambientLight);
-    const hemiLight = new THREE.HemisphereLight(0xe0e7ff, 0x2d2640, 0.58);
+    const hemiLight = new THREE.HemisphereLight(0xf4f7fb, 0x8a8172, 0.4);
     scene.add(hemiLight);
 
-    const dirLight = new THREE.DirectionalLight(0xfffbeb, 0.88);
-    dirLight.position.set(18, 36, 22);
+    // Shadow frustum covers the whole campus (Gedung D at x=-50 to Gedung B at x=+45).
+    const dirLight = new THREE.DirectionalLight(0xfff4e2, 0.5);
+    dirLight.position.set(22, 46, 30);
     dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 2048;
-    dirLight.shadow.mapSize.height = 2048;
-    const d = 22;
+    const isSmallScreenGpu = Math.min(window.innerWidth, window.innerHeight) < 600;
+    dirLight.shadow.mapSize.width = isSmallScreenGpu ? 2048 : 4096;
+    dirLight.shadow.mapSize.height = isSmallScreenGpu ? 2048 : 4096;
+    const d = 56;
     dirLight.shadow.camera.left = -d;
     dirLight.shadow.camera.right = d;
     dirLight.shadow.camera.top = d;
     dirLight.shadow.camera.bottom = -d;
-    dirLight.shadow.bias = -0.0005;
+    dirLight.shadow.camera.near = 1;
+    dirLight.shadow.camera.far = 140;
+    dirLight.shadow.bias = -0.0004;
+    dirLight.shadow.normalBias = 0.02;
     scene.add(dirLight);
+
+    const fillLight = new THREE.DirectionalLight(0xdfe8f5, 0.16);
+    fillLight.position.set(-30, 24, -18);
+    scene.add(fillLight);
 
     function makeTextCanvasTexture(bgHex, borderHex, lines, width = 512, height = 320) {
       const c = document.createElement("canvas");
@@ -3348,8 +3547,8 @@
     const roomGroup = new THREE.Group();
     scene.add(roomGroup);
 
-    const floorBaseMat = new THREE.MeshStandardMaterial({ color: 0x1e1b24, roughness: 0.7 });
-    const floorTopMat = new THREE.MeshStandardMaterial({ color: 0x2b2633, roughness: 0.52 });
+    const floorBaseMat = new THREE.MeshStandardMaterial({ color: 0xe4dfd6, roughness: 0.8 });
+    const floorTopMat = new THREE.MeshStandardMaterial({ color: 0xc9b69a, roughness: 0.62 });
 
     const floorBase = new THREE.Mesh(new THREE.BoxGeometry(36.6, 0.65, 26.6), floorBaseMat);
     floorBase.position.set(0, -0.32, 0);
@@ -3365,12 +3564,15 @@
 
     const floorGroups = { 1: roomGroup };
     const floorPlanes = [floorPlane];
-    const colMat = new THREE.MeshStandardMaterial({ color: 0xc9a227, metalness: 0.45, roughness: 0.35 });
+    const colMat = new THREE.MeshStandardMaterial({ color: 0x3a3d44, metalness: 0.35, roughness: 0.42 });
+    const goldAccentMat = new THREE.MeshStandardMaterial({ color: 0xc9a227, metalness: 0.5, roughness: 0.32 });
+    const plasterWallMat = new THREE.MeshStandardMaterial({ color: 0xe9e5dd, roughness: 0.9 });
+    const wallCapMat = new THREE.MeshStandardMaterial({ color: 0x2f3238, roughness: 0.6 });
 
     // ================= CAMPUS GROUNDS & GARDEN WALKWAYS (ALL 1 FLOOR AT Y = 0!) =================
     const campusLawn = new THREE.Mesh(
       new THREE.PlaneGeometry(180, 130),
-      new THREE.MeshStandardMaterial({ color: 0x111f1a, roughness: 0.92 })
+      new THREE.MeshStandardMaterial({ color: 0xb9c4ad, roughness: 0.95 })
     );
     campusLawn.rotation.x = -Math.PI / 2;
     campusLawn.position.set(2, -0.58, -6);
@@ -3379,8 +3581,8 @@
     scene.add(campusLawn);
     floorPlanes.push(campusLawn);
 
-    const pathMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.72 });
-    const vipPathMat = new THREE.MeshStandardMaterial({ color: 0xC9A227, roughness: 0.42 });
+    const pathMat = new THREE.MeshStandardMaterial({ color: 0xe8e3da, roughness: 0.85 });
+    const vipPathMat = new THREE.MeshStandardMaterial({ color: 0xdcc58a, roughness: 0.6 });
 
     // Stone walkways connecting Gedung A <-> Gedung B (East), Gedung A <-> Gedung D (West Mess), Gedung A <-> Gedung C (North CEO Pavilion)
     [
@@ -3396,12 +3598,15 @@
 
     function addCampusGlassWall(parent, x, z, lenX, lenZ, height = 2.6) {
       const gw = new THREE.Group();
-      const glass = new THREE.Mesh(new THREE.BoxGeometry(lenX, height, lenZ), new THREE.MeshStandardMaterial({ color: 0x93c5fd, transparent: true, opacity: 0.22, roughness: 0.15 }));
+      const glass = new THREE.Mesh(new THREE.BoxGeometry(lenX, height, lenZ), new THREE.MeshStandardMaterial({ color: 0xcfe3ea, transparent: true, opacity: 0.26, roughness: 0.08, metalness: 0.1, depthWrite: false }));
       glass.position.y = height / 2;
       gw.add(glass);
-      const topR = new THREE.Mesh(new THREE.BoxGeometry(lenX + 0.04, 0.10, lenZ + 0.04), colMat);
+      const topR = new THREE.Mesh(new THREE.BoxGeometry(lenX + 0.04, 0.06, lenZ + 0.04), colMat);
       topR.position.y = height;
       gw.add(topR);
+      const botR = new THREE.Mesh(new THREE.BoxGeometry(lenX + 0.04, 0.08, lenZ + 0.04), colMat);
+      botR.position.y = 0.04;
+      gw.add(botR);
       gw.position.set(x, 0, z);
       parent.add(gw);
     }
@@ -3412,16 +3617,18 @@
       bg.position.set(cx, 0, cz);
       scene.add(bg);
 
-      const base = new THREE.Mesh(new THREE.BoxGeometry(width + 0.6, 0.62, depth + 0.6), new THREE.MeshStandardMaterial({ color: 0x1a1a26, roughness: 0.65 }));
+      const base = new THREE.Mesh(new THREE.BoxGeometry(width + 0.6, 0.62, depth + 0.6), new THREE.MeshStandardMaterial({ color: 0xe4dfd6, roughness: 0.8 }));
       base.position.set(0, -0.31, 0);
       base.receiveShadow = true;
       bg.add(base);
 
-      const trim = new THREE.Mesh(new THREE.BoxGeometry(width + 0.75, 0.10, depth + 0.75), new THREE.MeshStandardMaterial({ color: trimColor, metalness: 0.4, roughness: 0.35 }));
-      trim.position.set(0, -0.02, 0);
+      // Thin department-colour band around the plinth keeps each building identifiable.
+      const trim = new THREE.Mesh(new THREE.BoxGeometry(width + 0.66, 0.07, depth + 0.66), new THREE.MeshStandardMaterial({ color: trimColor, metalness: 0.2, roughness: 0.5 }));
+      trim.position.set(0, -0.06, 0);
       bg.add(trim);
 
-      const fp = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), new THREE.MeshStandardMaterial({ color: floorColor, roughness: 0.55 }));
+      const lightFloor = new THREE.Color(0xcbb99c).lerp(new THREE.Color(floorColor), 0.1);
+      const fp = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), new THREE.MeshStandardMaterial({ color: lightFloor, roughness: 0.62 }));
       fp.rotation.x = -Math.PI / 2;
       fp.position.y = 0.01;
       fp.receiveShadow = true;
@@ -3429,9 +3636,14 @@
       bg.add(fp);
       floorPlanes.push(fp);
 
-      const backW = new THREE.Mesh(new THREE.BoxGeometry(width + 0.4, 4.4, 0.36), new THREE.MeshStandardMaterial({ color: 0x242331, roughness: 0.85 }));
+      const backW = new THREE.Mesh(new THREE.BoxGeometry(width + 0.4, 4.4, 0.36), plasterWallMat);
       backW.position.set(0, 2.2, -(depth / 2 + 0.1));
+      backW.castShadow = true;
+      backW.receiveShadow = true;
       bg.add(backW);
+      const backCap = new THREE.Mesh(new THREE.BoxGeometry(width + 0.44, 0.08, 0.40), wallCapMat);
+      backCap.position.set(0, 4.42, -(depth / 2 + 0.1));
+      bg.add(backCap);
 
       return bg;
     }
@@ -3439,14 +3651,18 @@
     // ================= GEDUNG B (TIMUR, X: +23..+45, Z: -13..+13): ENGINEERING & KEUANGAN =================
     const bldgTechFin = buildCampusBuildingShell(34.0, 0.0, 22.0, 26.0, 0x232433, 0x38bdf8);
     // Right wall on East side of Gedung B
-    const bldgBRightWall = new THREE.Mesh(new THREE.BoxGeometry(0.36, 4.4, 26.4), new THREE.MeshStandardMaterial({ color: 0x242331, roughness: 0.85 }));
+    const bldgBRightWall = new THREE.Mesh(new THREE.BoxGeometry(0.36, 4.4, 26.4), plasterWallMat);
     bldgBRightWall.position.set(11.1, 2.2, 0);
+    bldgBRightWall.castShadow = true;
     bldgTechFin.add(bldgBRightWall);
+    const bldgBRightCap = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.08, 26.44), wallCapMat);
+    bldgBRightCap.position.set(11.1, 4.42, 0);
+    bldgTechFin.add(bldgBRightCap);
     // Glass partition cleanly separating North Wing (Dept 5 Engineering) & South Wing (Dept 6 Finance)!
     addCampusGlassWall(bldgTechFin, 0.0, 0.0, 20.5, 0.14);
 
     // Dept 5 Engineering Lab (North Wing: local Z -12..-1)
-    const engRug = new THREE.Mesh(new THREE.BoxGeometry(19.0, 0.03, 10.6), new THREE.MeshStandardMaterial({ color: 0x111a2e, roughness: 0.85 }));
+    const engRug = new THREE.Mesh(new THREE.BoxGeometry(19.0, 0.03, 10.6), new THREE.MeshStandardMaterial({ color: 0xc3ced8, roughness: 0.95 }));
     engRug.position.set(-0.2, 0.02, -6.2);
     bldgTechFin.add(engRug);
 
@@ -3469,7 +3685,7 @@
     bldgTechFin.add(engWallBoard);
 
     // Dept 6 Finance & Anti-Rugi Suite (South Wing: local Z +1..+12)
-    const finRug = new THREE.Mesh(new THREE.BoxGeometry(19.0, 0.03, 10.6), new THREE.MeshStandardMaterial({ color: 0x102620, roughness: 0.85 }));
+    const finRug = new THREE.Mesh(new THREE.BoxGeometry(19.0, 0.03, 10.6), new THREE.MeshStandardMaterial({ color: 0xc8d5c4, roughness: 0.95 }));
     finRug.position.set(-0.2, 0.02, 6.2);
     bldgTechFin.add(finRug);
 
@@ -3484,7 +3700,7 @@
 
     // ================= GEDUNG C (UTARA, X: -9..+9, Z: -31..-18): PAVILIUN EKSEKUTIF CEO =================
     const bldgCeo = buildCampusBuildingShell(0.0, -24.5, 18.0, 13.0, 0x221b30, 0xfacc15);
-    const ceoRug = new THREE.Mesh(new THREE.BoxGeometry(13.0, 0.03, 9.6), new THREE.MeshStandardMaterial({ color: 0x161124, roughness: 0.85 }));
+    const ceoRug = new THREE.Mesh(new THREE.BoxGeometry(13.0, 0.03, 9.6), new THREE.MeshStandardMaterial({ color: 0xe6d6b4, roughness: 0.95 }));
     ceoRug.position.set(0, 0.02, -0.4);
     bldgCeo.add(ceoRug);
 
@@ -3493,7 +3709,7 @@
     ceoDeskTop.castShadow = true;
     bldgCeo.add(ceoDeskTop);
 
-    const ceoDeskGold = new THREE.Mesh(new THREE.BoxGeometry(4.26, 0.05, 1.50), colMat);
+    const ceoDeskGold = new THREE.Mesh(new THREE.BoxGeometry(4.26, 0.05, 1.50), goldAccentMat);
     ceoDeskGold.position.set(0, 0.89, -1.1);
     bldgCeo.add(ceoDeskGold);
 
@@ -3501,12 +3717,17 @@
     ceoDeskBase.position.set(0, 0.40, -1.1);
     bldgCeo.add(ceoDeskBase);
 
-    const ceoThrone = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.98, 0.82), new THREE.MeshStandardMaterial({ color: 0xC9A227, roughness: 0.35 }));
+    const ceoThrone = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.98, 0.82), new THREE.MeshStandardMaterial({ color: 0x2b2522, roughness: 0.45 }));
     ceoThrone.position.set(0, 0.52, -2.55);
+    ceoThrone.castShadow = true;
     bldgCeo.add(ceoThrone);
+    const ceoThroneBack = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.9, 0.16), new THREE.MeshStandardMaterial({ color: 0x2b2522, roughness: 0.45 }));
+    ceoThroneBack.position.set(0, 1.4, -2.9);
+    ceoThroneBack.castShadow = true;
+    bldgCeo.add(ceoThroneBack);
 
     CEO_OFFICE_SEATS.slice(0, 3).forEach(st => {
-      const gChair = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.12, 18), new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.4 }));
+      const gChair = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 0.12, 18), new THREE.MeshStandardMaterial({ color: 0xb59a6a, roughness: 0.6 }));
       gChair.position.set(st.x, 0.46, st.z + 24.5);
       bldgCeo.add(gChair);
     });
@@ -3522,11 +3743,11 @@
 
     // ================= GEDUNG D (BARAT, X: -50..-23, Z: -13..+13): MESS & ASRAMA ISTIRAHAT (36 KASUR) =================
     const bldgMess = buildCampusBuildingShell(-36.5, 0.0, 27.0, 26.0, 0x252131, 0x818cf8);
-    const messLoungeRug = new THREE.Mesh(new THREE.BoxGeometry(23.5, 0.03, 3.0), new THREE.MeshStandardMaterial({ color: 0x312e4f, roughness: 0.9 }));
+    const messLoungeRug = new THREE.Mesh(new THREE.BoxGeometry(23.5, 0.03, 3.0), new THREE.MeshStandardMaterial({ color: 0xd6d0de, roughness: 0.95 }));
     messLoungeRug.position.set(0, 0.02, 0.0);
     bldgMess.add(messLoungeRug);
 
-    const messSofa = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.55, 1.05), new THREE.MeshStandardMaterial({ color: 0x818cf8, roughness: 0.75 }));
+    const messSofa = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.55, 1.05), new THREE.MeshStandardMaterial({ color: 0x7f8ea6, roughness: 0.85 }));
     messSofa.position.set(0, 0.30, 0.0);
     bldgMess.add(messSofa);
 
@@ -3539,16 +3760,18 @@
     messWallBoard.position.set(0, 2.3, -12.75);
     bldgMess.add(messWallBoard);
 
-    const duvetPalette = [0x6366f1, 0x0ea5e9, 0x10b981, 0xa855f7, 0xf59e0b, 0xec4899];
-    const oakMat = new THREE.MeshStandardMaterial({ color: 0x8d5b34, roughness: 0.65 });
-    const mattressMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.85 });
-    const pillowMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 });
-    const lampGlowMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
+    const duvetPalette = [0x8a9db3, 0xb7a183, 0x9cb197, 0xbf9891, 0xa49fc0, 0xcdb688];
+    const oakMat = new THREE.MeshStandardMaterial({ color: 0xb08860, roughness: 0.7 });
+    const mattressMat = new THREE.MeshStandardMaterial({ color: 0xf5f3ef, roughness: 0.9 });
+    const pillowMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 });
+    const lampGlowMat = new THREE.MeshBasicMaterial({ color: 0xffe9b8 });
 
     MESS_BEDS.forEach((b, idx) => {
       const bg = new THREE.Group();
       const frame = new THREE.Mesh(new THREE.BoxGeometry(1.42, 0.28, 2.45), oakMat);
       frame.position.y = 0.20;
+      frame.castShadow = true;
+      frame.receiveShadow = true;
       bg.add(frame);
       const headb = new THREE.Mesh(new THREE.BoxGeometry(1.48, 0.88, 0.13), oakMat);
       headb.position.set(0, 0.54, -1.18);
@@ -3576,7 +3799,7 @@
       scene.add(bg);
     });
 
-    const plankLineMat = new THREE.MeshBasicMaterial({ color: 0xc9a227, transparent: true, opacity: 0.12 });
+    const plankLineMat = new THREE.MeshBasicMaterial({ color: 0x8a6f4d, transparent: true, opacity: 0.16 });
     for (let i = -12.5; i <= 12.5; i += 0.9) {
       const line = new THREE.Mesh(new THREE.PlaneGeometry(35.8, 0.025), plankLineMat);
       line.rotation.x = -Math.PI / 2;
@@ -3585,7 +3808,7 @@
     }
 
     // Outer Back Wall (Z = -13) & Right Wall (X = +18)
-    const wallMat = new THREE.MeshStandardMaterial({ color: 0x262433, roughness: 0.85 });
+    const wallMat = plasterWallMat;
     const backWall = new THREE.Mesh(new THREE.BoxGeometry(36.6, 5.0, 0.40), wallMat);
     backWall.position.set(0, 2.5, -13.1);
     backWall.receiveShadow = true;
@@ -3598,14 +3821,36 @@
     rightWall.castShadow = true;
     roomGroup.add(rightWall);
 
+    const backWallCap = new THREE.Mesh(new THREE.BoxGeometry(36.64, 0.08, 0.44), wallCapMat);
+    backWallCap.position.set(0, 5.02, -13.1);
+    roomGroup.add(backWallCap);
+    const rightWallCap = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.08, 26.64), wallCapMat);
+    rightWallCap.position.set(18.1, 5.02, 0);
+    roomGroup.add(rightWallCap);
+
+    // Low skirting along the open (camera-facing) edges so the cut-away building reads as a finished model.
+    const skirtingMat = new THREE.MeshStandardMaterial({ color: 0xf2efe9, roughness: 0.9 });
+    const frontSkirt = new THREE.Mesh(new THREE.BoxGeometry(36.6, 0.32, 0.24), skirtingMat);
+    frontSkirt.position.set(0, 0.16, 13.1);
+    frontSkirt.castShadow = true;
+    roomGroup.add(frontSkirt);
+    [-7.35, 7.35].forEach(sz => {
+      const leftSkirt = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.32, 11.3), skirtingMat);
+      leftSkirt.position.set(-18.1, 0.16, sz);
+      leftSkirt.castShadow = true;
+      roomGroup.add(leftSkirt);
+    });
+
     // --- 4. INTERIOR GLASS PARTITION WALLS & GRAND LOBBY LUXVITE LOGO MEDALLION ---
     const glassWallMat = new THREE.MeshStandardMaterial({
-      color: 0x93c5fd,
+      color: 0xcfe3ea,
       transparent: true,
-      opacity: 0.22,
-      roughness: 0.15
+      opacity: 0.26,
+      roughness: 0.08,
+      metalness: 0.1,
+      depthWrite: false
     });
-    const frameWoodMat = new THREE.MeshStandardMaterial({ color: 0xc9a227, metalness: 0.35, roughness: 0.45 });
+    const frameWoodMat = colMat;
 
     function addGlassPartition(x, z, lenX, lenZ, height = 2.75) {
       const gw = new THREE.Group();
@@ -3613,13 +3858,23 @@
       glass.position.y = height / 2;
       gw.add(glass);
 
-      const topRail = new THREE.Mesh(new THREE.BoxGeometry(lenX + 0.04, 0.12, lenZ + 0.04), frameWoodMat);
+      const topRail = new THREE.Mesh(new THREE.BoxGeometry(lenX + 0.04, 0.06, lenZ + 0.04), frameWoodMat);
       topRail.position.y = height;
       gw.add(topRail);
 
-      const botRail = new THREE.Mesh(new THREE.BoxGeometry(lenX + 0.04, 0.14, lenZ + 0.04), frameWoodMat);
-      botRail.position.y = 0.07;
+      const botRail = new THREE.Mesh(new THREE.BoxGeometry(lenX + 0.04, 0.08, lenZ + 0.04), frameWoodMat);
+      botRail.position.y = 0.04;
       gw.add(botRail);
+
+      // Slim mullions every ~2.2 units so long glass runs read as framed panels.
+      const runLen = Math.max(lenX, lenZ);
+      const panels = Math.max(1, Math.round(runLen / 2.2));
+      for (let i = 0; i <= panels; i++) {
+        const off = -runLen / 2 + (runLen * i) / panels;
+        const mull = new THREE.Mesh(new THREE.BoxGeometry(0.05, height, 0.05), frameWoodMat);
+        mull.position.set(lenX >= lenZ ? off : 0, height / 2, lenX >= lenZ ? 0 : off);
+        gw.add(mull);
+      }
 
       gw.position.set(x, 0, z);
       roomGroup.add(gw);
@@ -3664,7 +3919,7 @@
     // --- 5. GRAND TOWN HALL BOARDROOM (Center Room: X=-3.8..+3.8, Z=-10.5..+2.2) ---
     const townHallRug = new THREE.Mesh(
       new THREE.BoxGeometry(7.0, 0.03, 11.5),
-      new THREE.MeshStandardMaterial({ color: 0x1c162b, roughness: 0.85 })
+      new THREE.MeshStandardMaterial({ color: 0xb9ab95, roughness: 0.95 })
     );
     townHallRug.position.set(0, 0.02, -3.5);
     townHallRug.receiveShadow = true;
@@ -3695,10 +3950,10 @@
       roomGroup.add(ped);
     });
 
-    const boardChairMat = new THREE.MeshStandardMaterial({ color: 0x6d3fc0, roughness: 0.65 });
+    const boardChairMat = new THREE.MeshStandardMaterial({ color: 0x3a3f4a, roughness: 0.7 });
     const ceoChair = new THREE.Mesh(
       new THREE.CylinderGeometry(0.36, 0.36, 0.12, 20),
-      new THREE.MeshStandardMaterial({ color: 0xfacc15 })
+      goldAccentMat
     );
     ceoChair.position.set(0, 0.48, -7.1);
     roomGroup.add(ceoChair);
@@ -3710,6 +3965,10 @@
         ch.position.set(cx, 0.46, cz);
         ch.castShadow = true;
         roomGroup.add(ch);
+        const chBack = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.46, 0.44), boardChairMat);
+        chBack.position.set(cx + Math.sign(cx) * 0.27, 0.72, cz);
+        chBack.castShadow = true;
+        roomGroup.add(chBack);
       });
     }
 
@@ -3762,7 +4021,7 @@
     // Ruang 1 (Social Media & Content Studio — Left-Front)
     const rugR1 = new THREE.Mesh(
       new THREE.BoxGeometry(10.2, 0.03, 8.6),
-      new THREE.MeshStandardMaterial({ color: 0x261c2e, roughness: 0.9 })
+      new THREE.MeshStandardMaterial({ color: 0xd2bdae, roughness: 0.95 })
     );
     rugR1.position.set(-10.2, 0.02, 5.6);
     rugR1.receiveShadow = true;
@@ -3770,7 +4029,7 @@
 
     const divR1 = new THREE.Mesh(
       new THREE.BoxGeometry(0.20, 1.08, 6.2),
-      new THREE.MeshStandardMaterial({ color: 0xc9a227 })
+      new THREE.MeshStandardMaterial({ color: 0x9aa595, roughness: 0.95 })
     );
     divR1.position.set(-10.7, 0.54, 5.6);
     divR1.castShadow = true;
@@ -3787,7 +4046,7 @@
     // Ruang 2 (Theme Product & Builder Lab — Left-Back)
     const rugR2 = new THREE.Mesh(
       new THREE.BoxGeometry(10.4, 0.03, 8.4),
-      new THREE.MeshStandardMaterial({ color: 0x1e1830, roughness: 0.9 })
+      new THREE.MeshStandardMaterial({ color: 0xbec3cf, roughness: 0.95 })
     );
     rugR2.position.set(-10.0, 0.02, -5.9);
     rugR2.receiveShadow = true;
@@ -3795,7 +4054,7 @@
 
     const divR2 = new THREE.Mesh(
       new THREE.BoxGeometry(8.4, 1.08, 0.20),
-      new THREE.MeshStandardMaterial({ color: 0x7c3aed })
+      new THREE.MeshStandardMaterial({ color: 0x8794a6, roughness: 0.95 })
     );
     divR2.position.set(-9.6, 0.54, -5.9);
     divR2.castShadow = true;
@@ -3816,7 +4075,7 @@
     // Ruang 3 (Growth, B2B Affiliate & SEO Room — Right-Back)
     const rugR3 = new THREE.Mesh(
       new THREE.BoxGeometry(10.2, 0.03, 7.8),
-      new THREE.MeshStandardMaterial({ color: 0x142622, roughness: 0.9 })
+      new THREE.MeshStandardMaterial({ color: 0xb6c6b3, roughness: 0.95 })
     );
     rugR3.position.set(10.0, 0.02, -6.0);
     rugR3.receiveShadow = true;
@@ -3834,7 +4093,7 @@
     // Ruang 4 (Admin Control, CS & Server Room — Right-Front)
     const rugR4 = new THREE.Mesh(
       new THREE.CylinderGeometry(4.4, 4.4, 0.03, 36),
-      new THREE.MeshStandardMaterial({ color: 0x182232, roughness: 0.9 })
+      new THREE.MeshStandardMaterial({ color: 0xbac7d4, roughness: 0.95 })
     );
     rugR4.position.set(9.4, 0.02, 5.8);
     rugR4.receiveShadow = true;
@@ -3856,7 +4115,7 @@
     roomGroup.add(roundTableBase);
 
     // Luxury Lounge Sofa in Ruang 4
-    const sofaMat = new THREE.MeshStandardMaterial({ color: 0xc4b5fd, roughness: 0.75 });
+    const sofaMat = new THREE.MeshStandardMaterial({ color: 0x7f8ea6, roughness: 0.85 });
     const sofaSeat = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.45, 3.4), sofaMat);
     sofaSeat.position.set(16.4, 0.25, 2.5);
     sofaSeat.castShadow = true;
@@ -3901,13 +4160,13 @@
       const pg = new THREE.Group();
       const pot = new THREE.Mesh(
         new THREE.CylinderGeometry(0.36, 0.26, 0.56, 16),
-        new THREE.MeshStandardMaterial({ color: 0xeab8b4, roughness: 0.7 })
+        new THREE.MeshStandardMaterial({ color: 0xece7df, roughness: 0.8 })
       );
       pot.position.y = 0.28;
       pot.castShadow = true;
       pg.add(pot);
 
-      const leafMat = new THREE.MeshStandardMaterial({ color: 0x65a30d, roughness: 0.6 });
+      const leafMat = new THREE.MeshStandardMaterial({ color: 0x5f8a4e, roughness: 0.75 });
       for (let i = 0; i < 5; i++) {
         const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 10), leafMat);
         leaf.scale.set(0.6, 1.8, 0.3);
@@ -3929,66 +4188,99 @@
     const agentMeshes = [];
     const clickableMeshes = [];
 
+    const DESK_MATS = {
+      top: new THREE.MeshStandardMaterial({ color: 0xcfae84, roughness: 0.55 }),
+      edge: new THREE.MeshStandardMaterial({ color: 0xf4f1ec, roughness: 0.7 }),
+      metal: new THREE.MeshStandardMaterial({ color: 0x2f3238, metalness: 0.4, roughness: 0.45 }),
+      panel: new THREE.MeshStandardMaterial({ color: 0xe9e5de, roughness: 0.9 }),
+      bezel: new THREE.MeshStandardMaterial({ color: 0x1d1f24, roughness: 0.4 }),
+      screen: new THREE.MeshStandardMaterial({ color: 0x1a2a3a, emissive: 0x6fb6e0, emissiveIntensity: 0.55, roughness: 0.3 }),
+      keyboard: new THREE.MeshStandardMaterial({ color: 0xe9e7e3, roughness: 0.6 }),
+      mug: new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 }),
+      chair: new THREE.MeshStandardMaterial({ color: 0x3a3f4a, roughness: 0.75 })
+    };
+
     function buildOrientedDesk(x, z, rotY, y = 0, targetParent = null) {
       const dg = new THREE.Group();
 
-      const top = new THREE.Mesh(
-        new THREE.BoxGeometry(1.50, 0.07, 0.85),
-        new THREE.MeshStandardMaterial({ color: 0xf3e5d0, roughness: 0.6 })
-      );
-      top.position.set(0, 0.74, 0.55);
+      const M = DESK_MATS;
+      const top = new THREE.Mesh(new THREE.BoxGeometry(1.50, 0.05, 0.80), M.top);
+      top.position.set(0, 0.75, 0.55);
       top.castShadow = true;
       top.receiveShadow = true;
       dg.add(top);
+      const edge = new THREE.Mesh(new THREE.BoxGeometry(1.50, 0.022, 0.80), M.edge);
+      edge.position.set(0, 0.718, 0.55);
+      dg.add(edge);
 
-      const legMat = new THREE.MeshStandardMaterial({ color: 0xd6b588 });
-      const legL = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.72, 0.80), legMat);
-      legL.position.set(-0.70, 0.36, 0.55);
-      legL.castShadow = true;
-      dg.add(legL);
+      // Steel sled frame: two slim side frames + a modesty panel at the far edge.
+      [-0.68, 0.68].forEach(lx => {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.70, 0.04), M.metal);
+        post.position.set(lx, 0.36, 0.55);
+        post.castShadow = true;
+        dg.add(post);
+        const foot = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.03, 0.72), M.metal);
+        foot.position.set(lx, 0.015, 0.55);
+        dg.add(foot);
+      });
+      const modesty = new THREE.Mesh(new THREE.BoxGeometry(1.30, 0.34, 0.02), M.panel);
+      modesty.position.set(0, 0.52, 0.92);
+      dg.add(modesty);
 
-      const legR = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.72, 0.80), legMat);
-      legR.position.set(0.70, 0.36, 0.55);
-      legR.castShadow = true;
-      dg.add(legR);
+      // Monitor on a stand, keyboard, and a mug.
+      const monStand = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.20, 0.04), M.metal);
+      monStand.position.set(0, 0.87, 0.78);
+      dg.add(monStand);
+      const monFoot = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.012, 0.14), M.metal);
+      monFoot.position.set(0, 0.783, 0.78);
+      dg.add(monFoot);
+      const monitor = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.36, 0.03), M.bezel);
+      monitor.position.set(0, 1.07, 0.77);
+      monitor.castShadow = true;
+      dg.add(monitor);
+      const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.57, 0.31), M.screen);
+      screen.position.set(0, 1.07, 0.754);
+      screen.rotation.y = Math.PI;
+      dg.add(screen);
 
-      const lapBase = new THREE.Mesh(
-        new THREE.BoxGeometry(0.42, 0.02, 0.32),
-        new THREE.MeshStandardMaterial({ color: 0xe2e8f0 })
-      );
-      lapBase.position.set(0, 0.79, 0.46);
-      dg.add(lapBase);
-
-      const lapScreen = new THREE.Mesh(
-        new THREE.BoxGeometry(0.42, 0.26, 0.02),
-        new THREE.MeshStandardMaterial({ color: 0x1e1b4b, emissive: 0xa855f7, emissiveIntensity: 0.45 })
-      );
-      lapScreen.position.set(0, 0.92, 0.60);
-      lapScreen.rotation.x = 0.15;
-      dg.add(lapScreen);
-
-      const mug = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.05, 0.05, 0.11, 12),
-        new THREE.MeshStandardMaterial({ color: 0xfacc15 })
-      );
-      mug.position.set(0.46, 0.83, 0.46);
+      const keyboard = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.015, 0.14), M.keyboard);
+      keyboard.position.set(-0.04, 0.784, 0.42);
+      dg.add(keyboard);
+      const mouse = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.015, 0.08), M.keyboard);
+      mouse.position.set(0.28, 0.784, 0.42);
+      dg.add(mouse);
+      const mug = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.036, 0.09, 14), M.mug);
+      mug.position.set(0.56, 0.82, 0.62);
       dg.add(mug);
 
-      const chairMat = new THREE.MeshStandardMaterial({ color: 0xa78bfa, roughness: 0.7 });
-      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.07, 0.52), chairMat);
+      // Task chair: seat, back, gas column and a five-arm base.
+      const seat = new THREE.Mesh(new THREE.BoxGeometry(0.50, 0.08, 0.48), M.chair);
       seat.position.set(0, 0.46, -0.04);
       seat.castShadow = true;
       dg.add(seat);
-
-      const back = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.52, 0.08), chairMat);
-      back.position.set(0, 0.72, -0.27);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.50, 0.06), M.chair);
+      back.position.set(0, 0.78, -0.27);
+      back.rotation.x = -0.08;
       back.castShadow = true;
       dg.add(back);
+      const column = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.36, 8), M.metal);
+      column.position.set(0, 0.24, -0.04);
+      dg.add(column);
+      for (let i = 0; i < 5; i++) {
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.26), M.metal);
+        const a = (i / 5) * Math.PI * 2;
+        arm.position.set(Math.sin(a) * 0.12, 0.05, -0.04 + Math.cos(a) * 0.12);
+        arm.rotation.y = a;
+        dg.add(arm);
+      }
 
       dg.position.set(x, 0, z);
       dg.rotation.y = rotY;
       scene.add(dg);
     }
+
+    const CHAR_SKIN_TONES = [0xf2d2b6, 0xe6bc98, 0xd4a27c, 0xc08a62, 0xf5dcc6, 0xa8724e];
+    const CHAR_TROUSER_TONES = [0x2f3440, 0x3d3a36, 0x4a4f5a, 0x34383f];
 
     function buildChibiCharacter(agent) {
       const cg = new THREE.Group();
@@ -3996,105 +4288,174 @@
       cg.add(bodyPivot);
 
       const isLeader = (agent.shortPill || "").includes("⭐") || (agent.shortPill || "").includes("👑");
-      const skinMat = new THREE.MeshStandardMaterial({ color: 0xfde2c4, roughness: 0.45 });
-      const trouserMat = new THREE.MeshStandardMaterial({ color: isLeader ? 0x1e293b : 0x334155, roughness: 0.7 });
-      const shoeMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.4 });
-      const blazerMat = new THREE.MeshStandardMaterial({ color: agent.shirtColor, roughness: 0.55 });
-      const collarMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.5 });
+      const look = Math.abs(Number(agent.id) || 0);
+      const skinMat = new THREE.MeshStandardMaterial({ color: CHAR_SKIN_TONES[look % CHAR_SKIN_TONES.length], roughness: 0.6 });
+      const trouserMat = new THREE.MeshStandardMaterial({ color: isLeader ? 0x23262d : CHAR_TROUSER_TONES[look % CHAR_TROUSER_TONES.length], roughness: 0.8 });
+      const shoeMat = new THREE.MeshStandardMaterial({ color: 0x1b1c20, roughness: 0.45 });
+      const blazerMat = new THREE.MeshStandardMaterial({ color: agent.shirtColor, roughness: 0.68 });
+      const shirtMat = new THREE.MeshStandardMaterial({ color: 0xf6f4f0, roughness: 0.7 });
+      const hairMat = new THREE.MeshStandardMaterial({ color: agent.hairColor, roughness: 0.8 });
+      const deptColor = new THREE.Color(agent.dotColor || "#94a3b8");
 
-      // Shoes + Tailored Legs
-      [-0.095, 0.095].forEach(lx => {
-        const shoe = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.08, 0.18), shoeMat);
-        shoe.position.set(lx, 0.04, 0.03);
-        bodyPivot.add(shoe);
-        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.068, 0.062, 0.40, 12), trouserMat);
-        leg.position.set(lx, 0.28, 0);
-        leg.castShadow = true;
-        bodyPivot.add(leg);
-      });
+      // Legs pivot at the hip so the walk cycle can swing them.
+      const makeLeg = (lx) => {
+        const legPivot = new THREE.Group();
+        legPivot.position.set(lx, 0.47, 0);
+        const thigh = new THREE.Mesh(new THREE.CylinderGeometry(0.072, 0.064, 0.40, 12), trouserMat);
+        thigh.position.y = -0.21;
+        thigh.castShadow = true;
+        legPivot.add(thigh);
+        const shoe = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 8), shoeMat);
+        shoe.scale.set(1.0, 0.55, 1.55);
+        shoe.position.set(0, -0.43, 0.035);
+        shoe.castShadow = true;
+        legPivot.add(shoe);
+        bodyPivot.add(legPivot);
+        return legPivot;
+      };
+      const leftLeg = makeLeg(-0.088);
+      const rightLeg = makeLeg(0.088);
 
-      // Sculpted Executive Blazer Torso + White Shirt Collar + Executive Tie/Badge
-      const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.21, 0.19, 0.50, 16), blazerMat);
-      torso.position.y = 0.72;
+      const hips = new THREE.Mesh(new THREE.CylinderGeometry(0.168, 0.16, 0.12, 16), trouserMat);
+      hips.position.y = 0.5;
+      bodyPivot.add(hips);
+
+      // Tapered jacket with rounded shoulders, shirt placket and a department lanyard card.
+      const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.165, 0.42, 18), blazerMat);
+      torso.position.y = 0.74;
       torso.castShadow = true;
       bodyPivot.add(torso);
-
-      const collar = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.08), collarMat);
-      collar.position.set(0, 0.90, 0.16);
-      bodyPivot.add(collar);
-
+      const shoulders = new THREE.Mesh(new THREE.SphereGeometry(0.2, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2), blazerMat);
+      shoulders.scale.set(1.12, 0.42, 0.86);
+      shoulders.position.y = 0.945;
+      shoulders.castShadow = true;
+      bodyPivot.add(shoulders);
+      const placket = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.30, 0.02), shirtMat);
+      placket.position.set(0, 0.80, 0.168);
+      placket.rotation.x = -0.09;
+      bodyPivot.add(placket);
       const tie = new THREE.Mesh(
-        new THREE.BoxGeometry(0.055, 0.24, 0.04),
-        new THREE.MeshStandardMaterial({ color: isLeader ? 0xfacc15 : 0x1e1b4b, roughness: 0.35 })
+        new THREE.BoxGeometry(0.04, 0.22, 0.02),
+        new THREE.MeshStandardMaterial({ color: isLeader ? 0xc9a227 : 0x2a2d35, roughness: 0.5 })
       );
-      tie.position.set(0, 0.76, 0.19);
+      tie.position.set(0, 0.80, 0.18);
+      tie.rotation.x = -0.09;
       bodyPivot.add(tie);
+      const badge = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.095, 0.012), new THREE.MeshBasicMaterial({ color: deptColor }));
+      badge.position.set(-0.105, 0.82, 0.172);
+      badge.rotation.x = -0.09;
+      bodyPivot.add(badge);
+      if (isLeader) {
+        const pin = new THREE.Mesh(new THREE.OctahedronGeometry(0.03, 0), new THREE.MeshStandardMaterial({ color: 0xc9a227, metalness: 0.7, roughness: 0.25 }));
+        pin.position.set(0.11, 0.86, 0.17);
+        bodyPivot.add(pin);
+      }
+
+      const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.06, 0.1, 10), skinMat);
+      neck.position.y = 1.0;
+      bodyPivot.add(neck);
 
       // Articulated Arms (swing when walking, subtle typing at desk!)
-      const leftArm = new THREE.Group();
-      leftArm.position.set(-0.25, 0.90, 0);
-      const lSleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.052, 0.36, 10), blazerMat);
-      lSleeve.position.y = -0.16;
-      leftArm.add(lSleeve);
-      const lHand = new THREE.Mesh(new THREE.SphereGeometry(0.052, 10, 10), skinMat);
-      lHand.position.y = -0.35;
-      leftArm.add(lHand);
-      bodyPivot.add(leftArm);
+      const makeArm = (side) => {
+        const arm = new THREE.Group();
+        arm.position.set(side * 0.225, 0.915, 0);
+        const sleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.056, 0.048, 0.36, 10), blazerMat);
+        sleeve.position.y = -0.17;
+        sleeve.castShadow = true;
+        arm.add(sleeve);
+        const cuff = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.046, 0.03, 10), shirtMat);
+        cuff.position.y = -0.355;
+        arm.add(cuff);
+        const hand = new THREE.Mesh(new THREE.SphereGeometry(0.048, 10, 10), skinMat);
+        hand.position.y = -0.395;
+        arm.add(hand);
+        bodyPivot.add(arm);
+        return arm;
+      };
+      const leftArm = makeArm(-1);
+      const rightArm = makeArm(1);
 
-      const rightArm = new THREE.Group();
-      rightArm.position.set(0.25, 0.90, 0);
-      const rSleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.052, 0.36, 10), blazerMat);
-      rSleeve.position.y = -0.16;
-      rightArm.add(rSleeve);
-      const rHand = new THREE.Mesh(new THREE.SphereGeometry(0.052, 10, 10), skinMat);
-      rHand.position.y = -0.35;
-      rightArm.add(rHand);
-      bodyPivot.add(rightArm);
-
-      // Stylized Head Group (Expressive Eyes + Sculpted Hair + Optional Glasses/Headset)
+      // Head: animation loop drives head.position.y around 1.21.
       const head = new THREE.Group();
       head.position.y = 1.21;
       bodyPivot.add(head);
 
-      const cranium = new THREE.Mesh(new THREE.SphereGeometry(0.245, 22, 22), skinMat);
+      const cranium = new THREE.Mesh(new THREE.SphereGeometry(0.205, 24, 20), skinMat);
+      cranium.scale.set(1.0, 1.06, 0.98);
       cranium.castShadow = true;
       head.add(cranium);
-
-      const eyeMat = new THREE.MeshBasicMaterial({ color: 0x0f172a });
-      [-0.08, 0.08].forEach(ex => {
-        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.028, 10, 10), eyeMat);
-        eye.position.set(ex, 0.01, 0.22);
-        head.add(eye);
+      [-1, 1].forEach(s => {
+        const ear = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), skinMat);
+        ear.scale.set(0.6, 1, 0.8);
+        ear.position.set(s * 0.2, -0.01, 0);
+        head.add(ear);
       });
 
-      const hairMat = new THREE.MeshStandardMaterial({ color: agent.hairColor, roughness: 0.72 });
-      const hairCap = new THREE.Mesh(new THREE.SphereGeometry(0.262, 22, 18, 0, Math.PI * 2, 0, Math.PI * 0.56), hairMat);
-      hairCap.position.y = 0.03;
-      head.add(hairCap);
-      const hairBack = new THREE.Mesh(new THREE.SphereGeometry(0.252, 16, 14, 0, Math.PI, Math.PI * 0.35, Math.PI * 0.45), hairMat);
-      hairBack.rotation.y = Math.PI;
-      head.add(hairBack);
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0x1f2126 });
+      [-0.072, 0.072].forEach(ex => {
+        const eye = new THREE.Mesh(new THREE.SphereGeometry(0.022, 10, 10), eyeMat);
+        eye.scale.set(1, 1.3, 0.6);
+        eye.position.set(ex, 0.0, 0.192);
+        head.add(eye);
+        const brow = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.012, 0.012), hairMat);
+        brow.position.set(ex, 0.058, 0.19);
+        head.add(brow);
+      });
+      const smile = new THREE.Mesh(new THREE.TorusGeometry(0.03, 0.006, 6, 12, Math.PI), new THREE.MeshBasicMaterial({ color: 0x8a4b3c }));
+      smile.rotation.z = Math.PI;
+      smile.position.set(0, -0.065, 0.192);
+      head.add(smile);
 
-      if (agent.room === "ENGINEERING" || agent.room === "FINANCE") {
-        const glassMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.6, roughness: 0.2 });
-        [-0.082, 0.082].forEach(gx => {
-          const rim = new THREE.Mesh(new THREE.TorusGeometry(0.052, 0.009, 8, 16), glassMat);
-          rim.position.set(gx, 0.01, 0.235);
-          head.add(rim);
+      // Four hair styles picked from the agent id for visual variety across 35 staff.
+      const hairStyle = look % 4;
+      const hairCap = new THREE.Mesh(new THREE.SphereGeometry(0.218, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.5), hairMat);
+      hairCap.scale.set(1.0, 0.95, 1.02);
+      hairCap.position.set(0, 0.03, -0.006);
+      hairCap.rotation.x = -0.22;
+      hairCap.castShadow = true;
+      head.add(hairCap);
+      const hairBack = new THREE.Mesh(new THREE.SphereGeometry(0.214, 18, 14, 0, Math.PI, Math.PI * 0.3, Math.PI * (hairStyle === 2 ? 0.48 : 0.36)), hairMat);
+      hairBack.rotation.y = Math.PI;
+      hairBack.position.z = -0.008;
+      head.add(hairBack);
+      if (hairStyle === 1) {
+        const quiff = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 10), hairMat);
+        quiff.scale.set(1.5, 0.55, 0.9);
+        quiff.position.set(0.04, 0.17, 0.11);
+        head.add(quiff);
+      } else if (hairStyle === 2) {
+        [-1, 1].forEach(s => {
+          const side = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 10), hairMat);
+          side.scale.set(0.4, 1.05, 0.85);
+          side.position.set(s * 0.185, -0.05, -0.05);
+          head.add(side);
         });
-      } else if (isLeader) {
-        const crown = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.02, 8, 16), new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.6, roughness: 0.25 }));
-        crown.rotation.x = Math.PI / 2;
-        crown.position.y = 0.26;
-        head.add(crown);
+      } else if (hairStyle === 3) {
+        const bun = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 10), hairMat);
+        bun.position.set(0, 0.17, -0.15);
+        head.add(bun);
       }
 
-      // Glowing Report Tablet carried when delivering reports
-      const reportPad = new THREE.Mesh(
-        new THREE.BoxGeometry(0.24, 0.32, 0.035),
-        new THREE.MeshStandardMaterial({ color: 0xfacc15, emissive: 0xf59e0b, emissiveIntensity: 0.45 })
-      );
-      reportPad.position.set(0.26, 0.78, 0.22);
+      if (agent.room === "ENGINEERING" || agent.room === "FINANCE") {
+        const glassMat = new THREE.MeshStandardMaterial({ color: 0x1f2126, metalness: 0.5, roughness: 0.3 });
+        [-0.072, 0.072].forEach(gx => {
+          const rim = new THREE.Mesh(new THREE.TorusGeometry(0.044, 0.007, 8, 18), glassMat);
+          rim.position.set(gx, 0.0, 0.2);
+          head.add(rim);
+        });
+        const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.008, 0.008), glassMat);
+        bridge.position.set(0, 0.008, 0.205);
+        head.add(bridge);
+      }
+
+      // Report tablet carried when delivering reports
+      const reportPad = new THREE.Group();
+      const padBody = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.30, 0.02), new THREE.MeshStandardMaterial({ color: 0x24262c, roughness: 0.4 }));
+      reportPad.add(padBody);
+      const padScreen = new THREE.Mesh(new THREE.PlaneGeometry(0.19, 0.26), new THREE.MeshStandardMaterial({ color: 0xfff4d6, emissive: 0xc9a227, emissiveIntensity: 0.55 }));
+      padScreen.position.z = 0.011;
+      reportPad.add(padScreen);
+      reportPad.position.set(0.24, 0.78, 0.22);
       reportPad.rotation.x = -0.35;
       reportPad.visible = false;
       bodyPivot.add(reportPad);
@@ -4113,7 +4474,7 @@
 
       scene.add(cg);
       agent.workState = agent.workState || "WORKING";
-      agentMeshes.push({ agent, group: cg, bodyPivot, head, leftArm, rightArm, reportPad });
+      agentMeshes.push({ agent, group: cg, bodyPivot, head, leftArm, rightArm, leftLeg, rightLeg, reportPad });
     }
 
     agents.forEach(ag => {
@@ -4402,40 +4763,84 @@
     robotGroup.add(rHead);
 
     const rVisor = new THREE.Mesh(
-      new THREE.BoxGeometry(0.12, 0.15, 0.30),
-      new THREE.MeshStandardMaterial({ color: 0x0284c7, emissive: 0x38bdf8, emissiveIntensity: 0.6 })
+      new THREE.BoxGeometry(0.30, 0.12, 0.06),
+      new THREE.MeshStandardMaterial({ color: 0x15181d, roughness: 0.2 })
     );
-    rVisor.position.set(-0.16, 1.08, 0);
+    rVisor.position.set(0, 1.09, 0.18);
     robotGroup.add(rVisor);
+    [-0.07, 0.07].forEach(ex => {
+      const rEye = new THREE.Mesh(new THREE.SphereGeometry(0.022, 10, 8), new THREE.MeshBasicMaterial({ color: 0x7fd8ff }));
+      rEye.position.set(ex, 1.09, 0.215);
+      robotGroup.add(rEye);
+    });
+    const rRing = new THREE.Mesh(new THREE.TorusGeometry(0.27, 0.025, 8, 32), goldAccentMat);
+    rRing.rotation.x = Math.PI / 2;
+    rRing.position.y = 0.66;
+    robotGroup.add(rRing);
 
     robotGroup.position.set(2.4, 0.15, 3.2);
     roomGroup.add(robotGroup);
 
     const ceoGroup = new THREE.Group();
-    const ceoSuitMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.6 });
+    const ceoSuitMat = new THREE.MeshStandardMaterial({ color: 0x1f2229, roughness: 0.65 });
+    const ceoSkinMat = new THREE.MeshStandardMaterial({ color: 0xe6bc98, roughness: 0.6 });
+    const ceoShirtMat = new THREE.MeshStandardMaterial({ color: 0xf6f4f0, roughness: 0.7 });
 
-    const ceoLegs = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.45, 12), ceoSuitMat);
-    ceoLegs.position.y = 0.23;
-    ceoGroup.add(ceoLegs);
+    [-0.09, 0.09].forEach(lx => {
+      const ceoLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.074, 0.066, 0.42, 12), ceoSuitMat);
+      ceoLeg.position.set(lx, 0.25, 0);
+      ceoLeg.castShadow = true;
+      ceoGroup.add(ceoLeg);
+      const ceoShoe = new THREE.Mesh(new THREE.SphereGeometry(0.078, 12, 8), new THREE.MeshStandardMaterial({ color: 0x3b2a20, roughness: 0.4 }));
+      ceoShoe.scale.set(1.0, 0.55, 1.55);
+      ceoShoe.position.set(lx, 0.04, 0.035);
+      ceoGroup.add(ceoShoe);
+    });
 
-    const ceoTorso = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.24, 0.55, 16), ceoSuitMat);
+    const ceoTorso = new THREE.Mesh(new THREE.CylinderGeometry(0.215, 0.175, 0.46, 18), ceoSuitMat);
     ceoTorso.position.y = 0.72;
     ceoTorso.castShadow = true;
     ceoGroup.add(ceoTorso);
+    const ceoShoulders = new THREE.Mesh(new THREE.SphereGeometry(0.215, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2), ceoSuitMat);
+    ceoShoulders.scale.set(1.12, 0.42, 0.86);
+    ceoShoulders.position.y = 0.945;
+    ceoGroup.add(ceoShoulders);
+    const ceoPlacket = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.3, 0.02), ceoShirtMat);
+    ceoPlacket.position.set(0, 0.8, 0.178);
+    ceoPlacket.rotation.x = -0.09;
+    ceoGroup.add(ceoPlacket);
+    const ceoTie = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.24, 0.02), goldAccentMat);
+    ceoTie.position.set(0, 0.8, 0.19);
+    ceoTie.rotation.x = -0.09;
+    ceoGroup.add(ceoTie);
+    [-1, 1].forEach(s => {
+      const ceoArm = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.05, 0.38, 10), ceoSuitMat);
+      ceoArm.position.set(s * 0.24, 0.74, 0);
+      ceoArm.castShadow = true;
+      ceoGroup.add(ceoArm);
+      const ceoHand = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 10), ceoSkinMat);
+      ceoHand.position.set(s * 0.24, 0.52, 0);
+      ceoGroup.add(ceoHand);
+    });
 
-    const ceoHead = new THREE.Mesh(
-      new THREE.SphereGeometry(0.27, 20, 20),
-      new THREE.MeshStandardMaterial({ color: 0xfde68a, roughness: 0.5 })
-    );
-    ceoHead.position.y = 1.24;
+    const ceoHead = new THREE.Mesh(new THREE.SphereGeometry(0.215, 24, 20), ceoSkinMat);
+    ceoHead.scale.set(1.0, 1.06, 0.98);
+    ceoHead.position.y = 1.22;
     ceoHead.castShadow = true;
     ceoGroup.add(ceoHead);
+    [-0.075, 0.075].forEach(ex => {
+      const ceoEye = new THREE.Mesh(new THREE.SphereGeometry(0.022, 10, 10), new THREE.MeshBasicMaterial({ color: 0x1f2126 }));
+      ceoEye.scale.set(1, 1.3, 0.6);
+      ceoEye.position.set(ex, 1.22, 0.2);
+      ceoGroup.add(ceoEye);
+    });
 
     const ceoHair = new THREE.Mesh(
-      new THREE.SphereGeometry(0.285, 20, 16, 0, Math.PI * 2, 0, Math.PI * 0.55),
-      new THREE.MeshStandardMaterial({ color: 0x0f172a })
+      new THREE.SphereGeometry(0.228, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.5),
+      new THREE.MeshStandardMaterial({ color: 0x1b1c20, roughness: 0.8 })
     );
-    ceoHair.position.y = 1.26;
+    ceoHair.position.set(0, 1.25, -0.006);
+    ceoHair.rotation.x = -0.22;
     ceoGroup.add(ceoHair);
 
     ceoGroup.position.set(0.0, 0, -26.8);
@@ -5884,10 +6289,10 @@
         const zel = document.createElement("div");
         zel.id = z.id;
         const isDeptRoom = z.room !== "CEO_OFFICE" && z.room !== "REST_MESS";
-        zel.className = "zone-badge px-2 py-0.5 rounded-md bg-[#12121a]/85 hover:bg-[#1e1e2e] backdrop-blur-sm text-[9.5px] font-bold tracking-wide text-amber-300 border border-amber-400/45 hover:border-amber-300 shadow cursor-pointer transition flex items-center gap-1";
+        zel.className = "zone-badge hq-zone pl-2 pr-2.5 py-1 rounded-full text-[10px] font-semibold tracking-tight cursor-pointer transition flex items-center gap-1.5";
         zel.innerHTML = isDeptRoom
-          ? `<span>${escapeHtmlSafe(z.label)}</span><span class="text-[9px] text-sky-300">💬</span>`
-          : `<span>${escapeHtmlSafe(z.label)}</span>`;
+          ? `<span class="w-1.5 h-1.5 rounded-full bg-[#C9A227] shrink-0"></span><span>${escapeHtmlSafe(z.label)}</span><svg class="w-3 h-3 text-slate-500 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M3 5.5A2.5 2.5 0 0 1 5.5 3h9A2.5 2.5 0 0 1 17 5.5v6a2.5 2.5 0 0 1-2.5 2.5H9l-3.6 2.7A.75.75 0 0 1 4.2 16v-2.1A2.5 2.5 0 0 1 3 11.5v-6Z"/></svg>`
+          : `<span class="w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0"></span><span>${escapeHtmlSafe(z.label)}</span>`;
         zel.title = isDeptRoom ? "Klik untuk fokus kamera & mengintip obrolan ruangan ini" : "Klik untuk fokus kamera";
         zel.onclick = (e) => {
           e.stopPropagation();
@@ -5905,14 +6310,14 @@
 
       const ceoEl = document.createElement("div");
       ceoEl.id = "ceo-floating-pill";
-      ceoEl.className = "ceo-pill px-2 py-0.5 rounded-full bg-amber-400/95 text-slate-950 font-extrabold text-[9.5px] shadow border border-slate-900 flex items-center gap-1";
-      ceoEl.innerHTML = `<span>👔</span> <span>CEO</span>`;
+      ceoEl.className = "ceo-pill px-2.5 py-0.5 rounded-full bg-[#1f2228] text-[#e8c766] font-bold tracking-wider text-[9.5px] shadow-lg border border-[#C9A227]/60 flex items-center gap-1.5";
+      ceoEl.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-[#C9A227]"></span><span>CEO</span>`;
       labelLayer.appendChild(ceoEl);
 
       agents.forEach(ag => {
         const pill = document.createElement("div");
         pill.id = `agent-pill-${ag.id}`;
-        pill.className = "agent-pill px-1.5 py-0.5 rounded-full bg-[#141420]/90 text-white font-semibold text-[9.5px] shadow border border-white/25 flex items-center gap-1";
+        pill.className = "agent-pill pl-1.5 pr-2 py-0.5 rounded-full bg-white/95 text-slate-800 font-semibold text-[9.5px] border border-black/5 flex items-center gap-1";
         pill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${ag.dotColor}"></span><span>${ag.name}</span>`;
         pill.onclick = (e) => {
           e.stopPropagation();
@@ -5922,7 +6327,7 @@
 
         const bub = document.createElement("div");
         bub.id = `agent-bubble-${ag.id}`;
-        bub.className = "speech-bubble-3d hidden px-2.5 py-1 rounded-xl bg-amber-400 text-slate-950 font-bold text-[10px] shadow-xl border border-white";
+        bub.className = "speech-bubble-3d hidden px-2.5 py-1 rounded-xl bg-[#1f2228] text-white font-semibold text-[10px] border border-[#C9A227]/50";
         labelLayer.appendChild(bub);
       });
 
@@ -10474,24 +10879,24 @@
         const isRest = ag.workState === "RESTING";
         const isWorkingNow = Boolean(ag.isBusyWorking) || (typeof SERVER_BUSY_AGENT_IDS !== "undefined" && SERVER_BUSY_AGENT_IDS && SERVER_BUSY_AGENT_IDS.has(ag.id));
         if (isWorkingNow) {
-          pill.className = "agent-pill px-2 py-0.5 rounded-full bg-[#091c15]/95 text-white font-bold text-[9.5px] shadow-lg shadow-emerald-500/45 border border-emerald-400 flex items-center gap-1.5";
+          pill.className = "agent-pill pl-1 pr-2 py-0.5 rounded-full bg-white text-slate-900 font-semibold text-[9.5px] border border-emerald-500/60 ring-2 ring-emerald-400/25 flex items-center gap-1.5";
           pill.title = `${ag.name} (${ag.role}) sedang bekerja mengeksekusi tugas nyata`;
-          pill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping shrink-0"></span><span class="px-1.5 py-[1px] rounded bg-emerald-400 text-slate-950 font-black tracking-wider text-[8.5px] uppercase leading-none">WORK</span><span class="text-emerald-100">${ag.name}</span>`;
+          pill.innerHTML = `<span class="relative flex w-1.5 h-1.5 ml-0.5 shrink-0"><span class="absolute inset-0 rounded-full bg-emerald-400 animate-ping"></span><span class="relative w-1.5 h-1.5 rounded-full bg-emerald-500"></span></span><span class="px-1.5 py-[1px] rounded-full bg-emerald-500 text-white font-bold tracking-wider text-[8px] uppercase leading-none">Work</span><span>${ag.name}</span>`;
         } else if (isRest) {
-          pill.className = "agent-pill px-1.5 py-0.5 rounded-full bg-indigo-950/90 text-indigo-200 font-semibold text-[9.5px] shadow border border-indigo-400/60 flex items-center gap-1";
+          pill.className = "agent-pill pl-1.5 pr-2 py-0.5 rounded-full bg-slate-100/90 text-slate-500 font-medium text-[9.5px] border border-black/5 flex items-center gap-1";
           pill.title = `${ag.name} sedang istirahat di Gedung D (Mess Istirahat)`;
-          pill.innerHTML = `<span>💤</span><span>${ag.name}</span>`;
+          pill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-indigo-300 shrink-0"></span><span>${ag.name}</span><span class="text-[8px] uppercase tracking-wider text-slate-400">rest</span>`;
         } else if (!st.active) {
           const isQuota = st.code === "QUOTA";
           pill.className = isQuota
-            ? "agent-pill px-1.5 py-0.5 rounded-full bg-amber-950/95 text-amber-200 font-bold text-[9.5px] shadow border border-amber-400 flex items-center gap-1"
-            : "agent-pill px-1.5 py-0.5 rounded-full bg-rose-950/95 text-rose-200 font-bold text-[9.5px] shadow border border-rose-500 flex items-center gap-1";
+            ? "agent-pill pl-1.5 pr-2 py-0.5 rounded-full bg-amber-50 text-amber-800 font-semibold text-[9.5px] border border-amber-400/70 flex items-center gap-1"
+            : "agent-pill pl-1.5 pr-2 py-0.5 rounded-full bg-rose-50 text-rose-700 font-semibold text-[9.5px] border border-rose-400/70 flex items-center gap-1";
           pill.title = `${st.label}: ${st.reason}${st.hasFallback ? ` (Fallback siap: ${st.fallbackModel})` : " (Belum ada fallback!)"}`;
           pill.innerHTML = `<span>${st.icon || "🔴"}</span><span>${ag.name} · ${st.code === "QUOTA" ? "Kuota" : "OFF"}</span>`;
         } else {
           pill.className = isLeader
-            ? "agent-pill px-2 py-0.5 rounded-full bg-amber-400/95 text-slate-950 font-extrabold text-[9.5px] shadow border border-slate-900 flex items-center gap-1"
-            : "agent-pill px-1.5 py-0.5 rounded-full bg-[#141420]/90 text-slate-200 font-semibold text-[9.5px] shadow border border-white/20 flex items-center gap-1";
+            ? "agent-pill pl-1.5 pr-2 py-0.5 rounded-full bg-[#1f2228] text-[#f1d98a] font-bold text-[9.5px] border border-[#C9A227]/60 flex items-center gap-1"
+            : "agent-pill pl-1.5 pr-2 py-0.5 rounded-full bg-white/95 text-slate-800 font-semibold text-[9.5px] border border-black/5 flex items-center gap-1";
           pill.title = `${ag.name} · ${ag.role} (Standby · Model: ${ag.model}${st.hasFallback ? ` · Fallback: ${st.fallbackModel}` : ""})`;
           pill.innerHTML = `<span class="w-1.5 h-1.5 rounded-full shrink-0" style="background:${ag.dotColor}"></span><span>${ag.name}</span>`;
         }
@@ -12807,9 +13212,16 @@
       robotGroup.position.y = 0.15 + Math.sin(t * 2.5) * 0.12;
       robotGroup.rotation.y = Math.sin(t * 0.8) * 0.4;
 
-      agentMeshes.forEach(({ agent, group, bodyPivot, head, leftArm, rightArm }, idx) => {
+      agentMeshes.forEach(({ agent, group, bodyPivot, head, leftArm, rightArm, leftLeg, rightLeg }, idx) => {
+        const legSwing = agent.isWalking && agent.workState !== "RESTING" ? Math.sin(t * 10 + idx) * 0.5 : 0;
+        const seatedAtDesk = !agent.isWalking && agent.workState !== "RESTING" && agent.hasDesk && agent.homePos &&
+          Math.hypot(group.position.x - agent.homePos.x, group.position.z - agent.homePos.z) < 0.3;
+        if (leftLeg && rightLeg) {
+          leftLeg.rotation.x = seatedAtDesk ? -1.45 : -legSwing;
+          rightLeg.rotation.x = seatedAtDesk ? -1.45 : legSwing;
+        }
         if (agent.isWalking) {
-          if (bodyPivot) { bodyPivot.rotation.x = 0; bodyPivot.position.y = 0; }
+          if (bodyPivot) { bodyPivot.rotation.x = 0; bodyPivot.position.y = Math.abs(Math.sin(t * 10 + idx)) * 0.03; }
           const ty = agent.targetPos.y || 0;
           const dx = agent.targetPos.x - group.position.x;
           const dy = ty - group.position.y;
