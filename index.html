@@ -3991,23 +3991,125 @@
 
     let interactionBusy = false;
     let LAST_COORD_EVENT_ID = "";
+    const SEEN_COORD_EVENT_IDS = new Set();
+    const COORD_ANIM_QUEUE = [];
+    let COORD_ANIM_RUN_TOKEN = 0;
+    let COORD_ANIM_WATCHDOG = null;
+
+    function enqueueRealCoordinationEvents(world, isInitialLoad = false) {
+      if (!world) return;
+      const list = [];
+      if (Array.isArray(world.recentCoordinationEvents)) {
+        world.recentCoordinationEvents.forEach(item => {
+          if (item && typeof item === "object") list.push(item);
+        });
+      }
+      if (world.lastCoordinationEvent && typeof world.lastCoordinationEvent === "object") {
+        const lastId = world.lastCoordinationEvent.eventId;
+        if (!lastId || !list.some(x => x && x.eventId === lastId)) {
+          list.push(world.lastCoordinationEvent);
+        }
+      }
+      if (!list.length) return;
+
+      // Sort oldest -> newest so multi-step real handoffs play in chronological order
+      list.sort((a, b) => Number(a.ts || 0) - Number(b.ts || 0));
+
+      const nowSec = Date.now() / 1000;
+      const maxAgeSec = isInitialLoad ? 30 : 95;
+      let latestSkippedMsg = "";
+
+      list.forEach(ev => {
+        // Mode 100% Real-Activity-Only: tolak event simulasi/template ambient
+        if (!ev || ev.source !== "REAL_TASK_EXECUTION") return;
+        const evId = String(ev.eventId || "");
+        if (!evId || SEEN_COORD_EVENT_IDS.has(evId)) return;
+
+        SEEN_COORD_EVENT_IDS.add(evId);
+        if (SEEN_COORD_EVENT_IDS.size > 200) {
+          const firstKey = SEEN_COORD_EVENT_IDS.values().next().value;
+          SEEN_COORD_EVENT_IDS.delete(firstKey);
+        }
+        LAST_COORD_EVENT_ID = evId;
+
+        const ageSec = nowSec - Number(ev.ts || 0);
+        if (ageSec > maxAgeSec) {
+          if (ev.walkMsg) latestSkippedMsg = ev.walkMsg;
+          return;
+        }
+
+        // Prevent unbounded lag if many handoffs burst at once
+        if (COORD_ANIM_QUEUE.length >= 8) {
+          COORD_ANIM_QUEUE.shift();
+        }
+        COORD_ANIM_QUEUE.push(ev);
+      });
+
+      if (latestSkippedMsg && !interactionBusy && COORD_ANIM_QUEUE.length === 0) {
+        const feedEl = document.getElementById("interaction-feed-text");
+        if (feedEl) feedEl.textContent = latestSkippedMsg;
+      }
+
+      drainCoordinationQueue();
+    }
+
+    function drainCoordinationQueue() {
+      if (interactionBusy || inTownHallMeeting || OFFICE_OFF_MODE) return;
+      if (COORD_ANIM_QUEUE.length === 0) return;
+      const nextEv = COORD_ANIM_QUEUE.shift();
+      runCoordinationAnimation(nextEv);
+    }
 
     function runCoordinationAnimation(ev) {
       if (!ev || inTownHallMeeting || OFFICE_OFF_MODE) return;
       // Mode 100% Real-Activity-Only: tolak event simulasi/template ambient
       if (ev.source === "LIVE_MCP_STATE") return;
-      if (ev.eventId && ev.eventId === LAST_COORD_EVENT_ID) return;
-      if (ev.eventId) LAST_COORD_EVENT_ID = ev.eventId;
+      if (ev.eventId) {
+        SEEN_COORD_EVENT_IDS.add(String(ev.eventId));
+        LAST_COORD_EVENT_ID = String(ev.eventId);
+      }
 
-      const sender = agents.find(a => a.id === ev.fromId);
-      const receiver = agents.find(a => a.id === ev.toId);
-      if (!sender || !receiver) return;
-      if (sender.workState === "RESTING" || receiver.workState === "RESTING") return;
-      if (summonedInCeoOfficeIds.has(sender.id) || summonedInCeoOfficeIds.has(receiver.id)) return;
+      const sender = agents.find(a => a.id === Number(ev.fromId));
+      const receiver = agents.find(a => a.id === Number(ev.toId));
+      if (!sender || !receiver || sender.id === receiver.id) {
+        setTimeout(drainCoordinationQueue, 120);
+        return;
+      }
+      if (sender.workState === "RESTING" || receiver.workState === "RESTING") {
+        setTimeout(drainCoordinationQueue, 120);
+        return;
+      }
+      if (summonedInCeoOfficeIds.has(sender.id) || summonedInCeoOfficeIds.has(receiver.id)) {
+        setTimeout(drainCoordinationQueue, 120);
+        return;
+      }
 
       interactionBusy = true;
+      const myToken = ++COORD_ANIM_RUN_TOKEN;
+      if (COORD_ANIM_WATCHDOG) {
+        clearTimeout(COORD_ANIM_WATCHDOG);
+        COORD_ANIM_WATCHDOG = null;
+      }
+      // Safety watchdog so queue can never stall permanently if walk is interrupted
+      COORD_ANIM_WATCHDOG = setTimeout(() => {
+        if (COORD_ANIM_RUN_TOKEN !== myToken) return;
+        sender.activeBubbleText = "";
+        receiver.activeBubbleText = "";
+        commLine.visible = false;
+        const sm = agentMeshes.find(m => m.agent.id === sender.id);
+        if (sm && sm.reportPad) sm.reportPad.visible = false;
+        interactionBusy = false;
+        COORD_ANIM_WATCHDOG = null;
+        drainCoordinationQueue();
+      }, 26000);
+
       const senderMesh = agentMeshes.find(m => m.agent.id === sender.id);
       if (senderMesh && senderMesh.reportPad) senderMesh.reportPad.visible = true;
+
+      const isCrossDept = Boolean(sender.dept && receiver.dept && sender.dept !== receiver.dept);
+      if (commLine && commLine.material && commLine.material.color) {
+        commLine.material.color.setHex(isCrossDept ? 0x38bdf8 : 0xfacc15);
+      }
 
       const feedEl = document.getElementById("interaction-feed-text");
       if (feedEl) feedEl.textContent = ev.walkMsg || `${sender.name} → ${receiver.name}`;
@@ -4021,10 +4123,12 @@
       const faceAngle = Math.atan2(receiver.homePos.x - stopX, receiver.homePos.z - stopZ);
 
       walkAgentWithWaypoints(sender, { x: stopX, y: stopY, z: stopZ, rotY: faceAngle }, () => {
+        if (COORD_ANIM_RUN_TOKEN !== myToken || inTownHallMeeting || OFFICE_OFF_MODE) return;
         sender.activeBubbleText = ev.fromBubble || "";
         setTimeout(() => {
+          if (COORD_ANIM_RUN_TOKEN !== myToken || inTownHallMeeting || OFFICE_OFF_MODE) return;
           receiver.activeBubbleText = ev.toBubble || "";
-        }, 650);
+        }, 700);
 
         const p1 = new THREE.Vector3(stopX, stopY + 1.35, stopZ);
         const p2 = new THREE.Vector3(receiver.homePos.x, stopY + 1.35, receiver.homePos.z);
@@ -4032,10 +4136,17 @@
         commLine.visible = true;
 
         setTimeout(() => {
+          if (COORD_ANIM_RUN_TOKEN !== myToken) return;
           sender.activeBubbleText = "";
           receiver.activeBubbleText = "";
           commLine.visible = false;
           if (senderMesh && senderMesh.reportPad) senderMesh.reportPad.visible = false;
+
+          if (inTownHallMeeting || OFFICE_OFF_MODE || summonedInCeoOfficeIds.has(sender.id)) {
+            interactionBusy = false;
+            if (COORD_ANIM_WATCHDOG) { clearTimeout(COORD_ANIM_WATCHDOG); COORD_ANIM_WATCHDOG = null; }
+            return;
+          }
 
           walkAgentWithWaypoints(sender, {
             x: sender.homePos.x,
@@ -4043,9 +4154,12 @@
             z: sender.homePos.z,
             rotY: sender.homePos.rotY
           }, () => {
+            if (COORD_ANIM_RUN_TOKEN !== myToken) return;
             interactionBusy = false;
+            if (COORD_ANIM_WATCHDOG) { clearTimeout(COORD_ANIM_WATCHDOG); COORD_ANIM_WATCHDOG = null; }
+            setTimeout(drainCoordinationQueue, 350);
           });
-        }, 4200);
+        }, 4600);
       });
     }
 
@@ -6130,23 +6244,13 @@
             }
           }
 
-          // 3. Play latest REAL inter-department handoff walk only (ignore synthetic LIVE_MCP_STATE)
-          const lastCoord = world.lastCoordinationEvent;
-          if (lastCoord && lastCoord.eventId && lastCoord.eventId !== LAST_COORD_EVENT_ID && lastCoord.source === "REAL_TASK_EXECUTION") {
-            const ageSec = (Date.now() / 1000) - Number(lastCoord.ts || 0);
-            if (ageSec < 25) {
-              runCoordinationAnimation(lastCoord);
-            } else {
-              LAST_COORD_EVENT_ID = lastCoord.eventId;
-              const feedEl = document.getElementById("interaction-feed-text");
-              if (feedEl && lastCoord.walkMsg) feedEl.textContent = lastCoord.walkMsg;
-            }
-          }
+          // 3. Enqueue & play REAL inter-department / staff-to-manager handoff walks sequentially (zero fake events)
+          enqueueRealCoordinationEvents(world, isInitialLoad);
 
           // 4. Show real-time multi-step tool/thinking status while agents are working
           if (typeof world.liveStepStatus === "string" && world.liveStepStatus.trim()) {
             const feedEl = document.getElementById("interaction-feed-text");
-            if (feedEl) feedEl.textContent = world.liveStepStatus.trim();
+            if (feedEl && !interactionBusy) feedEl.textContent = world.liveStepStatus.trim();
             const typingEl = document.querySelector("#chat-messages-box .animate-pulse");
             if (typingEl) typingEl.textContent = world.liveStepStatus.trim();
           }
@@ -6154,7 +6258,11 @@
           renderSidebarAndTable();
         } else if (incomingChatVer > LOCAL_CHAT_VERSION) {
           LOCAL_CHAT_VERSION = incomingChatVer;
+          enqueueRealCoordinationEvents(world, false);
           renderSidebarAndTable();
+        } else {
+          // Even when version didn't bump, safely drain any queued real handoffs once meeting/busy finishes
+          enqueueRealCoordinationEvents(world, false);
         }
       } finally {
         IS_APPLYING_REMOTE_WORLD = false;

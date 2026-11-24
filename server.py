@@ -3039,6 +3039,27 @@ def record_decision_to_obsidian_vault(room, title, decision_summary, agent_name=
         except Exception:
             pass
 
+    # 3b. Cross-link related department notes so receiving departments immediately see incoming handoffs in their memory!
+    for rd_note_stem in rel_depts_clean:
+        if not rd_note_stem.startswith("DEPT-"):
+            continue
+        rd_abs = os.path.join(vault_dir, f"{rd_note_stem}.md")
+        if os.path.exists(rd_abs):
+            try:
+                with open(rd_abs, "r", encoding="utf-8", errors="ignore") as f:
+                    rd_txt = f.read()
+                rd_txt = _prepend_markdown_bullet_under_heading(
+                    rd_txt,
+                    "## 📂 Riwayat Hasil Kerja",
+                    f"- 🤝 [Lintas-Dept dari [[DEPT-{room_u}]]] {vault_wikilink} (`{rel_file}`) — *{ts_short}*",
+                    max_ts_str=ts_short,
+                )
+                with open(rd_abs, "w", encoding="utf-8") as f:
+                    f.write(rd_txt)
+                updated_notes.append(f"{rd_note_stem}.md")
+            except Exception:
+                pass
+
     # 4. Update 00-INDEX.md
     idx_abs = os.path.join(vault_dir, "00-INDEX.md")
     if os.path.exists(idx_abs):
@@ -5158,6 +5179,12 @@ def bump_world_chat_version(toast_msg=None, coord_event=None):
         patch["lastToast"] = toast_msg
     if coord_event:
         patch["lastCoordinationEvent"] = coord_event
+        cur_w = load_world_state()
+        rec = list(cur_w.get("recentCoordinationEvents") or [])
+        ev_id = coord_event.get("eventId")
+        if not ev_id or not any(isinstance(x, dict) and x.get("eventId") == ev_id for x in rec):
+            rec.append(coord_event)
+        patch["recentCoordinationEvents"] = rec[-8:]
     return update_world_state(patch, bump_chat=True)
 
 
@@ -9173,9 +9200,17 @@ def _execute_single_department_project(item, idx=1, total=1):
                 "BALAS HANYA DENGAN JSON VALID:\n"
                 '{"assignments":[{"staffId":0,"staffName":"Nadia","subTitle":"Judul sub-tugas spesifik","subBrief":"Instruksi kerja konkret & output yang diharapkan dari staf ini"}]}'
             )
+            obs_plan_ctx = ""
+            try:
+                _omc, _ = build_obsidian_memory_context(room=dept, is_townhall=False)
+                if _omc:
+                    obs_plan_ctx = f"\nMEMORI OBSIDIAN INTERNAL ([[00-INDEX]] & [[DEPT-{dept}]] — jadikan pijakan agar tidak duplikasi & nyambung dengan hasil departemen lain):\n{_omc[:1800]}\n"
+            except Exception:
+                pass
             plan_prompt = (
                 f"PROYEK DEPARTEMEN {dept}: {title}\n"
-                f"INSTRUKSI RAPAT:\n{instr}\n\n"
+                f"INSTRUKSI RAPAT / HANDOFF:\n{instr}\n"
+                f"{obs_plan_ctx}\n"
                 f"DAFTAR STAF DEPARTEMEN {dept}:\n{staff_catalog}\n\n"
                 "Pilih 3 staf paling tepat (atau seluruh staf jika hanya 2) dan berikan sub-brief yang berbeda & saling melengkapi dalam JSON."
             )
@@ -9300,6 +9335,20 @@ def _execute_single_department_project(item, idx=1, total=1):
                     f"[HASIL KERJA MANDIRI — {sname} ({srole})]\n• Tools: {tools_used_str}\n• File: {st_rel_file}\n\n{str(s_out or '')[:650]}",
                     st_rel_file,
                 )
+                # Real 3D Staff -> Manager Deliverable Submission Walk (only after real file is written!)
+                sub_ev = generate_data_driven_coordination_event(custom_context={
+                    "fromId": sid,
+                    "fromName": sname,
+                    "fromRole": srole,
+                    "toId": aid,
+                    "toName": aname,
+                    "toRole": arole,
+                    "walkMsg": f"📄 {sname} menyetor hasil '{sub_title[:42]}' ke {aname} ({st_rel_file})",
+                    "fromBubble": f"📄 \"{aname}, bagian saya ({sub_title[:34]}) selesai! File: {os.path.basename(st_rel_file)}\"",
+                    "toBubble": f"🔍 \"Diterima {sname}, langsung masuk Quality Gate!\"",
+                    "artifactFile": st_rel_file,
+                })
+                bump_world_chat_version(coord_event=sub_ev)
                 return {
                     "id": sid, "name": sname, "role": srole, "subTitle": sub_title,
                     "file": st_rel_file, "tools": tools_used_str, "engine": s_eng,
@@ -9331,6 +9380,23 @@ def _execute_single_department_project(item, idx=1, total=1):
             f"{so['output'][:2200]}"
             for so in staff_outputs if so.get("output")
         )
+        cur_handoff_depth = int(item.get("handoffDepth") or 0)
+        can_handoff = cur_handoff_depth < 2
+        other_depts_desc = "\n".join(
+            f"- {dk}: {dv['manager']['name']} ({dv['manager']['role']})"
+            for dk, dv in DEPT_SQUADS.items() if dk != dept
+        )
+        handoff_rule = (
+            "\n3. SERAH-TERIMA LINTAS DEPARTEMEN NYATA (OPSIONAL — HANYA JIKA BENAR-BENAR DIBUTUHKAN OLEH DEPT LAIN):\n"
+            "   Jika hasil kerja departemenmu ini secara alami membutuhkan tindak lanjut nyata dari departemen lain "
+            "(contoh: THEMES selesai dorong tema Draft -> SOCIAL buatkan konten showcase; GROWTH temukan objection -> SOCIAL buat skrip hook; "
+            "ENGINEERING temukan masalah aset -> THEMES perbaiki; FINANCE sorot target order -> GROWTH/SOCIAL jalankan sprint), "
+            "tambahkan tepat 1 blok tag berikut di baris PALING AKHIR:\n"
+            '   [[HANDOFF_DEPT:{"toDept":"SOCIAL|THEMES|GROWTH|ENGINEERING|FINANCE|ADMIN","title":"Judul task konkret untuk dept tujuan","brief":"Instruksi spesifik & konteks hasil yang diserahkan","fromQuote":"Kalimat singkat naturalmu saat menyerahkan ke Manajer tujuan","toQuote":"Balasan singkat natural Manajer tujuan"}]]\n'
+            f"   Daftar departemen lain:\n{other_depts_desc}\n"
+            "   Jika pekerjaan ini berdiri sendiri dan tidak butuh departemen lain, JANGAN keluarkan tag HANDOFF_DEPT."
+        ) if can_handoff else ""
+
         mgr_live_ctx, mgr_tools = build_dynamic_mcp_context_with_trace(title, room=dept, agent_id=aid)
         mgr_sys = (
             f"Kamu adalah {aname}, menjabat sebagai {arole} (Departemen {dept}) di {comp_name}.\n"
@@ -9341,6 +9407,7 @@ def _execute_single_department_project(item, idx=1, total=1):
             "   (b) Mencatat koreksi/penyelarasan bila ada celah antar-staf;\n"
             "   (c) Menyusun Ringkasan Eksekutif & Daftar File Hasil Kerja Tim yang siap dilaporkan ke GM Raka & CEO.\n"
             "2. Sertakan bagian jelas: **Status Quality Gate (PASS/REVISI)**, **Daftar Deliverable Staf (nama + file)**, dan **Ringkasan Eksekutif Siap Pakai**."
+            + handoff_rule
         )
         mgr_prompt = (
             f"PROYEK DEPARTEMEN {dept}: {title}\n"
@@ -9348,11 +9415,28 @@ def _execute_single_department_project(item, idx=1, total=1):
             + (f"HASIL EKSEKUSI MANDIRI STAF ({squad_names}):\n{squad_block}\n\n" if squad_block else "")
             + "Lakukan Quality Gate dan susun laporan final konsolidasi departemen sekarang."
         )
-        deliv_md, used_engine = run_agent_with_tool_loop(
+        deliv_md_raw, used_engine = run_agent_with_tool_loop(
             mid, ep, key, mgr_sys, [], mgr_prompt,
             live_mcp_ctx=mgr_live_ctx, executed_tools=mgr_tools,
             room=dept, max_steps=2, agent_id=aid, agent_name=f"{aname} (QA)"
         )
+
+        # Parse optional REAL [[HANDOFF_DEPT:{...}]] tag & strip it cleanly from the final report
+        handoff_obj = None
+        deliv_md = str(deliv_md_raw or "")
+        m_ho = re.search(r"\[\[HANDOFF_DEPT:\s*(\{[\s\S]*?\})\s*\]\]", deliv_md)
+        if m_ho:
+            deliv_md = (deliv_md[:m_ho.start()] + deliv_md[m_ho.end():]).strip()
+            if can_handoff:
+                try:
+                    parsed_ho = json.loads(m_ho.group(1))
+                    if isinstance(parsed_ho, dict):
+                        to_d = str(parsed_ho.get("toDept") or "").strip().upper()
+                        if to_d in DEPT_SQUADS and to_d != dept and str(parsed_ho.get("title") or "").strip():
+                            handoff_obj = parsed_ho
+                            handoff_obj["toDept"] = to_d
+                except Exception:
+                    handoff_obj = None
 
         now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
         ts_file = time.strftime("%Y%m%d-%H%M%S")
@@ -9377,6 +9461,12 @@ def _execute_single_department_project(item, idx=1, total=1):
         with open(abs_file, "w", encoding="utf-8") as rf:
             rf.write(header + str(deliv_md or "").strip() + "\n")
 
+        obs_related_depts = []
+        if handoff_obj and handoff_obj.get("toDept"):
+            obs_related_depts.append(handoff_obj["toDept"])
+        if task_item.get("handoffFrom"):
+            obs_related_depts.append(str(task_item.get("handoffFrom")).upper())
+
         record_decision_to_obsidian_vault(
             room=dept,
             title=title,
@@ -9384,6 +9474,7 @@ def _execute_single_department_project(item, idx=1, total=1):
             agent_name=team_credit,
             agent_role=arole,
             deliverable_md=str(deliv_md or ""),
+            related_depts=obs_related_depts or None,
             used_engine=used_engine,
             task_id=tid,
             skip_taskboard_write=True,
@@ -9418,22 +9509,69 @@ def _execute_single_department_project(item, idx=1, total=1):
                 })
             save_taskboard(tb)
 
-        coord = generate_data_driven_coordination_event(custom_context={
-            "fromId": aid,
-            "fromName": aname,
-            "fromRole": arole,
-            "toId": 10 if aid != 10 else 8,
-            "toName": "👑 Raka" if aid != 10 else "⭐ Putri",
-            "toRole": "Laporan Quality Gate Selesai",
-            "walkMsg": f"✅ {aname} mengesahkan hasil kerja mandiri {squad_names} untuk '{title[:40]}' → {rel_file}",
-            "fromBubble": f"✅ \"Quality Gate PASS! Staf ({squad_names}) sudah tuntas & hasilnya terkonsolidasi di {rel_file}!\"",
-            "toBubble": f"👏 \"Mantap {aname} & tim! Seluruh hasil staf + QA sudah masuk Papan Tugas & Obsidian!\"",
-            "artifactFile": rel_file,
-        })
-        bump_world_chat_version(
-            toast_msg=f"✅ [{dept}] QA PASS! {squad_names} & {aname} menuntaskan: {title[:48]}",
-            coord_event=coord,
-        )
+        if handoff_obj:
+            to_dept = handoff_obj["toDept"]
+            to_mgr = DEPT_SQUADS[to_dept]["manager"]
+            ho_title = str(handoff_obj.get("title") or f"Tindak Lanjut dari {dept}").strip()[:110]
+            ho_brief = str(handoff_obj.get("brief") or ho_title).strip()
+            ho_tid = f"task_ho_{dept.lower()}_to_{to_dept.lower()}_{int(time.time() * 1000)}"
+            ho_task = {
+                "id": ho_tid,
+                "title": ho_title,
+                "dept": to_dept,
+                "agentId": int(to_mgr["id"]),
+                "agentName": to_mgr["name"],
+                "agentRole": to_mgr["role"],
+                "taskType": "meeting_action_item",
+                "priority": "HIGH",
+                "status": "TODO",
+                "handoffFrom": dept,
+                "handoffDepth": cur_handoff_depth + 1,
+                "detail": f"[Handoff Nyata dari {dept} ({aname})] Berkas sumber: {rel_file}. Siap dieksekusi oleh tim {to_dept}.",
+                "instruction": f"HANDOFF DARI DEPT {dept} ({aname} · File sumber: {rel_file}):\n{ho_brief}",
+                "artifactFile": "",
+                "updatedAt": now_str,
+            }
+            with TASKBOARD_LOCK:
+                tb_ho = load_taskboard()
+                tb_ho.insert(0, ho_task)
+                save_taskboard(tb_ho[:45])
+
+            from_q = str(handoff_obj.get("fromQuote") or f"{to_mgr['name']}, hasil {dept} ({title[:32]}) selesai di {os.path.basename(rel_file)} — lanjut bagian {to_dept} ya!").strip().strip('"')
+            to_q = str(handoff_obj.get("toQuote") or f"Siap {aname}! Tiket '{ho_title[:32]}' langsung saya turunkan ke tim {to_dept}!").strip().strip('"')
+            coord = generate_data_driven_coordination_event(custom_context={
+                "fromId": aid,
+                "fromName": aname,
+                "fromRole": arole,
+                "toId": int(to_mgr["id"]),
+                "toName": to_mgr["name"],
+                "toRole": to_mgr["role"],
+                "walkMsg": f"🤝 Handoff Nyata {dept} → {to_dept}: {aname} menyerahkan '{ho_title[:44]}' ke {to_mgr['name']} ({rel_file})",
+                "fromBubble": f"🤝 \"{from_q[:96]}\"",
+                "toBubble": f"⚡ \"{to_q[:96]}\"",
+                "artifactFile": rel_file,
+            })
+            bump_world_chat_version(
+                toast_msg=f"🤝 [{dept} → {to_dept}] {aname} menyerahkan task lanjutan ke {to_mgr['name']}: {ho_title[:50]}",
+                coord_event=coord,
+            )
+        else:
+            coord = generate_data_driven_coordination_event(custom_context={
+                "fromId": aid,
+                "fromName": aname,
+                "fromRole": arole,
+                "toId": 10 if aid != 10 else 8,
+                "toName": "👑 Raka" if aid != 10 else "⭐ Putri",
+                "toRole": "Laporan Quality Gate Selesai",
+                "walkMsg": f"✅ {aname} mengesahkan hasil kerja mandiri {squad_names} untuk '{title[:40]}' → {rel_file}",
+                "fromBubble": f"✅ \"Quality Gate PASS! Staf ({squad_names}) sudah tuntas & hasilnya terkonsolidasi di {rel_file}!\"",
+                "toBubble": f"👏 \"Mantap {aname} & tim! Seluruh hasil staf + QA sudah masuk Papan Tugas & Obsidian!\"",
+                "artifactFile": rel_file,
+            })
+            bump_world_chat_version(
+                toast_msg=f"✅ [{dept}] QA PASS! {squad_names} & {aname} menuntaskan: {title[:48]}",
+                coord_event=coord,
+            )
     except Exception as err:
         now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
         with TASKBOARD_LOCK:
