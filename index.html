@@ -2017,11 +2017,98 @@
 
       <!-- TAB 4: KONEKTOR & INTEGRASI -->
       <div id="settings-panel-CONNECTORS" class="hidden p-5 overflow-y-auto space-y-4 text-xs">
+        <!-- Card A: Telegram CEO Bot (24/7 Homelab Reports, Alerts & Interactive ACC) -->
+        <div class="rounded-xl bg-[#13131b] border border-sky-500/35 p-4 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <span class="font-bold text-sky-300 uppercase text-[11px]">📲 Telegram Bot CEO (Laporan Harian, Alert &amp; ACC dari HP)</span>
+              <p class="text-[10.5px] text-slate-400">Terima ringkasan tutup kantor, alert model AI, klik tombol ACC langsung, atau kirim perintah <code>/status</code> <code>/report</code> <code>/wake</code> <code>/rest</code> <code>/task DEPT ...</code>.</p>
+            </div>
+            <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+              <input id="tg-enabled" type="checkbox" class="w-4 h-4 accent-sky-500 cursor-pointer" />
+              <span class="font-bold text-xs text-white">Aktifkan</span>
+            </label>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-2.5">
+            <div class="md:col-span-5">
+              <label class="block text-[10.5px] text-slate-400 mb-1">Telegram Bot Token (@BotFather)</label>
+              <input id="tg-bot-token" type="password" placeholder="123456:ABC-DEF..." class="w-full px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white font-mono text-xs" />
+            </div>
+            <div class="md:col-span-4">
+              <label class="block text-[10.5px] text-slate-400 mb-1">Chat ID CEO (@userinfobot)</label>
+              <input id="tg-chat-id" type="text" placeholder="Contoh: 987654321" class="w-full px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white font-mono text-xs" />
+            </div>
+            <div class="md:col-span-3">
+              <label class="block text-[10.5px] text-slate-400 mb-1">Jam Laporan Harian</label>
+              <input id="tg-daily-time" type="time" value="18:00" class="w-full px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white font-mono text-xs" />
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-4 text-[11px] text-slate-300">
+            <label class="inline-flex items-center gap-1.5 cursor-pointer"><input id="tg-notify-approvals" type="checkbox" checked class="accent-sky-500" /> Ping ACC CEO + Tombol</label>
+            <label class="inline-flex items-center gap-1.5 cursor-pointer"><input id="tg-notify-daily" type="checkbox" checked class="accent-sky-500" /> Laporan Harian Otomatis</label>
+            <label class="inline-flex items-center gap-1.5 cursor-pointer"><input id="tg-notify-alerts" type="checkbox" checked class="accent-sky-500" /> Alert Model AI Down</label>
+            <label class="inline-flex items-center gap-1.5 cursor-pointer"><input id="tg-polling-enabled" type="checkbox" checked class="accent-sky-500" /> Terima Perintah Balik (2-Arah)</label>
+          </div>
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+            <span id="tg-status-msg" class="text-[10.5px] text-slate-400 font-mono">Belum terhubung.</span>
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="button" onclick="saveTelegramConfigUI()" class="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold text-[11px] cursor-pointer">💾 Simpan</button>
+              <button type="button" onclick="testTelegramUI()" class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-200 font-semibold text-[11px] cursor-pointer">🧪 Tes Kirim</button>
+              <button type="button" onclick="sendTelegramDailyReportUI()" class="px-3 py-1.5 rounded-lg bg-emerald-600/80 hover:bg-emerald-500 text-white font-semibold text-[11px] cursor-pointer">📊 Kirim Laporan Sekarang</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card B: Non-Tech Execution Bridge (Outgoing Webhook + CSV Content Calendar Export) -->
+        <div class="rounded-xl bg-[#13131b] border border-purple-500/35 p-4 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <span class="font-bold text-purple-300 uppercase text-[11px]">🚀 Jembatan Eksekusi Divisi (Webhook n8n / Make / Sheets + CSV Konten)</span>
+              <p class="text-[10.5px] text-slate-400">Setiap hasil kerja <b>SOCIAL, GROWTH, THEMES</b> yang lulus Quality Gate otomatis dikirim JSON ke Webhook pilihan Anda, atau ekspor instan ke CSV untuk Canva Bulk Create / Google Sheets.</p>
+            </div>
+            <label class="inline-flex items-center gap-2 cursor-pointer select-none">
+              <input id="wh-enabled" type="checkbox" class="w-4 h-4 accent-purple-500 cursor-pointer" />
+              <span class="font-bold text-xs text-white">Aktifkan Webhook</span>
+            </label>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-2.5">
+            <div class="md:col-span-8">
+              <label class="block text-[10.5px] text-slate-400 mb-1">Outgoing Webhook URL (n8n / Make / Zapier / Apps Script)</label>
+              <input id="wh-url" type="url" placeholder="https://n8n.homelab.local/webhook/luxvite-deliverables" class="w-full px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white font-mono text-xs" />
+            </div>
+            <div class="md:col-span-4">
+              <label class="block text-[10.5px] text-slate-400 mb-1">Secret Header (Opsional · X-HQ-Webhook-Secret)</label>
+              <input id="wh-secret" type="password" placeholder="opsional..." class="w-full px-3 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-white font-mono text-xs" />
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+            <span id="wh-status-msg" class="text-[10.5px] text-slate-400 font-mono">Belum ada pengiriman webhook.</span>
+            <div class="flex flex-wrap items-center gap-2">
+              <button type="button" onclick="saveAutomationWebhookUI()" class="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-bold text-[11px] cursor-pointer">💾 Simpan Webhook</button>
+              <button type="button" onclick="testAutomationWebhookUI()" class="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-200 font-semibold text-[11px] cursor-pointer">🧪 Tes Webhook</button>
+              <a href="/api/export/content-calendar.csv?dept=CONTENT" class="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/35 text-amber-200 font-semibold text-[11px] inline-flex items-center gap-1">📤 Export CSV Konten</a>
+              <a href="/api/export/content-calendar.csv?dept=ALL" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/15 border border-white/10 text-slate-200 font-semibold text-[11px] inline-flex items-center gap-1">📥 CSV Semua Divisi</a>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card C: Auto-Housekeeping & Obsidian Memory Compaction (24/7 Maintenance) -->
+        <div class="rounded-xl bg-[#13131b] border border-amber-500/30 p-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <span class="font-bold text-amber-300 uppercase text-[11px]">🧹 Auto-Housekeeping &amp; Ringkas Memori Obsidian (24/7 Homelab)</span>
+            <p class="text-[10.5px] text-slate-400 mt-0.5">Arsipkan otomatis laporan &gt;30 hari, padatkan catatan <code>00-INDEX.md</code> &amp; <code>DEPT-*.md</code> ke <code>[[archive/...]]</code>, dan jaga taskboard tetap ringan.</p>
+            <div id="hk-status-msg" class="text-[10.5px] text-slate-300 font-mono mt-1">Memuat status housekeeping...</div>
+          </div>
+          <button type="button" onclick="runHousekeepingNowUI()" class="px-3.5 py-2 rounded-lg bg-amber-500/20 hover:bg-amber-500/35 border border-amber-400/40 text-amber-200 font-bold text-[11px] cursor-pointer shrink-0">
+            🧹 Jalankan Housekeeping Sekarang
+          </button>
+        </div>
+
         <div class="rounded-xl bg-[#13131b] border border-emerald-500/35 p-4 space-y-3">
           <div class="flex items-center justify-between">
             <div>
               <span class="font-bold text-emerald-300 uppercase text-[11px]">🔗 Konektor & Integrasi Eksternal Aktif</span>
-              <p class="text-[10.5px] text-slate-400">Menghubungkan Luxvite HQ ke VPS Produksi, Cloudflare R2, Canva, Midtrans, Instagram, Webhook, dll.</p>
+              <p class="text-[10.5px] text-slate-400">Menghubungkan HQ ke VPS Produksi, Cloudflare R2, Canva, Midtrans, Instagram, Webhook, dll.</p>
             </div>
             <button onclick="loadExtensionsStatus()" class="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-200 text-[10.5px] font-bold cursor-pointer">🔄 Refresh</button>
           </div>
@@ -2215,6 +2302,26 @@
                 <option value="2000000">2M tokens / hari</option>
                 <option value="5000000">5M tokens / hari</option>
               </select>
+            </div>
+
+            <!-- Row 10: Auto-Fallback Model AI (Anti-Macet 24/7 Homelab) -->
+            <div class="py-3.5 flex flex-wrap items-center justify-between gap-4">
+              <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="font-semibold text-white text-[13px]">Auto-Fallback Model AI (Anti-Macet 24/7)</span>
+                  <span class="px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300 border border-sky-500/30 text-[9.5px] font-bold">Homelab Ready</span>
+                </div>
+                <div class="text-[11px] text-slate-400 mt-0.5">Jika model utama seorang staf gagal/limit/expired, sistem otomatis mengalihkan sementara ke model cadangan sehat agar pekerjaan tidak pernah macet.</div>
+              </div>
+              <div class="flex items-center gap-2.5 shrink-0">
+                <select id="ts-global-fallback-select" onchange="saveTokenSaverToggle('globalFallbackModel', this.value)" class="px-2.5 py-1.5 rounded-lg bg-[#1c1c28] border border-white/15 text-sky-200 font-mono text-[11px] max-w-[210px] cursor-pointer">
+                  <option value="">Otomatis (Pilih Model Sehat)</option>
+                </select>
+                <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input id="ts-toggle-autoFallbackEnabled" type="checkbox" checked onchange="saveTokenSaverToggle('autoFallbackEnabled', this.checked)" class="sr-only peer" />
+                  <div class="w-10 h-5 bg-slate-700 rounded-full peer peer-checked:bg-emerald-500 transition after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
+                </label>
+              </div>
             </div>
           </div>
         </div>
@@ -8247,6 +8354,7 @@
       }
       if (tabKey === "CONNECTORS") {
         loadExtensionsStatus();
+        loadHomelabOpsIntegrationsUI();
       }
     }
 
@@ -8273,12 +8381,31 @@
       const cfg = ts.config;
       const keys = [
         "promptCaching", "cliSessionReuse", "passiveHealthCheck", "compressToolOutput",
-        "compressContext", "compressLlmOutput", "lazySeniorDev", "heartbeatZeroContext"
+        "compressContext", "compressLlmOutput", "lazySeniorDev", "heartbeatZeroContext",
+        "autoFallbackEnabled"
       ];
       keys.forEach(k => {
         const el = document.getElementById(`ts-toggle-${k}`);
         if (el) el.checked = Boolean(cfg[k]);
       });
+      const fbSel = document.getElementById("ts-global-fallback-select");
+      if (fbSel) {
+        const curFb = String(cfg.globalFallbackModel || "");
+        const opts = [`<option value="">Otomatis (Pilih Model Sehat)</option>`];
+        const seenFb = new Set([""]);
+        (typeof MODELS_LIST !== "undefined" && Array.isArray(MODELS_LIST) ? MODELS_LIST : []).forEach(m => {
+          const mid = String(m.id || "").trim();
+          if (mid && !seenFb.has(mid)) {
+            seenFb.add(mid);
+            opts.push(`<option value="${escapeHtmlSafe(mid)}">${escapeHtmlSafe(m.label || mid)}</option>`);
+          }
+        });
+        if (curFb && !seenFb.has(curFb)) {
+          opts.push(`<option value="${escapeHtmlSafe(curFb)}">${escapeHtmlSafe(curFb)}</option>`);
+        }
+        fbSel.innerHTML = opts.join("");
+        fbSel.value = curFb;
+      }
       const ttlSel = document.getElementById("ts-mcp-ttl-select");
       if (ttlSel && cfg.mcpCacheTtlSec !== undefined) ttlSel.value = String(cfg.mcpCacheTtlSec);
 
@@ -8364,6 +8491,144 @@
           updateToast(`🔄 ${data.cleared || 0} sesi CLI & cache MCP dibersihkan. Turn berikutnya akan memulai prefix baru.`);
         }
       } catch (e) {}
+    }
+
+    // ================= TELEGRAM CEO BOT, WEBHOOK BRIDGE & HOUSEKEEPING UI =================
+    async function loadHomelabOpsIntegrationsUI() {
+      try {
+        const [tgRes, whRes, hkRes] = await Promise.all([
+          fetch("/api/telegram/config").then(r => r.json()).catch(() => null),
+          fetch("/api/integrations/webhook").then(r => r.json()).catch(() => null),
+          fetch("/api/housekeeping/status").then(r => r.json()).catch(() => null),
+        ]);
+        if (tgRes && tgRes.ok && tgRes.telegram) {
+          const tg = tgRes.telegram;
+          const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = Boolean(v); };
+          const setVal = (id, v) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = v || ""; };
+          setChk("tg-enabled", tg.enabled);
+          setVal("tg-bot-token", tg.botToken);
+          setVal("tg-chat-id", tg.chatId);
+          setVal("tg-daily-time", tg.dailyReportTime || "18:00");
+          setChk("tg-notify-approvals", tg.notifyApprovals !== false);
+          setChk("tg-notify-daily", tg.notifyDailyReport !== false);
+          setChk("tg-notify-alerts", tg.notifyAlerts !== false);
+          setChk("tg-polling-enabled", tg.pollingEnabled !== false);
+          const st = document.getElementById("tg-status-msg");
+          if (st) {
+            st.textContent = tg.enabled && tg.hasBotToken && tg.chatId
+              ? `🟢 Aktif · Chat ID: ${tg.chatId} · Laporan terakhir: ${tg.lastDailyReportDate || "belum"}`
+              : (tg.hasBotToken ? "⚪ Token tersimpan (Status: OFF)" : "Belum terhubung — isi Bot Token & Chat ID CEO.");
+          }
+        }
+        if (whRes && whRes.ok && whRes.webhook) {
+          const wh = whRes.webhook;
+          const en = document.getElementById("wh-enabled");
+          const url = document.getElementById("wh-url");
+          const sec = document.getElementById("wh-secret");
+          const st = document.getElementById("wh-status-msg");
+          if (en) en.checked = Boolean(wh.enabled);
+          if (url && document.activeElement !== url) url.value = wh.webhookUrl || "";
+          if (sec && document.activeElement !== sec) sec.value = wh.webhookSecret || "";
+          if (st) {
+            st.textContent = wh.lastDispatchStatus
+              ? `Terkirim ${wh.dispatchCount || 0}x · Terakhir (${wh.lastDispatchAt || "-"}): ${wh.lastDispatchStatus}`
+              : "Belum ada pengiriman webhook.";
+          }
+        }
+        if (hkRes && hkRes.ok && hkRes.housekeeping) {
+          const hk = hkRes.housekeeping;
+          const el = document.getElementById("hk-status-msg");
+          if (el) {
+            el.textContent = `📁 Laporan aktif: ${hk.currentReportsCount || 0} · Obsidian Deliverables: ${hk.currentVaultDeliverablesCount || 0} · Terakhir jalan: ${hk.lastRunAt || "belum"} (Arsip: ${hk.archivedReports || 0} file, Ringkas: ${hk.compactedNotes || 0} catatan)`;
+          }
+        }
+      } catch (e) {}
+    }
+
+    async function saveTelegramConfigUI() {
+      const payload = {
+        enabled: Boolean(document.getElementById("tg-enabled")?.checked),
+        botToken: (document.getElementById("tg-bot-token")?.value || "").trim(),
+        chatId: (document.getElementById("tg-chat-id")?.value || "").trim(),
+        dailyReportTime: (document.getElementById("tg-daily-time")?.value || "18:00").trim(),
+        notifyApprovals: Boolean(document.getElementById("tg-notify-approvals")?.checked),
+        notifyDailyReport: Boolean(document.getElementById("tg-notify-daily")?.checked),
+        notifyAlerts: Boolean(document.getElementById("tg-notify-alerts")?.checked),
+        pollingEnabled: Boolean(document.getElementById("tg-polling-enabled")?.checked),
+      };
+      try {
+        const res = await fetch("/api/telegram/config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (data && data.ok) {
+          updateToast(`📲 Pengaturan Telegram CEO disimpan (${payload.enabled ? "ON" : "OFF"}).`);
+          loadHomelabOpsIntegrationsUI();
+        }
+      } catch (e) { updateToast("⚠️ Gagal menyimpan pengaturan Telegram."); }
+    }
+
+    async function testTelegramUI() {
+      await saveTelegramConfigUI();
+      try {
+        const res = await fetch("/api/telegram/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const data = await res.json();
+        if (data && data.ok) updateToast("✅ Pesan tes terkirim ke Telegram CEO!");
+        else updateToast(`⚠️ Gagal kirim Telegram: ${(data && data.error) || "Cek Bot Token & Chat ID"}`);
+      } catch (e) { updateToast("⚠️ Koneksi gagal saat tes Telegram."); }
+    }
+
+    async function sendTelegramDailyReportUI() {
+      try {
+        const res = await fetch("/api/telegram/send-daily-report", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const data = await res.json();
+        if (data && data.ok) {
+          updateToast("📊 Laporan harian eksekutif terkirim ke Telegram CEO!");
+          loadHomelabOpsIntegrationsUI();
+        } else {
+          updateToast(`⚠️ ${(data && data.error) || "Gagal kirim laporan Telegram."}`);
+        }
+      } catch (e) { updateToast("⚠️ Gagal mengirim laporan Telegram."); }
+    }
+
+    async function saveAutomationWebhookUI() {
+      const payload = {
+        enabled: Boolean(document.getElementById("wh-enabled")?.checked),
+        webhookUrl: (document.getElementById("wh-url")?.value || "").trim(),
+        webhookSecret: (document.getElementById("wh-secret")?.value || "").trim(),
+      };
+      try {
+        const res = await fetch("/api/integrations/webhook", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (data && data.ok) {
+          updateToast(`🚀 Pengaturan Webhook Bridge disimpan (${payload.enabled ? "ON" : "OFF"}).`);
+          loadHomelabOpsIntegrationsUI();
+        }
+      } catch (e) { updateToast("⚠️ Gagal menyimpan Webhook."); }
+    }
+
+    async function testAutomationWebhookUI() {
+      await saveAutomationWebhookUI();
+      try {
+        const res = await fetch("/api/integrations/webhook/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const data = await res.json();
+        if (data && data.ok) {
+          updateToast(`✅ Webhook merespons HTTP ${data.status}!`);
+          loadHomelabOpsIntegrationsUI();
+        } else {
+          updateToast(`⚠️ Tes Webhook gagal: ${(data && data.error) || "Cek URL"}`);
+        }
+      } catch (e) { updateToast("⚠️ Gagal mengetes Webhook."); }
+    }
+
+    async function runHousekeepingNowUI() {
+      try {
+        const res = await fetch("/api/housekeeping/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+        const data = await res.json();
+        if (data && data.ok && data.housekeeping) {
+          const hk = data.housekeeping;
+          updateToast(`🧹 Housekeeping selesai! Arsip: ${hk.archivedReports || 0} laporan, Ringkas: ${hk.compactedNotes || 0} Obsidian, Task: ${hk.archivedTasks || 0}.`);
+          loadHomelabOpsIntegrationsUI();
+        }
+      } catch (e) { updateToast("⚠️ Gagal menjalankan Housekeeping."); }
     }
 
     function applySmartModelTierPreset(mode) {

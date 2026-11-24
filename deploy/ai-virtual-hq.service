@@ -1,0 +1,22 @@
+[Unit]
+Description=AI Virtual HQ — 24/7 Autonomous Multi-Agent Office
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Sesuaikan User & WorkingDirectory dengan akun/folder di homelab Ubuntu/Debian Anda
+User=ubuntu
+WorkingDirectory=/opt/Karyawan-Luxvite
+Environment=TZ=Asia/Makassar
+Environment=APP_HOST=0.0.0.0
+Environment=APP_PORT=8484
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 -u /opt/Karyawan-Luxvite/server.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/ai-virtual-hq.log
+StandardError=append:/var/log/ai-virtual-hq.log
+
+[Install]
+WantedBy=multi-user.target

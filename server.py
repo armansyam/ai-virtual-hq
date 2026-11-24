@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import os
+import io
+import csv
 import sys
 import re
 import json
@@ -1383,8 +1385,10 @@ def _default_token_saver_config():
         "compressLlmOutput": False,
         "lazySeniorDev": False,
         "heartbeatZeroContext": True,
+        "autoFallbackEnabled": True,
+        "globalFallbackModel": "",
         "mcpCacheTtlSec": 90,
-        "dailyTokenBudget": 0,
+        "dailyTokenBudget": 2000000,
         "headroomUrl": "",
         "updatedAt": "",
     }
@@ -1405,9 +1409,11 @@ def load_token_saver_config():
     except Exception:
         base["mcpCacheTtlSec"] = 90
     try:
-        base["dailyTokenBudget"] = max(0, int(base.get("dailyTokenBudget") or 0))
+        base["dailyTokenBudget"] = max(0, int(base.get("dailyTokenBudget") if base.get("dailyTokenBudget") is not None else 2000000))
     except Exception:
-        base["dailyTokenBudget"] = 0
+        base["dailyTokenBudget"] = 2000000
+    base["autoFallbackEnabled"] = bool(base.get("autoFallbackEnabled", True))
+    base["globalFallbackModel"] = str(base.get("globalFallbackModel") or "").strip()[:140]
     return base
 
 
@@ -1417,11 +1423,14 @@ def save_token_saver_config(patch):
         if isinstance(patch, dict):
             bool_keys = (
                 "promptCaching", "cliSessionReuse", "passiveHealthCheck", "compressToolOutput",
-                "compressContext", "compressLlmOutput", "lazySeniorDev", "heartbeatZeroContext"
+                "compressContext", "compressLlmOutput", "lazySeniorDev", "heartbeatZeroContext",
+                "autoFallbackEnabled"
             )
             for k in bool_keys:
                 if k in patch:
                     cfg[k] = bool(patch[k])
+            if "globalFallbackModel" in patch:
+                cfg["globalFallbackModel"] = str(patch.get("globalFallbackModel") or "").strip()[:140]
             if "mcpCacheTtlSec" in patch:
                 try:
                     cfg["mcpCacheTtlSec"] = max(0, min(600, int(patch["mcpCacheTtlSec"])))
@@ -5743,6 +5752,7 @@ def record_model_health_event(model_id, ok, error="", ms=None):
                     "lastTransientWarning": err_str,
                 }
             else:
+                was_healthy = prev_ok or (not prev)
                 cached[mid] = {
                     "ok": False,
                     "error": err_str,
@@ -5750,6 +5760,15 @@ def record_model_health_event(model_id, ok, error="", ms=None):
                     "failStreak": prev_streak + 1,
                     "ts": now_ts,
                 }
+                if was_healthy:
+                    try:
+                        notify_telegram_alert(
+                            f"model_down:{mid}",
+                            f"⚠️ *Model AI Bermasalah*\nModel: `{mid}`\nTipe: `{err_type}`\nDetail: {err_str[:180]}\n\n_Auto-Fallback akan otomatis mengalihkan staf ke model sehat bila aktif._",
+                            cooldown_sec=1800,
+                        )
+                    except Exception:
+                        pass
         save_model_health_cache(cached)
     except Exception:
         pass
@@ -5766,16 +5785,84 @@ def _resolve_model_creds_by_id(model_id):
 
 
 def _resolve_fallback_model_for_agent(agent_id, primary_model_id, explicit_fallback=""):
+    primary = (primary_model_id or "").strip()
     saved = load_saved_config()
-    fb = (explicit_fallback or "").strip()
-    if not fb and agent_id is not None:
+    ts_cfg = load_token_saver_config()
+    health = load_model_health_cache()
+
+    def _is_usable(cand):
+        c = (cand or "").strip()
+        if not c or c == primary:
+            return False
+        h = health.get(c)
+        if isinstance(h, dict) and h.get("ok") is False:
+            return False
+        return True
+
+    # 1. Explicit caller fallback
+    if _is_usable(explicit_fallback):
+        return explicit_fallback.strip()
+
+    # 2. Per-agent configured fallback
+    if agent_id is not None:
         fb_map = saved.get("agent_fallback_models") or {}
-        fb = (fb_map.get(str(agent_id)) or fb_map.get(agent_id) or "").strip()
-    if not fb:
-        fb = (saved.get("default_fallback_model") or "").strip()
-    if fb and fb != (primary_model_id or "").strip():
-        return fb
-    return ""
+        per_ag = (fb_map.get(str(agent_id)) or fb_map.get(agent_id) or "").strip()
+        if _is_usable(per_ag):
+            return per_ag
+
+    # 3. Global fallback configured in Token Saver or saved config
+    if not ts_cfg.get("autoFallbackEnabled", True):
+        return ""
+
+    glob_fb = (ts_cfg.get("globalFallbackModel") or saved.get("default_fallback_model") or "").strip()
+    if _is_usable(glob_fb):
+        return glob_fb
+
+    # 4. Smart Auto-Pick Healthy Fallback for 24/7 Homelab resilience
+    models = saved.get("models") or []
+    # Prefer API key models that are healthy/configured first if primary is CLI, or vice-versa
+    api_cands = []
+    agy_cands = []
+    for m in models:
+        if not isinstance(m, dict):
+            continue
+        mid = str(m.get("id") or "").strip()
+        if not _is_usable(mid):
+            continue
+        has_api = bool((m.get("endpoint") or "").strip() and (m.get("apiKey") or "").strip())
+        if has_api:
+            api_cands.append(mid)
+        elif mid.startswith("agy:") or str(m.get("provider") or "").lower().startswith("antigravity"):
+            agy_cands.append(mid)
+
+    # Also include reliable live AGY fast models when AGY CLI is verified
+    if AGY_AUTH_SESSION.get("verified"):
+        for preferred in (
+            "gemini-3.8-flash-medium",
+            "gemini-4-neon-medium",
+            "gemini-4-neon-low",
+            "gemini-4-argon-low",
+            "gemini-2.5-flash",
+        ):
+            if _is_usable(preferred) and preferred not in agy_cands:
+                agy_cands.append(preferred)
+
+    # Prefer fast Flash/Medium models first to avoid cascading timeouts
+    def _rank_key(m_id):
+        low = m_id.lower()
+        if "flash" in low:
+            return (0, m_id)
+        if "medium" in low or "low" in low or "mini" in low or "sonnet" in low:
+            return (1, m_id)
+        return (2, m_id)
+
+    api_cands.sort(key=_rank_key)
+    agy_cands.sort(key=_rank_key)
+
+    # If primary was a CLI model, prefer a healthy API key model first (cross-provider resilience), else healthy AGY
+    primary_is_cli = (primary in CLAUDE_LOCAL_MODELS) or (not _resolve_model_creds_by_id(primary)[1])
+    ordered = (api_cands + agy_cands) if primary_is_cli else (agy_cands + api_cands)
+    return ordered[0] if ordered else ""
 
 
 def _run_single_llm_provider(model_id, endpoint, api_key, sys_prompt, sliced_history, prompt, attachments=None, live_mcp_ctx=None, win_size=6, session_key="", room="", agent_name=""):
@@ -6823,6 +6910,31 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             self._send_json(200, {"ok": True, "autopilot": ap_cfg, "server_clock": get_server_office_clock_state(ap_cfg)})
             return
 
+        if self.path.startswith("/api/telegram/config"):
+            self._send_json(200, {"ok": True, "telegram": get_telegram_public_config()})
+            return
+
+        if self.path.startswith("/api/integrations/webhook"):
+            self._send_json(200, {"ok": True, "webhook": load_automation_bridge_config()})
+            return
+
+        if self.path.startswith("/api/housekeeping/status"):
+            self._send_json(200, {"ok": True, "housekeeping": get_housekeeping_status()})
+            return
+
+        if self.path.startswith("/api/export/content-calendar.csv"):
+            parsed_csv = urllib.parse.urlparse(self.path)
+            qs_csv = urllib.parse.parse_qs(parsed_csv.query)
+            dept_filter = ((qs_csv.get("dept") or ["CONTENT"])[0] or "CONTENT").strip().upper()
+            csv_bytes = build_content_calendar_csv(dept_filter=dept_filter).encode("utf-8-sig")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/csv; charset=utf-8")
+            self.send_header("Content-Disposition", f'attachment; filename="hq-content-calendar-{time.strftime("%Y%m%d")}.csv"')
+            self.send_header("Content-Length", str(len(csv_bytes)))
+            self.end_headers()
+            self.wfile.write(csv_bytes)
+            return
+
         if self.path.startswith("/api/hub-status"):
             force_agy = "refresh_agy=1" in self.path
             status = get_antigravity_and_claude_status(force_agy=force_agy)
@@ -7366,6 +7478,36 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 approval_id=(body.get("id") or "").strip(),
                 action=(body.get("action") or "").strip().lower(),
             )
+            self._send_json(200, res)
+            return
+
+        if self.path.startswith("/api/telegram/config"):
+            saved_tg = save_telegram_config(body)
+            self._send_json(200, {"ok": True, "telegram": get_telegram_public_config(saved_tg)})
+            return
+
+        if self.path.startswith("/api/telegram/test"):
+            res = send_telegram_test_message()
+            self._send_json(200, res)
+            return
+
+        if self.path.startswith("/api/telegram/send-daily-report"):
+            res = send_telegram_daily_report(manual=True)
+            self._send_json(200, res)
+            return
+
+        if self.path.startswith("/api/integrations/webhook/test"):
+            res = test_deliverable_webhook()
+            self._send_json(200, res)
+            return
+
+        if self.path.startswith("/api/integrations/webhook"):
+            saved_wh = save_automation_bridge_config(body)
+            self._send_json(200, {"ok": True, "webhook": saved_wh})
+            return
+
+        if self.path.startswith("/api/housekeeping/run"):
+            res = run_office_housekeeping(force=True)
             self._send_json(200, res)
             return
 
@@ -9146,6 +9288,10 @@ def run_gm_autopilot_cycle(manual=False):
             cur["pendingApprovals"] = apvs[:20]
             _save_autopilot_config_unlocked(cur)
         bump_world_chat_version(toast_msg=f"📋 {gm_name} mengusulkan 1 keputusan yang butuh ACC CEO: {approval_item['title']}")
+        try:
+            notify_telegram_approval_proposal(approval_item)
+        except Exception:
+            pass
 
     elif st_code in ("EXECUTE_EXISTING", "CREATE_AND_EXECUTE"):
         target_task = None
@@ -9774,6 +9920,18 @@ def _execute_single_department_project(item, idx=1, total=1):
             f"[QUALITY GATE MANAJER — {team_credit}]\n{str(deliv_md or '')[:650]}",
             rel_file,
         )
+        try:
+            dispatch_deliverable_webhook(
+                dept=dept,
+                title=title,
+                rel_file=rel_file,
+                summary=f"Lulus Quality Gate {aname} (Eksekutor: {squad_names})",
+                staff_names=squad_names or aname,
+                deliverable_md=str(deliv_md or ""),
+                task_id=tid,
+            )
+        except Exception:
+            pass
 
         with TASKBOARD_LOCK:
             tb = load_taskboard()
@@ -10103,7 +10261,7 @@ def finish_meeting_and_execute_tasks(body):
             ap_cfg = load_autopilot_config()
             p_list = list(ap_cfg.get("pendingApprovals") or [])
             for pt in pending_approvals_added:
-                p_list.insert(0, {
+                new_apv = {
                     "id": f"appr_{pt['id']}",
                     "createdAt": now_str,
                     "title": pt["title"],
@@ -10114,7 +10272,12 @@ def finish_meeting_and_execute_tasks(body):
                     "detail": pt["instruction"],
                     "reason": "Ditandai NEEDS_CEO_APPROVAL dari hasil rapat.",
                     "status": "PENDING",
-                })
+                }
+                p_list.insert(0, new_apv)
+                try:
+                    notify_telegram_approval_proposal(new_apv)
+                except Exception:
+                    pass
             ap_cfg["pendingApprovals"] = p_list[:20]
             _save_autopilot_config_unlocked(ap_cfg)
 
@@ -10253,7 +10416,16 @@ def _run_gm_autopilot_background_loop():
         while True:
             try:
                 # 0. Enforce real office working hours / lunch break / after-hours schedule automatically
-                sync_office_schedule_state(force=False)
+                clk_now = sync_office_schedule_state(force=False)
+                # 0b. Auto-send Executive Daily Telegram Report when office closes (once per day) + Daily Housekeeping
+                try:
+                    maybe_send_scheduled_daily_telegram_report(clk_now)
+                except Exception:
+                    pass
+                try:
+                    run_office_housekeeping(force=False)
+                except Exception:
+                    pass
                 cfg = load_autopilot_config()
                 if cfg.get("enabled"):
                     world = load_world_state()
@@ -10312,6 +10484,676 @@ def _run_gm_autopilot_background_loop():
     t.start()
 
 
+# =============================================================================
+# TELEGRAM CEO NOTIFIER, INTERACTIVE ACC BOT, AUTO-HOUSEKEEPING & WEBHOOK BRIDGE
+# =============================================================================
+
+TELEGRAM_CONFIG_FILE = os.path.join(CONFIG_DIR, "telegram_config.json")
+AUTOMATION_BRIDGE_FILE = os.path.join(CONFIG_DIR, "integrations_config.json")
+HOUSEKEEPING_STATE_FILE = os.path.join(CONFIG_DIR, "housekeeping_state.json")
+TASKBOARD_ARCHIVE_FILE = os.path.join(CONFIG_DIR, "taskboard_archive.json")
+
+_TELEGRAM_LOCK = threading.RLock()
+_TELEGRAM_ALERT_LAST_SENT = {}
+
+
+def _default_telegram_config():
+    return {
+        "enabled": False,
+        "botToken": "",
+        "chatId": "",
+        "notifyApprovals": True,
+        "notifyDailyReport": True,
+        "notifyAlerts": True,
+        "pollingEnabled": True,
+        "dailyReportTime": "18:00",
+        "lastDailyReportDate": "",
+        "lastUpdateId": 0,
+        "updatedAt": "",
+    }
+
+
+def load_telegram_config():
+    with _TELEGRAM_LOCK:
+        cfg = _default_telegram_config()
+        if os.path.exists(TELEGRAM_CONFIG_FILE):
+            try:
+                with open(TELEGRAM_CONFIG_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    cfg.update(data)
+            except Exception:
+                pass
+        return cfg
+
+
+def _save_telegram_config_unlocked(cfg):
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        tmp = TELEGRAM_CONFIG_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, TELEGRAM_CONFIG_FILE)
+    except Exception:
+        pass
+
+
+def save_telegram_config(patch):
+    patch = patch or {}
+    with _TELEGRAM_LOCK:
+        cfg = load_telegram_config()
+        for bk in ("enabled", "notifyApprovals", "notifyDailyReport", "notifyAlerts", "pollingEnabled"):
+            if bk in patch:
+                cfg[bk] = bool(patch.get(bk))
+        if "botToken" in patch:
+            tok = str(patch.get("botToken") or "").strip()
+            # Keep existing token if masked placeholder submitted
+            if tok and not tok.startswith("••"):
+                cfg["botToken"] = tok[:160]
+            elif patch.get("clearToken"):
+                cfg["botToken"] = ""
+        if "chatId" in patch:
+            cfg["chatId"] = str(patch.get("chatId") or "").strip()[:64]
+        if "dailyReportTime" in patch:
+            rt = str(patch.get("dailyReportTime") or "").strip()
+            if re.match(r"^\d{2}:\d{2}$", rt):
+                cfg["dailyReportTime"] = rt
+        cfg["updatedAt"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        _save_telegram_config_unlocked(cfg)
+        return dict(cfg)
+
+
+def get_telegram_public_config(cfg=None):
+    c = dict(cfg or load_telegram_config())
+    raw_tok = str(c.get("botToken") or "")
+    c["hasBotToken"] = bool(raw_tok)
+    c["botToken"] = ("••••••" + raw_tok[-6:]) if len(raw_tok) > 10 else ("••••••" if raw_tok else "")
+    return c
+
+
+def _telegram_api_call(bot_token, method, payload=None, timeout=15):
+    tok = (bot_token or "").strip()
+    if not tok:
+        return {"ok": False, "description": "Bot Token Telegram belum diisi."}
+    url = f"https://api.telegram.org/bot{tok}/{method}"
+    data = json.dumps(payload or {}).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read().decode("utf-8", errors="replace"))
+    except urllib.error.HTTPError as he:
+        err_body = he.read().decode("utf-8", errors="replace")[:260]
+        return {"ok": False, "description": f"HTTP {he.code}: {err_body}"}
+    except Exception as e:
+        return {"ok": False, "description": str(e)}
+
+
+def send_telegram_message(text, reply_markup=None, parse_mode="Markdown", force=False):
+    cfg = load_telegram_config()
+    if not force and not cfg.get("enabled"):
+        return {"ok": False, "error": "Notifikasi Telegram sedang OFF."}
+    tok = str(cfg.get("botToken") or "").strip()
+    cid = str(cfg.get("chatId") or "").strip()
+    if not tok or not cid:
+        return {"ok": False, "error": "Bot Token atau Chat ID Telegram belum lengkap."}
+    payload = {
+        "chat_id": cid,
+        "text": str(text or "")[:3900],
+        "disable_web_page_preview": True,
+    }
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+    res = _telegram_api_call(tok, "sendMessage", payload, timeout=15)
+    # Retry without Markdown parse_mode if formatting characters caused HTTP 400
+    if not res.get("ok") and parse_mode:
+        payload.pop("parse_mode", None)
+        res = _telegram_api_call(tok, "sendMessage", payload, timeout=15)
+    return {"ok": bool(res.get("ok")), "result": res.get("result"), "error": res.get("description", "")}
+
+
+def notify_telegram_alert(alert_key, text, cooldown_sec=1800):
+    cfg = load_telegram_config()
+    if not cfg.get("enabled") or not cfg.get("notifyAlerts", True):
+        return
+    now_ts = time.time()
+    last_ts = float(_TELEGRAM_ALERT_LAST_SENT.get(alert_key) or 0)
+    if (now_ts - last_ts) < cooldown_sec:
+        return
+    _TELEGRAM_ALERT_LAST_SENT[alert_key] = now_ts
+    threading.Thread(target=send_telegram_message, args=(text,), daemon=True).start()
+
+
+def notify_telegram_approval_proposal(item):
+    cfg = load_telegram_config()
+    if not cfg.get("enabled") or not cfg.get("notifyApprovals", True) or not isinstance(item, dict):
+        return
+    apv_id = str(item.get("id") or "")
+    title = str(item.get("title") or "Usulan Strategis").replace("*", "").replace("`", "")
+    dept = str(item.get("dept") or "ALL")
+    agent = str(item.get("agentName") or "Tim AI")
+    reason = str(item.get("reason") or "Membutuhkan ACC CEO")[:240]
+    detail = str(item.get("detail") or "")[:320]
+    msg = (
+        f"📋 *BUTUH ACC CEO — {dept}*\n"
+        f"*{title}*\n"
+        f"Pelaksana: {agent}\n"
+        f"Alasan: _{reason}_\n\n"
+        f"{detail}"
+    )
+    markup = None
+    if apv_id and len(apv_id) <= 50:
+        markup = {
+            "inline_keyboard": [[
+                {"text": "✅ Setujui & Kerjakan", "callback_data": f"apv_ok:{apv_id}"},
+                {"text": "❌ Abaikan", "callback_data": f"apv_no:{apv_id}"},
+            ]]
+        }
+    threading.Thread(target=send_telegram_message, kwargs={"text": msg, "reply_markup": markup}, daemon=True).start()
+
+
+def build_executive_daily_report_text():
+    comp = load_company_profile()
+    comp_name = comp.get("companyName") or "AI Virtual HQ"
+    clk = get_server_office_clock_state()
+    tb = load_taskboard()
+    ap = load_autopilot_config()
+    usage = get_usage_analytics("today")
+    mh = load_model_health_cache()
+
+    done_tasks = [t for t in tb if str(t.get("status") or "").upper() == "DONE"]
+    inprog_tasks = [t for t in tb if str(t.get("status") or "").upper() in ("TODO", "IN_PROGRESS")]
+    handoffs = [t for t in tb if t.get("handoffFrom")]
+    pending_apvs = ap.get("pendingApprovals") or []
+
+    dept_counts = {}
+    for t in done_tasks:
+        d = str(t.get("dept") or "ALL").upper()
+        dept_counts[d] = dept_counts.get(d, 0) + 1
+    dept_line = ", ".join(f"{k}: {v}" for k, v in sorted(dept_counts.items())) or "Belum ada"
+
+    recent_done_lines = "\n".join(
+        f"• [{t.get('dept','ALL')}] {str(t.get('title') or '')[:65]}"
+        for t in done_tasks[:6]
+    ) or "• Belum ada task selesai terbaru."
+
+    u_sum = usage.get("summary") or {}
+    tot_tok = int(u_sum.get("totalTokens") or 0)
+    cached_tok = int(u_sum.get("cachedTokens") or 0)
+    calls = int(u_sum.get("totalCalls") or 0)
+    hit_pct = float(u_sum.get("cacheHitRatePct") or 0)
+    bad_models = [k for k, v in mh.items() if isinstance(v, dict) and v.get("ok") is False]
+
+    return (
+        f"🏢 *LAPORAN HARIAN — {comp_name}*\n"
+        f"🕒 {clk['dateStr']} · {clk['hhmm']} {clk['tzLabel']} ({clk['phaseLabel']})\n\n"
+        f"📊 *Ringkasan Operasional*\n"
+        f"• Task Selesai (DONE): *{len(done_tasks)}* ({dept_line})\n"
+        f"• Task Berjalan / Antre: *{len(inprog_tasks)}*\n"
+        f"• Handoff Lintas-Dept: *{len(handoffs)}*\n"
+        f"• Menunggu ACC CEO: *{len(pending_apvs)}*\n\n"
+        f"⚡ *Pemakaian AI Hari Ini*\n"
+        f"• Total Request: *{calls}* | Token: *{tot_tok:,}*\n"
+        f"• Cached Tokens: *{cached_tok:,}* ({hit_pct:.1f}%)\n"
+        f"• Model Bermasalah: *{', '.join(bad_models[:3]) if bad_models else 'Nihil (Semua Sehat)'}*\n\n"
+        f"✅ *Sorotan Hasil Terbaru*\n{recent_done_lines}\n\n"
+        f"_Perintah cepat: /status · /report · /wake · /rest · /task <DEPT> <instruksi>_"
+    )
+
+
+def send_telegram_daily_report(manual=False):
+    text = build_executive_daily_report_text()
+    res = send_telegram_message(text, force=manual)
+    if res.get("ok"):
+        clk = get_server_office_clock_state()
+        with _TELEGRAM_LOCK:
+            c = load_telegram_config()
+            c["lastDailyReportDate"] = clk.get("dateIso") or time.strftime("%Y-%m-%d")
+            _save_telegram_config_unlocked(c)
+    return res
+
+
+def send_telegram_test_message():
+    clk = get_server_office_clock_state()
+    comp_name = load_company_profile().get("companyName") or "AI Virtual HQ"
+    msg = (
+        f"✅ *Tes Koneksi Telegram CEO Berhasil!*\n"
+        f"Kantor: *{comp_name}*\n"
+        f"Waktu Server: `{clk['dateStr']} · {clk['timeStr']} {clk['tzLabel']}`\n"
+        f"Status Kantor: *{clk['phaseLabel']}*\n\n"
+        f"Anda sekarang bisa menerima laporan tutup kantor, alert model, dan ACC usulan langsung dari Telegram."
+    )
+    return send_telegram_message(msg, force=True)
+
+
+def maybe_send_scheduled_daily_telegram_report(clk=None):
+    cfg = load_telegram_config()
+    if not cfg.get("enabled") or not cfg.get("notifyDailyReport", True):
+        return
+    if not cfg.get("botToken") or not cfg.get("chatId"):
+        return
+    if clk is None:
+        clk = get_server_office_clock_state()
+    today_iso = clk.get("dateIso") or time.strftime("%Y-%m-%d")
+    if cfg.get("lastDailyReportDate") == today_iso:
+        return
+    target_t = str(cfg.get("dailyReportTime") or clk.get("closeTime") or "18:00")
+    cur_m = _hhmm_to_min(clk.get("hhmm") or "00:00", 0)
+    tgt_m = _hhmm_to_min(target_t, 18 * 60)
+    if cur_m >= tgt_m and cur_m <= tgt_m + 20:
+        send_telegram_daily_report(manual=False)
+
+
+def _handle_telegram_incoming_update(upd, cfg):
+    tok = str(cfg.get("botToken") or "").strip()
+    allowed_chat = str(cfg.get("chatId") or "").strip()
+    if not tok or not allowed_chat:
+        return
+
+    # 1. Handle Inline Approval Buttons
+    cb = upd.get("callback_query")
+    if isinstance(cb, dict):
+        cb_id = cb.get("id")
+        from_chat = str(((cb.get("message") or {}).get("chat") or {}).get("id") or "")
+        if from_chat != allowed_chat:
+            return
+        data_s = str(cb.get("data") or "")
+        if data_s.startswith("apv_ok:") or data_s.startswith("apv_no:"):
+            act = "approve" if data_s.startswith("apv_ok:") else "dismiss"
+            apv_id = data_s.split(":", 1)[1].strip()
+            res = handle_autopilot_approval_action(apv_id, act)
+            _telegram_api_call(tok, "answerCallbackQuery", {
+                "callback_query_id": cb_id,
+                "text": "✅ Disetujui & mulai dikerjakan!" if act == "approve" else "❌ Usulan diabaikan.",
+            }, timeout=10)
+            status_txt = "✅ *Usulan DISETUJUI CEO via Telegram* — tim langsung mengeksekusi!" if (res.get("ok") and act == "approve") else ("❌ *Usulan diabaikan oleh CEO.*" if res.get("ok") else f"⚠️ {res.get('error', 'Gagal memproses.')}")
+            send_telegram_message(status_txt, force=True)
+        return
+
+    # 2. Handle CEO Slash Commands
+    msg = upd.get("message")
+    if not isinstance(msg, dict):
+        return
+    chat_id = str((msg.get("chat") or {}).get("id") or "")
+    if chat_id != allowed_chat:
+        return
+    txt = str(msg.get("text") or "").strip()
+    if not txt.startswith("/"):
+        return
+
+    low = txt.lower()
+    if low.startswith("/report") or low.startswith("/laporan"):
+        send_telegram_daily_report(manual=True)
+    elif low.startswith("/status"):
+        clk = get_server_office_clock_state()
+        world = load_world_state()
+        busy = world.get("busyAgentIds") or []
+        ap = load_autopilot_config()
+        send_telegram_message(
+            f"🏢 *Status Kantor Live*\n"
+            f"🕒 {clk['dateStr']} · {clk['timeStr']} {clk['tzLabel']}\n"
+            f"📍 Status: *{clk['phaseLabel']}* ({'OFF/Istirahat' if world.get('officeOff') else 'Aktif'})\n"
+            f"⚡ Staf Sedang Kerja: *{len(busy)} orang*\n"
+            f"🤖 Autopilot GM: *{'ON' if ap.get('enabled') else 'OFF'}* | ACC Pending: *{len(ap.get('pendingApprovals') or [])}*\n"
+            f"⏭️ Berikutnya: {clk['nextTransitionLabel']}",
+            force=True,
+        )
+    elif low.startswith("/wake") or low.startswith("/buka"):
+        update_world_state({"officeOff": False, "lastToast": "☀️ CEO membangunkan kantor via Telegram!"})
+        send_telegram_message("☀️ Kantor diaktifkan! Seluruh karyawan kembali bekerja.", force=True)
+    elif low.startswith("/rest") or low.startswith("/istirahat"):
+        update_world_state({"officeOff": True, "inTownHallMeeting": False, "summonedInCeoOfficeIds": [], "lastToast": "🌙 CEO mengistirahatkan kantor via Telegram."})
+        send_telegram_message("🌙 Kantor diset OFF. Seluruh karyawan istirahat di Mess.", force=True)
+    elif low.startswith("/task "):
+        parts = txt[6:].strip().split(" ", 1)
+        if len(parts) < 2:
+            send_telegram_message("Format: `/task SOCIAL Buat ide 3 Reels promo akhir pekan`", force=True)
+            return
+        dept_req = parts[0].strip().upper()
+        instr_req = parts[1].strip()
+        if dept_req not in DEPT_SQUADS:
+            send_telegram_message(f"Departemen `{dept_req}` tidak dikenal. Pilih: `{', '.join(DEPT_SQUADS.keys())}`", force=True)
+            return
+        mgr = DEPT_SQUADS[dept_req]["manager"]
+        now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
+        tid = f"task_tg_{dept_req.lower()}_{int(time.time() * 1000)}"
+        new_t = {
+            "id": tid,
+            "title": instr_req[:100],
+            "dept": dept_req,
+            "agentId": int(mgr["id"]),
+            "agentName": mgr["name"],
+            "agentRole": mgr["role"],
+            "taskType": "meeting_action_item",
+            "priority": "HIGH",
+            "status": "TODO",
+            "detail": f"[Perintah CEO via Telegram pada {now_str}]",
+            "instruction": instr_req,
+            "artifactFile": "",
+            "updatedAt": now_str,
+        }
+        with TASKBOARD_LOCK:
+            tb = load_taskboard()
+            tb.insert(0, new_t)
+            save_taskboard(tb[:45])
+        bump_world_chat_version(toast_msg=f"📲 [Telegram CEO → {dept_req}] Task baru: {instr_req[:55]}")
+        threading.Thread(target=resume_in_progress_tasks, daemon=True).start()
+        send_telegram_message(f"🚀 Task diterima untuk *{dept_req}* ({mgr['name']}):\n_{instr_req[:200]}_\n\nTim langsung mengeksekusi!", force=True)
+
+
+def _run_telegram_bot_polling_loop():
+    def _poll():
+        time.sleep(8)
+        while True:
+            try:
+                cfg = load_telegram_config()
+                if cfg.get("enabled") and cfg.get("pollingEnabled", True) and cfg.get("botToken") and cfg.get("chatId"):
+                    offset = int(cfg.get("lastUpdateId") or 0) + 1
+                    res = _telegram_api_call(cfg["botToken"], "getUpdates", {"offset": offset, "timeout": 12, "limit": 10}, timeout=20)
+                    if res.get("ok") and isinstance(res.get("result"), list) and res["result"]:
+                        max_uid = int(cfg.get("lastUpdateId") or 0)
+                        for upd in res["result"]:
+                            uid = int(upd.get("update_id") or 0)
+                            if uid > max_uid:
+                                max_uid = uid
+                            try:
+                                _handle_telegram_incoming_update(upd, cfg)
+                            except Exception:
+                                pass
+                        with _TELEGRAM_LOCK:
+                            c2 = load_telegram_config()
+                            c2["lastUpdateId"] = max_uid
+                            _save_telegram_config_unlocked(c2)
+                else:
+                    time.sleep(10)
+            except Exception:
+                time.sleep(10)
+            time.sleep(2)
+    threading.Thread(target=_poll, daemon=True).start()
+
+
+# --- Non-Tech Division Real Execution Bridge (Webhook + CSV Content Calendar Export) ---
+
+def _default_automation_bridge_config():
+    return {
+        "enabled": False,
+        "webhookUrl": "",
+        "webhookSecret": "",
+        "enabledDepts": ["SOCIAL", "GROWTH", "THEMES", "ENGINEERING", "FINANCE", "ADMIN"],
+        "lastDispatchAt": "",
+        "lastDispatchStatus": "",
+        "dispatchCount": 0,
+    }
+
+
+def load_automation_bridge_config():
+    cfg = _default_automation_bridge_config()
+    if os.path.exists(AUTOMATION_BRIDGE_FILE):
+        try:
+            with open(AUTOMATION_BRIDGE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                cfg.update(data)
+        except Exception:
+            pass
+    return cfg
+
+
+def save_automation_bridge_config(patch):
+    patch = patch or {}
+    cfg = load_automation_bridge_config()
+    if "enabled" in patch:
+        cfg["enabled"] = bool(patch.get("enabled"))
+    if "webhookUrl" in patch:
+        cfg["webhookUrl"] = str(patch.get("webhookUrl") or "").strip()[:500]
+    if "webhookSecret" in patch:
+        cfg["webhookSecret"] = str(patch.get("webhookSecret") or "").strip()[:160]
+    if "enabledDepts" in patch and isinstance(patch.get("enabledDepts"), list):
+        cfg["enabledDepts"] = [str(x).strip().upper() for x in patch.get("enabledDepts") if str(x).strip()]
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        with open(AUTOMATION_BRIDGE_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+    return cfg
+
+
+def _post_webhook_json(url, payload, secret=""):
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = {"Content-Type": "application/json", "User-Agent": "AI-Virtual-HQ-Bridge/1.0"}
+    if secret:
+        headers["X-HQ-Webhook-Secret"] = secret
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return resp.status, resp.read().decode("utf-8", errors="replace")[:200]
+
+
+def dispatch_deliverable_webhook(dept, title, rel_file, summary, staff_names, deliverable_md, task_id=""):
+    cfg = load_automation_bridge_config()
+    url = str(cfg.get("webhookUrl") or "").strip()
+    if not cfg.get("enabled") or not url:
+        return
+    allowed = {str(d).upper() for d in (cfg.get("enabledDepts") or [])}
+    dept_u = str(dept or "ALL").upper()
+    if allowed and dept_u not in allowed:
+        return
+
+    payload = {
+        "event": "deliverable.completed",
+        "company": load_company_profile().get("companyName") or "AI Virtual HQ",
+        "taskId": task_id,
+        "dept": dept_u,
+        "title": title,
+        "staff": staff_names,
+        "summary": summary,
+        "artifactFile": rel_file,
+        "markdown": str(deliverable_md or "")[:12000],
+        "timestamp": get_server_office_clock_state().get("iso"),
+    }
+
+    def _send():
+        try:
+            code, _ = _post_webhook_json(url, payload, cfg.get("webhookSecret") or "")
+            c2 = load_automation_bridge_config()
+            c2["lastDispatchAt"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            c2["lastDispatchStatus"] = f"HTTP {code} OK ({dept_u})"
+            c2["dispatchCount"] = int(c2.get("dispatchCount") or 0) + 1
+            save_automation_bridge_config(c2)
+        except Exception as err:
+            c2 = load_automation_bridge_config()
+            c2["lastDispatchAt"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            c2["lastDispatchStatus"] = f"ERR: {str(err)[:120]}"
+            save_automation_bridge_config(c2)
+
+    threading.Thread(target=_send, daemon=True).start()
+
+
+def test_deliverable_webhook():
+    cfg = load_automation_bridge_config()
+    url = str(cfg.get("webhookUrl") or "").strip()
+    if not url:
+        return {"ok": False, "error": "URL Webhook belum diisi."}
+    try:
+        code, body_txt = _post_webhook_json(url, {
+            "event": "webhook.test",
+            "company": load_company_profile().get("companyName") or "AI Virtual HQ",
+            "dept": "SOCIAL",
+            "title": "Tes Koneksi Bridge Otomasi HQ",
+            "summary": "Payload uji dari AI Virtual HQ untuk n8n / Make / Google Sheets.",
+            "timestamp": get_server_office_clock_state().get("iso"),
+        }, cfg.get("webhookSecret") or "")
+        cfg["lastDispatchAt"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        cfg["lastDispatchStatus"] = f"TEST HTTP {code} OK"
+        save_automation_bridge_config(cfg)
+        return {"ok": True, "status": code, "response": body_txt}
+    except Exception as err:
+        return {"ok": False, "error": str(err)}
+
+
+def build_content_calendar_csv(dept_filter="CONTENT"):
+    tb = load_taskboard()
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["UpdatedAt", "Department", "Status", "Title", "Executor", "HandoffFrom", "ArtifactFile", "SummaryExcerpt"])
+    for t in tb:
+        d = str(t.get("dept") or "").upper()
+        if dept_filter == "CONTENT" and d not in ("SOCIAL", "GROWTH", "THEMES"):
+            continue
+        elif dept_filter not in ("CONTENT", "ALL") and d != dept_filter:
+            continue
+        rel_f = str(t.get("artifactFile") or "")
+        excerpt = str(t.get("detail") or "")[:240]
+        if rel_f:
+            abs_f = os.path.join(DATA_DIR, rel_f)
+            if not os.path.exists(abs_f):
+                abs_f = os.path.join(BASE_DIR, rel_f)
+            if os.path.exists(abs_f):
+                try:
+                    with open(abs_f, "r", encoding="utf-8", errors="ignore") as f:
+                        excerpt = re.sub(r"\s+", " ", f.read(420)).strip()
+                except Exception:
+                    pass
+        writer.writerow([
+            t.get("updatedAt", ""),
+            d,
+            t.get("status", ""),
+            t.get("title", ""),
+            t.get("agentName", ""),
+            t.get("handoffFrom", ""),
+            rel_f,
+            excerpt,
+        ])
+    return buf.getvalue()
+
+
+# --- Auto-Housekeeping & Obsidian Memory Compaction (24/7 Homelab Maintenance) ---
+
+def get_housekeeping_status():
+    st = {"lastRunDate": "", "lastRunAt": "", "archivedReports": 0, "compactedNotes": 0, "archivedTasks": 0}
+    if os.path.exists(HOUSEKEEPING_STATE_FILE):
+        try:
+            with open(HOUSEKEEPING_STATE_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                st.update(data)
+        except Exception:
+            pass
+    try:
+        st["currentReportsCount"] = len([x for x in os.listdir(REPORTS_DIR) if x.endswith(".md")]) if os.path.exists(REPORTS_DIR) else 0
+    except Exception:
+        st["currentReportsCount"] = 0
+    try:
+        vault_dir = ensure_obsidian_vault_seeded()
+        d_dir = os.path.join(vault_dir, "deliverables")
+        st["currentVaultDeliverablesCount"] = len([x for x in os.listdir(d_dir) if x.endswith(".md")]) if os.path.exists(d_dir) else 0
+    except Exception:
+        st["currentVaultDeliverablesCount"] = 0
+    return st
+
+
+def run_office_housekeeping(force=False, archive_after_days=30, max_note_lines=180):
+    clk = get_server_office_clock_state()
+    today_iso = clk.get("dateIso") or time.strftime("%Y-%m-%d")
+    st = get_housekeeping_status()
+    if not force and st.get("lastRunDate") == today_iso:
+        return {"ok": True, "skipped": True, "housekeeping": st}
+
+    archived_reports = 0
+    compacted_notes = 0
+    archived_tasks = 0
+    cutoff_ts = time.time() - (max(7, int(archive_after_days)) * 86400)
+
+    # 1. Archive old markdown files in reports/ & daily-content/ into YYYY-MM/ subfolders
+    for folder in (REPORTS_DIR, os.path.join(DATA_DIR, "daily-content")):
+        if not os.path.exists(folder):
+            continue
+        try:
+            for fname in os.listdir(folder):
+                if not fname.endswith(".md"):
+                    continue
+                fpath = os.path.join(folder, fname)
+                if not os.path.isfile(fpath):
+                    continue
+                if os.path.getmtime(fpath) < cutoff_ts:
+                    ym = time.strftime("%Y-%m", time.localtime(os.path.getmtime(fpath)))
+                    arch_dir = os.path.join(folder, "archive", ym)
+                    os.makedirs(arch_dir, exist_ok=True)
+                    shutil.move(fpath, os.path.join(arch_dir, fname))
+                    archived_reports += 1
+        except Exception:
+            pass
+
+    # 2. Compact long Obsidian memory index/department notes while preserving old entries via [[archive/...]] wikilinks
+    try:
+        vault_dir = ensure_obsidian_vault_seeded()
+        ym_now = time.strftime("%Y-%m")
+        arch_vault_dir = os.path.join(vault_dir, "archive")
+        for fname in os.listdir(vault_dir):
+            if not fname.endswith(".md") or not (fname == "00-INDEX.md" or fname.startswith("DEPT-")):
+                continue
+            fpath = os.path.join(vault_dir, fname)
+            with open(fpath, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()
+            if len(lines) <= max_note_lines:
+                continue
+            keep_head = lines[:140]
+            overflow = lines[140:]
+            os.makedirs(arch_vault_dir, exist_ok=True)
+            stem = fname[:-3]
+            arch_name = f"{ym_now}-{stem}.md"
+            arch_path = os.path.join(arch_vault_dir, arch_name)
+            with open(arch_path, "a", encoding="utf-8") as af:
+                af.write(f"\n<!-- Diarsipkan otomatis {today_iso} dari [[{stem}]] -->\n")
+                af.writelines(overflow)
+            link_line = f"\n- 📦 Arsip riwayat sebelumnya: [[archive/{ym_now}-{stem}]] *(diringkas otomatis {today_iso})*\n"
+            with open(fpath, "w", encoding="utf-8") as f:
+                f.writelines(keep_head)
+                f.write(link_line)
+            compacted_notes += 1
+    except Exception:
+        pass
+
+    # 3. Archive excess DONE tasks beyond newest 50 items into config/taskboard_archive.json
+    try:
+        with TASKBOARD_LOCK:
+            tb = load_taskboard()
+            active = [t for t in tb if str(t.get("status") or "").upper() != "DONE"]
+            done = [t for t in tb if str(t.get("status") or "").upper() == "DONE"]
+            if len(done) > 50:
+                to_archive = done[50:]
+                done = done[:50]
+                old_arch = []
+                if os.path.exists(TASKBOARD_ARCHIVE_FILE):
+                    try:
+                        with open(TASKBOARD_ARCHIVE_FILE, "r", encoding="utf-8") as f:
+                            old_arch = json.load(f) or []
+                    except Exception:
+                        old_arch = []
+                with open(TASKBOARD_ARCHIVE_FILE, "w", encoding="utf-8") as f:
+                    json.dump((to_archive + old_arch)[:500], f, indent=2, ensure_ascii=False)
+                save_taskboard(active + done)
+                archived_tasks = len(to_archive)
+    except Exception:
+        pass
+
+    new_st = {
+        "lastRunDate": today_iso,
+        "lastRunAt": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "archivedReports": archived_reports,
+        "compactedNotes": compacted_notes,
+        "archivedTasks": archived_tasks,
+    }
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        with open(HOUSEKEEPING_STATE_FILE, "w", encoding="utf-8") as f:
+            json.dump(new_st, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+    return {"ok": True, "skipped": False, "housekeeping": get_housekeeping_status()}
+
+
 def create_hq_server(host=None, port=None, start_heartbeat=True):
     try:
         ensure_obsidian_vault_seeded()
@@ -10333,6 +11175,7 @@ def create_hq_server(host=None, port=None, start_heartbeat=True):
     if start_heartbeat:
         _run_background_model_and_vps_heartbeat()
         _run_gm_autopilot_background_loop()
+        _run_telegram_bot_polling_loop()
     bind_host = host if host is not None else (os.environ.get("APP_HOST", "127.0.0.1" if _is_desktop_mode() else "0.0.0.0").strip() or "0.0.0.0")
     bind_port = int(port) if port is not None else int(os.environ.get("APP_PORT", "8484"))
     ThreadingHTTPServer.allow_reuse_address = True

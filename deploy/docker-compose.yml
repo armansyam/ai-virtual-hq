@@ -1,0 +1,25 @@
+services:
+  ai-virtual-hq:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: ai-virtual-hq
+    restart: unless-stopped
+    ports:
+      - "8484:8484"
+    environment:
+      - TZ=Asia/Makassar
+      - APP_HOST=0.0.0.0
+      - APP_PORT=8484
+      - PUBLIC_LIVE_VIEW_ENABLED=true
+    volumes:
+      - ../config:/app/config
+      - ../memory:/app/memory
+      - ../reports:/app/reports
+      - ../daily-content:/app/daily-content
+      - ../skills:/app/skills
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
