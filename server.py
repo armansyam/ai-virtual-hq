@@ -3275,7 +3275,21 @@ def build_obsidian_memory_context(room="", is_townhall=False):
     return "\n\n".join(blocks), notes_read
 
 
-def _prepend_markdown_bullet_under_heading(md_text, heading_prefix, bullet_line, max_ts_str=""):
+MEMORY_RECENT_ITEMS = 15
+
+
+def _archive_memory_bullets(archive_name, heading_prefix, bullet_lines):
+    arch_dir = os.path.join(get_active_memory_dir(), "arsip")
+    os.makedirs(arch_dir, exist_ok=True)
+    arch_path = os.path.join(arch_dir, f"ARSIP-{archive_name}.md")
+    is_new = not os.path.exists(arch_path)
+    with open(arch_path, "a", encoding="utf-8") as f:
+        if is_new:
+            f.write(f"# Arsip Memori {archive_name}\n\nEntri lama yang dipindahkan dari catatan utama agar prompt agen tetap ringkas.\n")
+        f.write(f"\n## {time.strftime('%Y-%m-%d %H:%M')} · {heading_prefix.lstrip('# ')}\n" + "\n".join(bullet_lines) + "\n")
+
+
+def _prepend_markdown_bullet_under_heading(md_text, heading_prefix, bullet_line, max_ts_str="", max_items=None, archive_name=""):
     lines = md_text.splitlines()
     if max_ts_str:
         for i, l in enumerate(lines[:10]):
@@ -3283,6 +3297,7 @@ def _prepend_markdown_bullet_under_heading(md_text, heading_prefix, bullet_line,
                 lines[i] = f"updated: {max_ts_str}"
                 break
     inserted = False
+    insert_at = None
     for i, l in enumerate(lines):
         if l.strip().startswith(heading_prefix):
             insert_at = i + 1
@@ -3293,6 +3308,20 @@ def _prepend_markdown_bullet_under_heading(md_text, heading_prefix, bullet_line,
             break
     if not inserted:
         lines.append(f"\n{heading_prefix}\n{bullet_line}")
+    elif max_items:
+        # Catatan ini dimuat utuh ke setiap prompt agen: hanya entri terbaru yang disimpan, sisanya ke memory/arsip/.
+        bullet_idx = []
+        k = insert_at
+        while k < len(lines) and not lines[k].startswith("## "):
+            if lines[k].startswith("- "):
+                bullet_idx.append(k)
+            k += 1
+        overflow_idx = bullet_idx[max_items:]
+        if overflow_idx:
+            overflow = [lines[x] for x in overflow_idx]
+            for x in reversed(overflow_idx):
+                del lines[x]
+            _archive_memory_bullets(archive_name or "LAINNYA", heading_prefix, overflow)
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -3373,17 +3402,21 @@ def record_decision_to_obsidian_vault(room, title, decision_summary, agent_name=
                 "## 📌 Keputusan & Pakem Disetujui CEO",
                 f"- {'↺' if clean_decision.startswith('BELUM LULUS') else '✅'} **[{ts_short}] {clean_title}**: {clean_decision} ( oleh *{agent_name}* → {vault_wikilink}{extra_links} )",
                 max_ts_str=ts_short,
+                max_items=MEMORY_RECENT_ITEMS,
+                archive_name=f"DEPT-{room_u}",
             )
             d_txt = _prepend_markdown_bullet_under_heading(
                 d_txt,
                 "## 📂 Riwayat Hasil Kerja",
                 f"- 📄 {vault_wikilink} (`{rel_file}`) — *{ts_short}*",
+                max_items=MEMORY_RECENT_ITEMS,
+                archive_name=f"DEPT-{room_u}",
             )
             with open(dept_note_abs, "w", encoding="utf-8") as f:
                 f.write(d_txt)
             updated_notes.append(dept_note_name)
-        except Exception:
-            pass
+        except Exception as mem_err:
+            print(f"[memory] Gagal menulis {dept_note_name}: {mem_err!r}", flush=True)
 
     # 3b. Cross-link related department notes so receiving departments immediately see incoming handoffs in their memory!
     for rd_note_stem in rel_depts_clean:
@@ -3399,12 +3432,14 @@ def record_decision_to_obsidian_vault(room, title, decision_summary, agent_name=
                     "## 📂 Riwayat Hasil Kerja",
                     f"- 🤝 [Lintas-Dept dari [[DEPT-{room_u}]]] {vault_wikilink} (`{rel_file}`) — *{ts_short}*",
                     max_ts_str=ts_short,
+                    max_items=MEMORY_RECENT_ITEMS,
+                    archive_name=rd_note_stem,
                 )
                 with open(rd_abs, "w", encoding="utf-8") as f:
                     f.write(rd_txt)
                 updated_notes.append(f"{rd_note_stem}.md")
-            except Exception:
-                pass
+            except Exception as mem_err:
+                print(f"[memory] Gagal menulis {rd_note_stem}.md: {mem_err!r}", flush=True)
 
     # 4. Update 00-INDEX.md
     idx_abs = os.path.join(vault_dir, "00-INDEX.md")
@@ -3417,12 +3452,14 @@ def record_decision_to_obsidian_vault(room, title, decision_summary, agent_name=
                 "## ⚡ Keputusan & Eksekusi Terbaru",
                 f"- **{ts_short}** · [[DEPT-{room_u}]] → **{clean_title}**: {clean_decision} (Hasil: {vault_wikilink})",
                 max_ts_str=ts_short,
+                max_items=MEMORY_RECENT_ITEMS,
+                archive_name="00-INDEX",
             )
             with open(idx_abs, "w", encoding="utf-8") as f:
                 f.write(i_txt)
             updated_notes.append("00-INDEX.md")
-        except Exception:
-            pass
+        except Exception as mem_err:
+            print(f"[memory] Gagal menulis 00-INDEX.md: {mem_err!r}", flush=True)
 
     updated_notes.append(vault_deliv_rel)
 
@@ -6944,6 +6981,10 @@ def execute_department_work_engine(task_type, body=None):
         bg_hex = (body.get("paletteBg") or "#0f1c18").strip()
         accent_hex = (body.get("paletteAccent") or "#c9a227").strip()
         text_hex = (body.get("paletteText") or "#f5f2eb").strip()
+        # Nilai ini disisipkan apa adanya ke <style> master tema; hanya hex warna yang boleh masuk.
+        for label, hex_val in (("paletteBg", bg_hex), ("paletteAccent", accent_hex), ("paletteText", text_hex)):
+            if not re.fullmatch(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})", hex_val):
+                return {"ok": False, "error": f"{label} harus berupa warna hex (#rgb atau #rrggbb), diterima: {hex_val[:30]}"}
 
         ev_folder = {"WEDDING": "wedding", "PERSONAL": "personal", "EVENT": "event"}[event_type]
         proj_dir = (load_company_profile().get("projectPath") or "").strip()
@@ -8344,7 +8385,8 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
 
             obsidian_approval_instruction = (
                 "\nATURAN MEMORI OBSIDIAN & EKSEKUSI OTOMATIS DARI OBROLAN (WAJIB DIPATUHI):\n"
-                "1. ACUAN KEBENARAN: Selalu patuhi catatan `OBSIDIAN MEMORY` (`[[00-INDEX]]` & `[[DEPT-...]]`) di bawah sebagai Single Source of Truth agar tidak halusinasi.\n"
+                "1. ACUAN KEBENARAN: Selalu patuhi catatan `OBSIDIAN MEMORY` (`[[00-INDEX]]` & `[[DEPT-...]]`) di bawah sebagai Single Source of Truth agar tidak halusinasi. "
+                "Memori ini bekerja di belakang layar seperti ingatan pegawai: dalam jawaban chat JANGAN menyebut Obsidian, wikilink `[[...]]`, atau nama file memori.\n"
                 "2. FASE DISKUSI & KONFIRMASI AKTIF: Jika CEO baru bertanya, melempar ide, atau mengkritik/merevisi, diskusikan solusi konkret secara tajam, lalu WAJIB tutup pesan terakhir dengan pertanyaan konfirmasi persetujuan yang jelas (contoh: \"Apakah Bos setuju dengan rencana ini untuk langsung kami kunci ke Memory Obsidian & eksekusi sekarang?\").\n"
                 "3. FASE EKSEKUSI OTOMATIS SAAT DISETUJUI: Jika pesan terbaru CEO menyatakan SETUJU / ACC / PERINTAH EKSEKUSI atas rencana yang dibahas (misal: \"setuju\", \"oke kerjakan\", \"eksekusi\", \"lanjut\", \"gas\", \"simpan\", \"acc\"), langsung kerjakan hasilnya dan WAJIB sertakan tepat 1 blok tag berikut di baris paling akhir setelah seluruh dialog selesai:\n"
                 "[[EXECUTE_APPROVED:{\"title\":\"Judul singkat keputusan/tugas\",\"dept\":\"" + (dept_room or "ADMIN") + "\",\"decision\":\"1-2 kalimat keputusan final yang dikunci ke Memory Obsidian\",\"relatedDepts\":[\"DEPT-THEMES\"],\"deliverableMd\":\"# Dokumen Hasil Eksekusi Lengkap...\\n(Tulis hasil kerja lengkap dalam Markdown)\"}]]"
@@ -8450,8 +8492,9 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 f"{build_company_context_block(comp_prof)}\n\n"
                 f"User yang berbicara denganmu adalah {ceo_label} dari {comp_name}.\n"
                 "ATURAN WAJIB & MEMORI OBSIDIAN:\n"
-                "- Patuhi catatan `OBSIDIAN MEMORY` (`[[00-INDEX]]` & `[[DEPT-...]]`) di bawah sebagai Single Source of Truth agar bebas halusinasi.\n"
-                "- HAK AKSES PENUH TOOL MANDIRI: Sebagai anggota tim AI resmi, kamu memiliki hak akses penuh untuk menggunakan seluruh tool yang tersedia di Katalog Tool (Remote MCP, Local STDIO MCP, Folder Lokal terotorisasi, dan Skills SKILL.md) via tag [[TOOL_CALL:...]] / [[LOAD_SKILL:...]] secara mandiri untuk menuntaskan tugasmu.\n"
+                "- Patuhi catatan `OBSIDIAN MEMORY` (`[[00-INDEX]]` & `[[DEPT-...]]`) di bawah sebagai Single Source of Truth agar bebas halusinasi. "
+                "Memori ini bekerja di belakang layar seperti ingatan pegawai: dalam jawaban chat JANGAN menyebut Obsidian, wikilink `[[...]]`, atau nama file memori.\n"
+                "- AKSES TOOL: Gunakan tool baca (get/list/search/check/read/audit) di Katalog Tool via [[TOOL_CALL:...]] / [[LOAD_SKILL:...]] secara mandiri untuk mendapat data nyata. Tool yang mengubah sistem produksi, serta simpan/impor skill, tidak langsung berjalan: masuk antrean ACC CEO, jadi laporkan sebagai 'menunggu ACC', bukan selesai.\n"
                 "- Jawab pertanyaan atau instruksi CEO secara 100% langsung, cerdas, spesifik, berbasis data real-time MCP di bawah (jika tersedia), dan sesuai peranmu.\n"
                 "- FASE DISKUSI & KONFIRMASI AKTIF: Jika CEO sedang berdiskusi, melempar ide, atau mengkritik/merevisi, berikan analisis & solusi konkret, lalu WAJIB tutup jawabanmu dengan pertanyaan konfirmasi persetujuan yang jelas (contoh: \"Apakah Bos setuju dengan rencana ini untuk langsung saya kunci ke Memory Obsidian & eksekusi sekarang?\").\n"
                 "- FASE EKSEKUSI OTOMATIS SAAT DISETUJUI: Jika pesan terbaru CEO menyatakan SETUJU / ACC / PERINTAH EKSEKUSI (misal: \"setuju\", \"oke kerjakan\", \"eksekusi\", \"lanjut\", \"gas\", \"simpan\", \"acc\"), langsung kerjakan hasilnya secara tuntas dan WAJIB sertakan tepat 1 blok tag berikut di baris paling akhir jawabanmu:\n"
@@ -8545,6 +8588,8 @@ def _execute_approved_agent_action(item):
         )
     elif kind == "IMPORT_SKILL":
         res = import_skill_from_url(payload)
+    elif kind == "SAVE_SKILL":
+        res = save_hq_skill(payload)
     else:
         res = {"ok": False, "error": f"Jenis aksi tidak dikenal: {kind}"}
     ts_file = time.strftime("%Y%m%d-%H%M%S")
@@ -8597,6 +8642,12 @@ def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, p
                 clean_final = re.sub(r"\[\[SEARCH_SKILLS:\s*\"?[^\]]+?\"?\s*\]\]", "", clean_final)
                 clean_final = re.sub(r"\[\[SAVE_SKILL:\s*\{[\s\S]*?\}\s*\]\]", "", clean_final)
                 clean_final = re.sub(r"\[\[IMPORT_SKILL_URL:\s*\{[\s\S]*?\}\s*\]\]", "", clean_final).strip()
+                # Agen masih meminta tool saat langkah habis: teks ini catatan setengah jalan, bukan hasil kerja.
+                if step_idx >= max_steps and (matches or skill_loads or skill_searches or skill_saves or skill_imports):
+                    clean_final = (
+                        "> [!WARNING] HASIL TIDAK TUNTAS — agen kehabisan langkah saat masih meminta tool; "
+                        "isi di bawah adalah catatan proses, bukan deliverable final.\n\n" + clean_final
+                    )
                 return clean_final or reply, used_engine
 
             update_world_state({"liveStepStatus": f"🔌 {who_label} mengeksekusi tool/skill (langkah {step_idx + 1})..."})
@@ -8630,16 +8681,18 @@ def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, p
                         sv_obj["scope"] = "DEPT"
                         sv_obj["depts"] = [room]
                     sv_obj["origin"] = "agent_created"
-                    sv_res = save_hq_skill(sv_obj)
-                    if sv_res.get("ok"):
-                        executed_tools.append({
-                            "tool": f"Buat Skill: {sv_obj.get('name', sv_res.get('slug', ''))}",
-                            "source": "SKILL",
-                            "summary": f"skills/{sv_res.get('slug')}/SKILL.md",
-                        })
-                        tool_results_lines.append(f"- SKILL BARU TERSIMPAN: skills/{sv_res.get('slug')}/SKILL.md (aktif di tab 🧠 Skills)")
-                    else:
-                        tool_results_lines.append(f"- Gagal menyimpan skill: {sv_res.get('error')}")
+                    sv_name = str(sv_obj.get("name") or "Skill baru")[:60]
+                    apv_id = _queue_agent_action_for_ceo_approval(
+                        "SAVE_SKILL",
+                        f"Simpan skill buatan agen: {sv_name}",
+                        f"{who_label} ingin menyimpan skill '{sv_name}' (scope {sv_obj.get('scope')}). Cuplikan isi: {str(sv_obj.get('content') or '')[:300]}",
+                        sv_obj,
+                        room=room,
+                        agent_id=agent_id,
+                        agent_name=agent_name,
+                    )
+                    executed_tools.append({"tool": f"Buat Skill (menunggu ACC): {sv_name}", "source": "SKILL", "summary": apv_id})
+                    tool_results_lines.append(f"- SKILL '{sv_name}' BELUM TERSIMPAN: menunggu ACC CEO (antrean {apv_id}). Jangan laporkan skill ini sudah aktif.")
                 except Exception as sve:
                     tool_results_lines.append(f"- Parse error SAVE_SKILL: {sve}")
 
@@ -8727,10 +8780,17 @@ def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, p
 
             cur_history.append({"role": "user", "content": cur_prompt})
             cur_history.append({"role": "assistant", "content": reply})
+            is_last_turn = step_idx + 1 >= max_steps
             cur_prompt = (
                 "HASIL EKSEKUSI TOOL NYATA:\n"
                 + "\n".join(tool_results_lines)
-                + "\n\nLanjutkan pekerjaanmu berdasarkan hasil nyata di atas. Jika semua langkah sudah selesai, berikan laporan final yang rapi kepada CEO (tanpa tag TOOL_CALL)."
+                + (
+                    "\n\nINI GILIRAN TERAKHIR: dilarang memanggil tool atau tag apa pun lagi. Tulis SEKARANG hasil kerja final yang "
+                    "lengkap dan siap pakai berdasarkan data di atas. Data yang belum berhasil didapat tulis jelas sebagai "
+                    "'belum terverifikasi', jangan dikarang dan jangan ditunda ke langkah berikutnya."
+                    if is_last_turn
+                    else "\n\nLanjutkan pekerjaanmu berdasarkan hasil nyata di atas. Jika semua langkah sudah selesai, berikan laporan final yang rapi kepada CEO (tanpa tag TOOL_CALL)."
+                )
             )
 
         return reply, used_engine
@@ -9730,8 +9790,8 @@ def run_gm_autopilot_cycle(manual=False):
         bump_world_chat_version(toast_msg=f"📋 {gm_name} mengusulkan 1 keputusan yang butuh ACC CEO: {approval_item['title']}")
         try:
             notify_telegram_approval_proposal(approval_item)
-        except Exception:
-            pass
+        except Exception as tg_err:
+            print(f"[approval] Telegram notify gagal untuk {approval_item.get('id')}: {tg_err!r}", flush=True)
 
     elif st_code in ("EXECUTE_EXISTING", "CREATE_AND_EXECUTE"):
         target_task = None
@@ -9904,7 +9964,7 @@ def handle_autopilot_approval_action(approval_id, action):
     if not target_item:
         return {"ok": False, "error": "Usulan tidak ditemukan.", "autopilot": load_autopilot_config()}
 
-    if action == "approve" and target_item.get("kind") in ("MCP_TOOL", "IMPORT_SKILL"):
+    if action == "approve" and target_item.get("kind") in ("MCP_TOOL", "IMPORT_SKILL", "SAVE_SKILL"):
         threading.Thread(target=_execute_approved_agent_action, args=(target_item,), daemon=True).start()
         return {"ok": True, "action": "approved", "autopilot": load_autopilot_config()}
 
@@ -10027,6 +10087,8 @@ def _pick_squad_members(dept, task_text, manager_id=None, max_staff=2):
     scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
     return [x[2] for x in scored[:max_staff]]
 
+
+MAX_TASK_FAILURES = 2
 
 QUALITY_GATE_TAG_RE = re.compile(r"\[\[GATE:\s*(PASS|REVISI)\s*\]\]", re.I)
 
@@ -10191,9 +10253,9 @@ def _execute_single_department_project(item, idx=1, total=1):
                 s_sys = (
                     f"Kamu adalah {sname}, menjabat sebagai {srole} (Departemen {dept}) di {comp_name}.\n"
                     f"{build_company_context_block(comp_prof)}\n\n"
-                    "EKSEKUSI MANDIRI STAF SPESIALIS (HAK AKSES PENUH TOOL):\n"
+                    "EKSEKUSI MANDIRI STAF SPESIALIS:\n"
                     "1. Kamu adalah eksekutor utama sub-tugas ini — kerjakan secara tuntas, konkret, dan siap pakai.\n"
-                    "2. KAMU PUNYA HAK AKSES PENUH ke seluruh tool di Katalog Tool (Remote MCP, Local STDIO MCP, Folder Lokal terotorisasi, dan Skills SKILL.md) via [[TOOL_CALL:...]] / [[LOAD_SKILL:...]]. Gunakan tool jika butuh data/file nyata agar 100% bebas halusinasi!\n"
+                    "2. Gunakan tool baca di Katalog Tool (Remote MCP, Local STDIO MCP, Folder Lokal terotorisasi, Skills SKILL.md) via [[TOOL_CALL:...]] / [[LOAD_SKILL:...]] bila butuh data nyata. Kamu hanya punya 2 putaran tool, jadi minta semua data yang dibutuhkan sekaligus. Tool yang mengubah produksi masuk antrean ACC CEO (laporkan 'menunggu ACC').\n"
                     "3. Patuhi koridor keamanan: Dept Themes BOLEH langsung mendorong tema baru ke List Draft server via `luxvite_create_draft_theme` (status Draft aman); dilarang mengubah konfigurasi produksi live di luar Draft atau melakukan pengeluaran dana tanpa ACC CEO.\n"
                     "4. Tulis hasil kerjamu secara rapi dan padat dalam Markdown (siap di-review Quality Gate oleh Manajer)."
                 )
@@ -10304,7 +10366,8 @@ def _execute_single_department_project(item, idx=1, total=1):
             "   (c) Menyusun Ringkasan Eksekutif & Daftar File Hasil Kerja Tim yang siap dilaporkan ke GM Raka & CEO.\n"
             "2. Sertakan bagian jelas: **Status Quality Gate (PASS/REVISI)**, **Daftar Deliverable Staf (nama + file)**, dan **Ringkasan Eksekutif Siap Pakai**.\n"
             "   Tulis juga tepat satu tag [[GATE:PASS]] atau [[GATE:REVISI]]. PASS hanya bila seluruh target rapat benar-benar "
-            "terpenuhi dengan bukti tool nyata; bila ada deliverable yang gagal, tertahan, atau belum dieksekusi, wajib [[GATE:REVISI]]."
+            "terpenuhi dengan bukti tool nyata; bila ada deliverable yang gagal, tertahan, belum dieksekusi, atau berlabel "
+            "'HASIL TIDAK TUNTAS', wajib [[GATE:REVISI]]."
             + handoff_rule
         )
         mgr_prompt = (
@@ -10411,8 +10474,8 @@ def _execute_single_department_project(item, idx=1, total=1):
                 deliverable_md=str(deliv_md or ""),
                 task_id=tid,
             )
-        except Exception:
-            pass
+        except Exception as wh_err:
+            print(f"[webhook] Gagal mengirim deliverable '{title[:60]}': {wh_err!r}", flush=True)
 
         task_status = "DONE" if gate_passed else "REVISI"
         task_detail = (
@@ -10510,16 +10573,33 @@ def _execute_single_department_project(item, idx=1, total=1):
             )
     except Exception as err:
         now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
+        print(f"[dept-project] {dept} '{title[:60]}' gagal: {err!r}", flush=True)
+        gave_up = False
         with TASKBOARD_LOCK:
             tb = load_taskboard()
             for t in tb:
                 if t.get("id") == tid:
-                    t["status"] = "TODO"
-                    t["detail"] = f"Kendala eksekusi ({str(err)[:160]}). Siap dijalankan ulang."
+                    # Auto-resume menjalankan ulang TODO/IN_PROGRESS tanpa batas; setelah MAX_TASK_FAILURES kali gagal,
+                    # tugas berhenti sebagai GAGAL dan menunggu CEO, agar error yang sama tidak membakar kuota model berulang kali.
+                    fails = int(t.get("failCount") or 0) + 1
+                    t["failCount"] = fails
+                    gave_up = fails >= MAX_TASK_FAILURES
+                    t["status"] = "GAGAL" if gave_up else "TODO"
+                    t["detail"] = (
+                        f"Gagal {fails}x, dihentikan menunggu CEO. Error terakhir: {str(err)[:160]}"
+                        if gave_up
+                        else f"Kendala eksekusi ({str(err)[:160]}). Percobaan {fails}/{MAX_TASK_FAILURES}, akan dijalankan ulang."
+                    )
                     t["updatedAt"] = now_str
                     break
             save_taskboard(tb)
-        bump_world_chat_version(toast_msg=f"⚠️ Tim {dept} ({aname}) kendala di '{title[:40]}': {str(err)[:90]}")
+        bump_world_chat_version(
+            toast_msg=(
+                f"⛔ Tim {dept} ({aname}) berhenti di '{title[:40]}' setelah {MAX_TASK_FAILURES}x gagal: {str(err)[:80]}"
+                if gave_up
+                else f"⚠️ Tim {dept} ({aname}) kendala di '{title[:40]}': {str(err)[:90]}"
+            )
+        )
     finally:
         set_agents_busy(squad_ids, False)
         update_world_state({"liveStepStatus": ""})
@@ -10767,8 +10847,8 @@ def finish_meeting_and_execute_tasks(body):
                 p_list.insert(0, new_apv)
                 try:
                     notify_telegram_approval_proposal(new_apv)
-                except Exception:
-                    pass
+                except Exception as tg_err:
+                    print(f"[approval] Telegram notify gagal untuk {new_apv.get('id')}: {tg_err!r}", flush=True)
             ap_cfg["pendingApprovals"] = p_list[:20]
             _save_autopilot_config_unlocked(ap_cfg)
 

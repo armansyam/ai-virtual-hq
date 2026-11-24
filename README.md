@@ -9,6 +9,8 @@ Aplikasi server mandiri **3D Virtual HQ** dengan **35 Karyawan AI lintas 6 Depar
   - Sesi memakai **Signed Cookie (`HttpOnly`, `SameSite=Lax`, `Secure` di HTTPS)** + **Rate Limiting** anti brute-force (8 percobaan gagal / 10 menit per IP; header `X-Forwarded-For`/`CF-Connecting-IP` hanya dipercaya dari reverse proxy di `127.0.0.1`).
   - **ACC CEO untuk aksi agen**: tool Remote MCP yang mengubah sistem (selain `get/list/search/check/read/audit_*`) dan impor skill dari URL yang diminta agen masuk antrean persetujuan (UI & Telegram), baru dijalankan setelah disetujui.
   - **Status Quality Gate jujur**: laporan manajer berstatus REVISI tercatat `REVISI` di Papan Tugas, memori, dan webhook — bukan `DONE`.
+  - **Batas gagal**: tugas yang error 2× berhenti sebagai `GAGAL` dan menunggu CEO (tidak diulang tanpa batas). Agen yang kehabisan langkah tool ditandai `HASIL TIDAK TUNTAS`.
+  - **Memori ringkas**: catatan memori utama menyimpan 15 entri terbaru per bagian; entri lama dipindah ke `memory/arsip/`. Memori bekerja di latar belakang dan tidak ditampilkan sebagai wikilink di chat.
   - Firewall strict pada seluruh endpoint `/api/*` dan whitelist static file (file `.env`, `config/`, `reports/`, `*.py`, `*.md` diblokir `403`).
 - **Setup 1 Pintu (Zero Hardcode)**: Ubah Nama Perusahaan, Tagline, Industri, Website, Brief Bisnis/SOP, dan Nama 6 Departemen langsung dari UI — seluruh branding dan konteks 35 karyawan AI otomatis menyesuaikan.
 - **Multi-Provider AI & Multi-Remote MCP**: Hubungkan Gemini, OpenAI, Anthropic, Groq, Ollama, OpenRouter, serta satu atau banyak server aplikasi Remote MCP (`/api/mcp`).

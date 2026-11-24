@@ -659,17 +659,6 @@
 
       <div id="chat-messages-box" class="flex-1 p-3.5 overflow-y-auto space-y-2.5 bg-[#101017]"></div>
 
-      <div id="chat-memory-status-bar" class="px-3.5 py-1.5 bg-[#141420] border-t border-purple-500/25 flex items-center justify-between gap-2 text-[10px]">
-        <div class="flex items-center gap-1.5 min-w-0 text-slate-300 truncate" title="Hanya mengirim catatan Markdown Obsidian + beberapa pesan terakhir agar hemat token & bebas halusinasi. Balas 'Setuju / Kerjakan' di chat untuk eksekusi otomatis.">
-          <span class="text-purple-300 font-semibold shrink-0">🧠 Memory:</span>
-          <span id="chat-active-memory-pill" class="font-mono text-amber-200 truncate">[[00-INDEX]]</span>
-          <span id="chat-sliding-window-pill" class="text-slate-400 shrink-0">· 6 chat terakhir · Auto-Eksekusi saat disetujui</span>
-        </div>
-        <button type="button" onclick="toggleInlineMemoryViewer()" class="px-2 py-0.5 rounded bg-purple-500/20 hover:bg-purple-500/35 border border-purple-400/35 text-purple-200 font-semibold cursor-pointer shrink-0">
-          Lihat [[Wikilink]]
-        </button>
-      </div>
-
       <div id="chat-meeting-finish-bar" class="px-3.5 py-2 bg-[#141a22] border-t border-emerald-500/25 flex items-center justify-between gap-2 text-[10.5px]">
         <span class="text-slate-300 truncate">Selesai rapat? Buat Task otomatis &amp; jalankan di tiap dept:</span>
         <button id="btn-finish-meeting-exec" type="button" onclick="finishMeetingAndExecuteTasks()" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10.5px] cursor-pointer shrink-0 shadow">
@@ -6728,14 +6717,7 @@
     var MEMORY_CONFIG_CACHE = { vaultPath: "", slidingWindow: 6, autoExecuteOnApprove: true };
     var MEMORY_NOTES_CACHE = [];
 
-    function _updateChatMemoryStatusBar(roomKey, isTownHall = false) {
-      const pill = document.getElementById("chat-active-memory-pill");
-      const winPill = document.getElementById("chat-sliding-window-pill");
-      const sw = Number(MEMORY_CONFIG_CACHE.slidingWindow || 6);
-      const rClean = (roomKey || "ADMIN").toUpperCase();
-      const targetNote = isTownHall ? "[[TOWNHALL-DECISIONS]]" : `[[DEPT-${rClean}]]`;
-      if (pill) pill.textContent = `[[00-INDEX]] + ${targetNote}`;
-      if (winPill) winPill.textContent = `· ${sw} chat terakhir · Auto-Eksekusi saat disetujui`;
+    function _updateChatMemoryStatusBar() {
       // Hide inline drawer on room switch so it reloads fresh when clicked
       const drw = document.getElementById("chat-inline-memory-drawer");
       if (drw) drw.classList.add("hidden");
@@ -7037,9 +7019,9 @@
       if (!agentChatHistories["TOWNHALL"]) {
         agentChatHistories["TOWNHALL"] = [
           {
-            sender: "🎙️ GM Raka & 6 Manajer Departemen (Live AI + Obsidian Memory)",
+            sender: "🎙️ GM Raka & 6 Manajer Departemen",
             isCEO: false,
-            text: "Selamat datang di Ruang Rapat Utama (Town Hall), Bos! Seluruh manajer departemen terhubung ke memori **[[00-INDEX]]** dan **[[TOWNHALL-DECISIONS]]**.\n\nSilakan sampaikan topik rapat atau kritik/evaluasi — para manajer akan berdiskusi aktif dan meminta konfirmasi Bos. Begitu Bos membalas **\"Setuju / Kerjakan\"** di obrolan, tim langsung otomatis mengeksekusi hasilnya ke disk & memperbarui jaringan `[[wikilink]]` Obsidian!"
+            text: "Selamat datang di Ruang Rapat Utama (Town Hall), Bos! Seluruh manajer departemen sudah membawa catatan keputusan dan hasil kerja sebelumnya.\n\nSilakan sampaikan topik rapat atau kritik/evaluasi — para manajer akan berdiskusi aktif dan meminta konfirmasi Bos. Begitu Bos membalas **\"Setuju / Kerjakan\"** di obrolan, tim langsung otomatis mengeksekusi hasilnya ke disk & memperbarui jaringan `[[wikilink]]` Obsidian!"
           }
         ];
       }
@@ -7194,12 +7176,16 @@
       s = s.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, lang, code) =>
         `<pre class="my-1.5 p-2.5 rounded-lg bg-black/50 border border-white/10 font-mono text-[10.5px] text-emerald-300 overflow-x-auto">${code.trim()}</pre>`
       );
-      // Obsidian [[wikilink]] or [[target|alias]] interactive badges
+      // Memori Obsidian bekerja di latar belakang: nama catatan teknis di chat diganti kata biasa, [[target|alias]] jadi teks alias.
       s = s.replace(/\[\[([^\]|#]+)(?:\|([^\]]+))?\]\]/g, (_, target, alias) => {
-        const cleanT = target.trim();
-        const label = (alias || cleanT).trim();
-        const noteFile = cleanT.toLowerCase().endsWith(".md") ? cleanT : `${cleanT}.md`;
-        return `<button type="button" onclick="openInlineMemoryNoteFromWikilink('${noteFile.replace(/'/g, "\\'")}')" class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-purple-500/20 hover:bg-purple-500/35 border border-purple-400/40 font-mono text-[10px] text-purple-200 cursor-pointer" title="Buka catatan Obsidian [[${cleanT}]]">[[${label}]]</button>`;
+        if (alias) return alias.trim();
+        const t = target.trim().replace(/\.md$/i, "");
+        if (/^00-INDEX$/i.test(t)) return "memori kantor";
+        if (/^TOWNHALL-DECISIONS$/i.test(t)) return "keputusan rapat besar";
+        const dept = t.match(/^DEPT-([A-Z0-9_-]+)$/i);
+        if (dept) return `catatan tim ${dept[1].charAt(0).toUpperCase()}${dept[1].slice(1).toLowerCase()}`;
+        if (/^deliverables\//i.test(t)) return "dokumen hasil";
+        return t;
       });
       // Inline code
       s = s.replace(/`([^`\n]+)`/g, '<code class="px-1.5 py-0.5 rounded bg-black/40 border border-white/10 font-mono text-[10.5px] text-amber-300">$1</code>');
@@ -7240,15 +7226,13 @@
             ).join("")}</div>`
           : "";
 
-        const toolsHtml = (Array.isArray(m.toolCalls) && m.toolCalls.length > 0)
+        // Pembacaan memori Obsidian terjadi di latar belakang; chip yang tampil hanya tool kerja nyata.
+        const visibleTools = Array.isArray(m.toolCalls) ? m.toolCalls.filter(tc => tc.source !== "OBSIDIAN_MEMORY") : [];
+        const toolsHtml = visibleTools.length > 0
           ? `<div class="mb-2 flex flex-wrap gap-1">
-               ${m.toolCalls.map(tc => {
-                 const isObs = tc.source === "OBSIDIAN_MEMORY";
+               ${visibleTools.map(tc => {
                  const isSkill = tc.source === "SKILL";
                  const isRemote = tc.source === "REMOTE_MCP";
-                 if (isObs) {
-                   return `<button type="button" onclick="toggleInlineMemoryViewer(true)" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border bg-purple-500/20 border-purple-400/45 text-purple-200 font-semibold text-[9.5px] font-mono cursor-pointer" title="Klik untuk melihat/edit catatan Memory Markdown Obsidian">🧠 ${escapeHtmlSafe(tc.tool)} <span class="text-purple-300/80">· ${escapeHtmlSafe(tc.summary || 'Memory .md')}</span></button>`;
-                 }
                  if (isSkill) {
                    return `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border bg-amber-500/20 border-amber-400/45 text-amber-200 font-semibold text-[9.5px] font-mono" title="Skill SKILL.md otomatis aktif karena topik cocok">📚 Skill: ${escapeHtmlSafe(tc.tool)} <span class="text-amber-300/80">· ${escapeHtmlSafe(tc.summary || 'SKILL.md')}</span></span>`;
                  }
@@ -7265,10 +7249,7 @@
         const autoExecHtml = (autoExec && autoExec.executed)
           ? `<div class="mt-2.5 p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-400/45 space-y-1.5">
                <div class="flex items-center justify-between gap-2">
-                 <span class="text-[10px] font-bold text-emerald-300">🧠 KEPUTUSAN DIKUNCI KE MEMORY OBSIDIAN &amp; DIEKSEKUSI OTOMATIS</span>
-                 <button type="button" onclick="toggleInlineMemoryViewer(true)" class="px-2 py-0.5 rounded bg-purple-600/40 hover:bg-purple-600/60 border border-purple-400/40 text-purple-100 font-mono text-[9.5px] cursor-pointer">
-                   [[DEPT-${escapeHtmlSafe(autoExec.dept || 'ADMIN')}]]
-                 </button>
+                 <span class="text-[10px] font-bold text-emerald-300">✓ KEPUTUSAN DISIMPAN &amp; DIEKSEKUSI TIM ${escapeHtmlSafe(autoExec.dept || 'ADMIN')}</span>
                </div>
                <div class="text-[10.5px] text-white font-semibold">${escapeHtmlSafe(autoExec.title || '')}</div>
                <div class="text-[10px] text-slate-300">${escapeHtmlSafe(autoExec.decision || '')}</div>
@@ -7307,7 +7288,7 @@
             <div class="max-w-[92%] rounded-2xl rounded-tl-sm bg-[#1a1a26] border border-white/10 text-slate-200 px-3.5 py-3 text-xs leading-relaxed shadow">
               <div class="text-[10.5px] font-bold text-amber-300 mb-1.5 flex items-center justify-between gap-2">
                 <span>${escapeHtmlSafe(m.sender)}</span>
-                <span class="text-[9.5px] font-mono text-emerald-400 shrink-0">● Live AI + Obsidian</span>
+                <span class="text-[9.5px] font-mono text-emerald-400 shrink-0">● Live AI</span>
               </div>
               ${toolsHtml}
               <div class="whitespace-pre-line select-text space-y-1">${renderRichMarkdown(m.text)}</div>
@@ -9735,10 +9716,6 @@
       }
     }
 
-    async function openInlineMemoryNoteFromWikilink(noteFile) {
-      await toggleInlineMemoryViewer(true, noteFile);
-    }
-
     async function loadInlineMemoryNote(relNote) {
       try {
         const res = await fetch(`/api/memory-vault?note=${encodeURIComponent(relNote || "00-INDEX.md")}`);
@@ -11474,6 +11451,7 @@
               const isDone = t.status === "DONE";
               const isProg = t.status === "IN_PROGRESS";
               const isRevisi = t.status === "REVISI";
+              const isGagal = t.status === "GAGAL";
               const bdr = isDone ? "border-emerald-500/40" : (isProg ? "border-amber-500/40" : "border-rose-500/40");
               const statusBadge = isDone
                 ? `<span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold">✓ DONE</span>`
@@ -11481,7 +11459,9 @@
                   ? `<span class="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-bold">⚡ IN PROGRESS</span>`
                   : (isRevisi
                     ? `<span class="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[10px] font-bold">↺ REVISI · belum lulus QA</span>`
-                    : `<span class="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[10px] font-bold">📌 TODO</span>`));
+                    : (isGagal
+                      ? `<span class="px-2 py-0.5 rounded-full bg-rose-600/30 text-rose-200 border border-rose-500/60 text-[10px] font-bold">⛔ GAGAL · menunggu CEO</span>`
+                      : `<span class="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[10px] font-bold">📌 TODO</span>`)));
               const ag = agents.find(a => a.id === t.assigneeId);
               const agLabel = ag ? `${ag.name} (${ag.role})` : (t.assigneeName || "Tim AI");
               return `
