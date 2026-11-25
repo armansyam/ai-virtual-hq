@@ -6248,7 +6248,8 @@ def _resolve_fallback_model_for_agent(agent_id, primary_model_id, explicit_fallb
         h = health.get(c)
         if isinstance(h, dict) and h.get("ok") is False:
             return False
-        return True
+        # Model tanpa jalur nyata (bukan Claude lokal, bukan agy, tanpa API key) akan jatuh ke agy dan gagal diam-diam.
+        return c in CLAUDE_LOCAL_MODELS or c in MODEL_DISPLAY_TO_AGY_ID or c.startswith(("gemini-", "agy:")) or bool(_resolve_model_creds_by_id(c)[1])
 
     # 1. Explicit caller fallback
     if _is_usable(explicit_fallback):

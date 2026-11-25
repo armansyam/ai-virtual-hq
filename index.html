@@ -8540,7 +8540,9 @@
 
       const renderOpt = m => {
         const sel = selectedId === m.id ? " selected" : "";
-        const label = compact ? `${prefix}${m.id}` : `${prefix}${m.id}${m.agyId ? ` (${m.agyId})` : ""}`;
+        // Claude 5.5 di grup agy memakai kuota Antigravity, bukan langganan Claude milik CEO (itu ada di grup Local Session).
+        const via = isAgyNativeModel(m) && /^Claude\s/i.test(m.id || "") ? " · via Antigravity" : "";
+        const label = compact ? `${prefix}${m.id}${via}` : `${prefix}${m.id}${via}${m.agyId ? ` (${m.agyId})` : ""}`;
         return `<option value="${esc(m.id)}"${sel}>${esc(label)}</option>`;
       };
 
@@ -8881,7 +8883,8 @@
       const activeEndpoints = new Set(API_CONNECTIONS.map(c => (c.endpoint || "").trim().replace(/\/+$/, "")));
       const beforeLen = AVAILABLE_MODELS.length;
       const kept = AVAILABLE_MODELS.filter(m => {
-        if (!m.endpoint) return true; // Keep native Antigravity/Claude models
+        // Tanpa endpoint hanya sah bila lewat agy atau sesi lokal Claude Code; sisanya tidak punya jalur pemanggilan.
+        if (!m.endpoint) return isAgyNativeModel(m) || m.provider === "claude_cli" || m.provider === "claude_local" || /Local Session/i.test(m.id || "");
         const ep = (m.endpoint || "").trim().replace(/\/+$/, "");
         return activeEndpoints.has(ep);
       });
@@ -8900,7 +8903,15 @@
           ag.lastError = "";
           reassigned++;
         }
+        if (ag.fallbackModel && !validIds.has(ag.fallbackModel)) {
+          ag.fallbackModel = "";
+          reassigned++;
+        }
       });
+      if (DEFAULT_FALLBACK_MODEL && !validIds.has(DEFAULT_FALLBACK_MODEL)) {
+        DEFAULT_FALLBACK_MODEL = "";
+        reassigned++;
+      }
       const removedCount = beforeLen - AVAILABLE_MODELS.length;
       if (removedCount > 0 || reassigned > 0 || showToast) {
         saveCustomConfigToStorage();
