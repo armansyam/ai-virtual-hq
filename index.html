@@ -755,8 +755,8 @@
         <div class="rounded-xl bg-[#12121a] border border-indigo-500/40 p-4 space-y-2.5">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <div class="font-bold text-indigo-300 text-xs">🎨 Dept 2 Theme Factory (Mgr Bima) — Kirim Draft Theme Langsung ke VPS</div>
-              <div class="text-[11px] text-slate-400">Meracik HTML dari <code>_blueprints/</code> + mengirim otomatis via Remote MCP <code>luxvite_create_draft_theme</code> ke tab <b>🕵️ Draft Themes</b> (status Nonaktif, aman dari publik)</div>
+              <div class="font-bold text-indigo-300 text-xs">🎨 Dept 2 — Minta Tema Baru ke Tim Themes (Mgr Bima)</div>
+              <div class="text-[11px] text-slate-400">Tim meriset dan menyusun brief, lalu Theme Atelier menulis master, mengaudit, dan mengkritik visualnya. Hanya draf yang lolos yang dikirim lewat MCP ke tab <b>Draft Themes</b> (nonaktif).</div>
             </div>
             <a href="https://luxvite.id/admin?tab=themes" target="_blank" class="px-2.5 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/35 text-indigo-200 border border-indigo-400/35 text-[10.5px] font-bold">
               🕵️ Buka Tab Draft Themes →
@@ -5284,7 +5284,7 @@
           if (data.deliverables) applyServerDeliverables(data.deliverables);
           if (Array.isArray(data.taskboard)) TASKBOARD_ITEMS = data.taskboard;
           renderSidebarAndTable();
-          updateToast(`✅ Tugas Nyata Selesai! Berkas disimpan di: ${data.report_file}`);
+          updateToast(data.queued ? `⚡ ${data.summary}` : `✅ Tugas Nyata Selesai! Berkas disimpan di: ${data.report_file}`);
           if (data.coordination) {
             runCoordinationAnimation(data.coordination);
           }
@@ -5295,7 +5295,7 @@
     }
 
     async function submitDraftThemeFactory() {
-      const name = (document.getElementById("tf-name")?.value || "").trim() || "Emerald Soiree";
+      const name = (document.getElementById("tf-name")?.value || "").trim();
       const eventType = document.getElementById("tf-event")?.value || "WEDDING";
       const style = document.getElementById("tf-style")?.value || "modern";
       const paletteBg = document.getElementById("tf-bg")?.value || "#0f1c18";
@@ -5303,9 +5303,8 @@
       const box = document.getElementById("tf-result-box");
       if (box) {
         box.classList.remove("hidden");
-        box.innerHTML = `<span class="text-amber-300">⏳ Mgr Bima &amp; Vino sedang meracik HTML dari <code>_blueprints/</code> dan mengirim Draft Theme "${escapeHtmlSafe(name)}" ke VPS via Remote MCP...</span>`;
+        box.innerHTML = `<span class="text-amber-300">⏳ Mengirim permintaan tema "${escapeHtmlSafe(name)}" ke tim Themes...</span>`;
       }
-      updateToast(`🎨 Dept 2 sedang membuat & mengirim Draft Theme "${name}" ke VPS...`);
       try {
         const res = await fetch("/api/execute-real-task", {
           method: "POST",
@@ -5321,17 +5320,9 @@
         });
         const data = await res.json();
         if (data.ok && box) {
-          const badge = data.pushedToVps
-            ? `<span class="text-emerald-300 font-bold">✅ TERKIRIM KE VPS (Tab 🕵️ Draft Themes · Nonaktif)</span>`
-            : `<span class="text-amber-300 font-bold">⚠️ Tersimpan Lokal (VPS perlu 1x deploy tool luxvite_create_draft_theme)</span>`;
-          box.innerHTML = `${badge}<br/>`
-            + `<div class="mt-1.5 flex flex-wrap items-center gap-2">`
-            + `<a href="${escapeHtmlSafe(data.previewUrl)}" target="_blank" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10.5px]">👁️ Preview Admin: ${escapeHtmlSafe(data.previewUrl)}</a>`
-            + `<a href="${escapeHtmlSafe(data.adminReviewUrl)}" target="_blank" class="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-[10.5px]">⚙️ Buka Draft Themes di Admin</a>`
-            + `</div>`;
-          if (data.deliverables) applyServerDeliverables(data.deliverables);
-          if (data.coordination) runCoordinationAnimation(data.coordination);
-          updateToast(`✅ Draft Theme "${name}" selesai diproses! Riwayat URL tersimpan di reports/dept2-draft-themes-log.md.`);
+          box.innerHTML = `<span class="text-emerald-300 font-bold">⚡ ${escapeHtmlSafe(data.summary)}</span><br/>`
+            + `<span class="text-slate-400 text-[10.5px]">Draf yang lolos Theme Atelier muncul di Laporan → Dept 2 Themes beserta foto dan tombol preview, dan di Admin → Tema → Draft Themes.</span>`;
+          updateToast(`⚡ Tim Themes mulai mengerjakan tema "${name}".`);
         } else if (box) {
           box.innerHTML = `<span class="text-rose-300">❌ Gagal: ${escapeHtmlSafe(data.error || "Unknown error")}</span>`;
         }

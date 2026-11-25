@@ -6523,6 +6523,24 @@ def generate_data_driven_coordination_event(preferred_dept=None, custom_context=
     return ev
 
 
+def _launch_squad_project(dept, title, instruction, task_type):
+    """Tugas kreatif dikerjakan squad nyata (rencana manajer → staf dengan model & tool → QA gate) di latar belakang,
+    bukan teks templat. Hasilnya masuk Papan Tugas, antrean Siap dipakai, dan laporan departemen."""
+    mgr = DEPT_SQUADS[dept]["manager"]
+    ts_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
+    item = {"id": f"task_{task_type}_{int(time.time() * 1000)}", "title": title, "dept": dept,
+            "agentId": mgr["id"], "agentName": mgr["name"], "agentRole": mgr["role"], "instruction": instruction}
+    with TASKBOARD_LOCK:
+        tb = load_taskboard()
+        tb.insert(0, {**item, "taskType": "meeting_action_item", "priority": "HIGH", "status": "IN_PROGRESS",
+                      "detail": f"Dikerjakan tim {dept} ({mgr['name']} + staf) sejak {ts_str}.", "artifactFile": "", "updatedAt": ts_str})
+        save_taskboard(tb)
+    _execute_meeting_tasks_background([item])
+    bump_world_chat_version(toast_msg=f"⚡ Tim {dept} ({mgr['name']} + staf) mulai mengerjakan: {title[:70]}")
+    return {"ok": True, "queued": True, "task": task_type, "taskId": item["id"], "timestamp": ts_str,
+            "summary": f"Tim {dept} ({mgr['name']} + staf) sedang mengerjakan '{title}'. Hasil masuk Papan Tugas dan Laporan departemen setelah lolos QA."}
+
+
 def execute_department_work_engine(task_type, body=None):
     """
     Executes REAL departmental tasks on disk & live MCP, generates real Markdown/PNG deliverables,
@@ -6558,7 +6576,7 @@ def execute_department_work_engine(task_type, body=None):
         lines = [
             f"# Laporan Audit Real-Time {total_checked} Tema Fisik Luxvite",
             f"**Waktu Eksekusi:** {ts}",
-            f"**Pelaksana:** Dept 2 (⭐ Bima, Zaki, Vino, Kael) & Dept 5 (⭐ Arya, Niko)",
+            "**Pelaksana:** pemeriksaan otomatis sistem (alat MCP `luxvite_audit_theme_zero_hardcode` per tema), bukan analisis staf",
             "",
             f"- **Total Tema Diaudit di Disk:** `{total_checked}` tema fisik di `themes/{{wedding,personal,event}}/`",
             f"- **Lulus Zero-Hardcode `:root`:** `{passed}/{total_checked}` ({round(passed * 100 / max(1, total_checked), 1)}%)",
@@ -6572,7 +6590,8 @@ def execute_department_work_engine(task_type, body=None):
             for f in failed:
                 lines.append(f"- `{f['themeId']}` ({f['mode']}/{f['style']}): `{f['hexCount']}` temuan")
         else:
-            lines.append("## Hasil Verifikasi Zero-Hardcode `:root`\nSeluruh 81 tema master fisik (34 WEDDING, 37 PERSONAL, 10 EVENT) 100% bersih dari warna hex statis di luar blok `:root` dan bebas dari broken asset.")
+            per_mode = ", ".join(f"{len([t for items in styles.values() for t in items])} {mode.upper()}" for mode, styles in cat.get("catalog_by_event_and_style", {}).items())
+            lines.append(f"## Hasil Verifikasi Zero-Hardcode `:root`\nSeluruh {total_checked} tema yang diaudit ({per_mode}) tidak memiliki warna hex statis di luar blok `:root`.")
         if broken_list:
             lines.append("\n## Daftar Tema dengan Broken `/assets/`")
             for b in broken_list:
@@ -6586,8 +6605,7 @@ def execute_department_work_engine(task_type, body=None):
             f"• Rata-rata token dinamis: {round(placeholders_total / max(1, total_checked), 1)} token/tema\n"
             f"• File Laporan Tersimpan: {rel_file}"
         )
-        update_agent_deliverable(5, f"Selesai mengaudit {total_checked} tema fisik ({passed}/{total_checked} lulus Zero-Hardcode).", summary_out, rel_file)
-        update_agent_deliverable(14, f"QA Gate {total_checked} tema selesai pada {ts}: {passed}/{total_checked} lulus.", summary_out, rel_file)
+        update_agent_deliverable(14, f"Menerima hasil audit otomatis {total_checked} tema ({ts}): {passed}/{total_checked} lulus Zero-Hardcode.", summary_out, rel_file)
 
         tb = load_taskboard()
         for t in tb:
@@ -6628,7 +6646,7 @@ def execute_department_work_engine(task_type, body=None):
         md = (
             f"# Laporan Operasional & Sinkronisasi Produksi Real-Time (`luxvite.id`)\n"
             f"**Waktu Eksekusi:** {ts}\n"
-            f"**Pelaksana:** GM Raka (`@raka_ops`), Dept 4 (`⭐ Putri`) & Dept 5 (`⭐ Arya`, `Rian`, `Hermes`)\n\n"
+            "**Pelaksana:** pemeriksaan otomatis sistem (alat MCP health, business settings, audit sinkron disk vs API), bukan analisis staf\n\n"
             f"- **Status HTTP Produksi:** `{health.get('http_status')}` (`{json.dumps(health.get('health_response', {}), ensure_ascii=False)}`)\n"
             f"- **Versi Rilis Aktif VPS:** `{(health.get('release') or {}).get('release')}`\n"
             f"- **Payment Mode & Service Status:** `{biz.get('paymentMode')}` / `{(biz.get('serviceStatus') or {}).get('mode')}`\n"
@@ -6645,8 +6663,7 @@ def execute_department_work_engine(task_type, body=None):
             f"• Sinkronisasi Katalog: Disk {sync.get('disk_total_themes')} vs API {sync.get('prod_api_total_themes')} ({sync.get('recommendation')})\n"
             f"• File Laporan: {rel_file}"
         )
-        update_agent_deliverable(22, f"Audit produksi & sync selesai ({ts}): HTTP {health.get('http_status')}, Disk {sync.get('disk_total_themes')} vs API {sync.get('prod_api_total_themes')}.", summary_out, rel_file)
-        update_agent_deliverable(9, f"Sentinel VPS & MCP terverifikasi ({ts}): HTTP {health.get('http_status')}.", summary_out, rel_file)
+        update_agent_deliverable(9, f"Menerima hasil pemeriksaan otomatis produksi ({ts}): HTTP {health.get('http_status')}, Disk {sync.get('disk_total_themes')} vs API {sync.get('prod_api_total_themes')}.", summary_out, rel_file)
 
         tb = load_taskboard()
         for t in tb:
@@ -6675,126 +6692,19 @@ def execute_department_work_engine(task_type, body=None):
             "coordination": coord,
         }
 
-    # 3. Dept 1 Social Content Pack & Carousel PNG Render
+    # 3. Dept 1 Social: paket konten dikerjakan squad nyata (Senna + staf), hasilnya carousel/reels di antrean Siap Posting.
     if task_type == "generate_social_content_pack":
-        snap = get_live_platform_snapshot(force=False)
-        fd_days = (snap.get("live_settings") or {}).get("freeDraftRetentionDays") or 14
-        fd_photos = (snap.get("live_settings") or {}).get("freeDraftMaxPhotos") or 3
-        cat = snap.get("catalog") or {}
-        total_themes = cat.get("total_physical_themes") or 81
+        return _launch_squad_project("SOCIAL", "Paket konten Instagram hari ini",
+            "Buat konten Instagram @luxvite.id untuk jadwal terdekat yang belum terisi: minimal 1 carousel (slide jadi, bukan sekadar skrip) "
+            "dengan caption dan CTA sesuai data live (jumlah tema aktif, harga paket, Draf Gratis) dari tool MCP. Hasil wajib masuk antrean Siap Posting; "
+            "jangan mengulang topik carousel yang sudah ada di antrean.", task_type)
 
-        # Carousel nyata dibuat staf lewat antrean konten; paket ini hanya merujuk yang terbaru, tidak merender ulang slide lama.
-        latest_c = next((it for it in load_content_queue() if it.get("dept") == "SOCIAL" and it.get("format") == "carousel"), None)
-        rendered_slides = len([s for s in (latest_c or {}).get("slides") or [] if os.path.isfile(os.path.join(DATA_DIR, s))])
-        carousel_ref = (f"'{latest_c.get('title')}' ({rendered_slides} slide, {latest_c.get('dir')}, status {latest_c.get('status')})"
-                        if latest_c else "belum ada carousel di antrean")
-
-        rel_file = f"daily-content/{date_slug}-live-content-pack.md"
-        full_path = os.path.join(BASE_DIR, rel_file)
-        md = (
-            f"# Paket Konten Harian & Kampanye IG `@luxvite.id` ({date_slug})\n"
-            f"**Waktu Produksi:** {ts}\n"
-            f"**Tim Pelaksana:** Dept 1 Social Studio (`⭐ Senna`, `Nadia`, `Arka`, `Cleo`, `Sora`, `Maya`, `Kiki`)\n"
-            f"**Sinkronisasi Data Live Produksi:** `{total_themes}` Tema Fisik (34 Wedding, 37 Personal, 10 Event) · Draf Gratis `{fd_days}` Hari (Maks `{fd_photos}` Foto)\n\n"
-            f"## 1. Skrip Reels / TikTok 25 Detik (Oleh Arka & Nadia)\n"
-            f"- **00–03s (Hook Visual):** *\"Jangan bayar undangan digital sebelum kamu coba edit sendiri drafnya!\"*\n"
-            f"- **03–10s (Demo Draf Gratis {fd_days} Hari):** *\"Di Luxvite, kamu bisa daftar pakai Email + OTP 6-digit dan langsung coba Draf Gratis {fd_days} hari tanpa antre admin.\"*\n"
-            f"- **10–18s (Showcase {total_themes} Tema & 3 Mode Acara):** *\"Ada {total_themes} tema bergaya majalah & adat Nusantara—bukan cuma buat Wedding, tapi juga Khitanan, Aqiqah, Ultah, Wisuda, sampai Event Corporate.\"*\n"
-            f"- **18–25s (Guest Camera & CTA):** *\"Lengkap dengan QR Check-in meja tamu & Guest Camera Analog 5 filter film. Mulai Rp99 ribu di luxvite.id/demo!\"*\n\n"
-            f"## 2. Struktur 6 Slide Carousel 1080×1350 (Oleh Cleo & Damar)\n"
-            f"- **Carousel terbaru di antrean:** {carousel_ref}\n"
-            f"- **Highlight Utama:** Editorial Design · Studio Mandiri 16 Seksi · Draf Gratis {fd_days} Hari · QR Check-in · Guest Camera 5 Filter · Harga 99K/149K/249K.\n\n"
-            f"## 3. Caption & Optimasi Bio IG `@luxvite.id` (Oleh Sora & Maya)\n"
-            f"- **Display Name:** `Luxvite — Undangan Digital Editorial & Resepsionis QR`\n"
-            f"- **Bio:** `Your story, beautifully invited. ✨ {total_themes} Tema Majalah & Adat (Wedding, Personal & Event) 🪄 Coba Draf Gratis {fd_days} Hari 📸 Guest Camera Analog 👇 luxvite.id/demo`\n"
-        )
-        with open(full_path, "w", encoding="utf-8") as f:
-            f.write(md)
-
-        summary_out = (
-            f"[PAKET KONTEN HARIAN & CAROUSEL IG — {ts}]\n"
-            f"• Skrip Reels 25s + Caption + Bio IG disesuaikan dengan data live ({total_themes} tema, Draf Gratis {fd_days} hari)\n"
-            f"• Carousel terbaru di antrean: {carousel_ref}\n"
-            f"• File Tersimpan: {rel_file}"
-        )
-        for aid in (17, 1, 2, 3, 7):
-            update_agent_deliverable(aid, f"Menyelesaikan paket konten harian & render carousel ({ts}).", summary_out, rel_file)
-
-        tb = load_taskboard()
-        for t in tb:
-            if t.get("taskType") == "generate_social_content_pack":
-                t["status"] = "DONE"
-                t["updatedAt"] = ts
-                t["artifactFile"] = rel_file
-                t["detail"] = f"Selesai dibuat pada {ts}: Paket konten {rel_file}; carousel terbaru {carousel_ref}."
-        save_taskboard(tb)
-
-        coord = generate_data_driven_coordination_event(custom_context={
-            "fromId": 2, "fromName": "Cleo", "fromRole": "Spesialis Carousel IG",
-            "toId": 17, "toName": "⭐ Senna", "toRole": "Manajer Dept 1 (Social & Konten)",
-            "walkMsg": f"🎨 Cleo & Maya menyerahkan paket konten baru ({rel_file}) ke Mgr Senna...",
-            "fromBubble": f"🖼️ \"Mgr Senna! Paket konten harian (Draf Gratis {fd_days} Hari) sudah siap di {rel_file}; carousel terbaru {carousel_ref}.\"",
-            "toBubble": f"⭐ \"Luar biasa Cleo! Hasil kerja Dept 1 langsung diperbarui di Pusat Hasil Kerja CEO.\"",
-            "artifactFile": rel_file,
-        })
-        return {"ok": True, "task": task_type, "timestamp": ts, "report_file": rel_file, "summary": summary_out, "coordination": coord}
-
-    # 4. Dept 3 Growth, B2B WO & SEO Action Pack
+    # 4. Dept 3 Growth: paket aksi akuisisi dikerjakan squad nyata (Aldo + staf) berbasis data live.
     if task_type == "generate_b2b_growth_seo_pack":
-        snap = get_live_platform_snapshot(force=False)
-        fd_days = (snap.get("live_settings") or {}).get("freeDraftRetentionDays") or 14
-        fin = load_finance_ledger()
-        ue = fin.get("unit_economics_rules") or {}
-        mitra_pct = ue.get("default_partner_commission_percent", 15)
-        disc_pct = ue.get("default_coupon_discount_percent", 10)
-
-        rel_file = "reports/growth-b2b-seo-live.md"
-        full_path = os.path.join(BASE_DIR, rel_file)
-        md = (
-            f"# Rencana Eksekusi Akuisisi Mitra WO (Zero-Debt), Funnel Trial & SEO (`luxvite.id`)\n"
-            f"**Waktu Eksekusi:** {ts}\n"
-            f"**Tim Pelaksana:** Dept 3 Growth (`⭐ Aldo`, `Tara`, `Laras`, `Gita`, `Rendy`, `Bagas`, `Hana`)\n\n"
-            f"## 1. Skema Kemitraan B2B WO / MUA / Fotografer (Oleh Rendy & Aldo)\n"
-            f"- **Model Zero-Debt (Tanpa Utang Komisi):** Mitra WO mendaftarkan klien langsung di `/partner` (Direct Client Provisioning + Magic Link 48 Jam).\n"
-            f"- **Potongan Harga Langsung Klien Mitra:** `{mitra_pct}%` otomatis terpotong saat checkout (Anti-Stacking dengan kupon publik `{disc_pct}%`).\n"
-            f"- **Target Eksekusi:** Outreach 10 vendor WO & Studio Foto utama dengan akun Demo VIP.\n\n"
-            f"## 2. Funnel Konversi Draf Gratis `{fd_days}` Hari (Oleh Tara, Bagas & Hana)\n"
-            f"- **Alur Akuisisi:** Konten IG / Iklan Meta-TikTok → `luxvite.id/demo` → Daftar Email + OTP 6-digit → Coba Draf Gratis `{fd_days}` Hari → Pelunasan QRIS Midtrans otomatis mengaktifkan draf.\n\n"
-            f"## 3. Target Keyword SEO Organik 3 Mode Acara (Oleh Laras & Gita)\n"
-            f"- **Mode WEDDING (34 Tema):** `undangan pernikahan digital editorial`, `undangan digital adat bugis makassar`, `undangan resepsionis qr check-in`.\n"
-            f"- **Mode PERSONAL (37 Tema):** `undangan digital khitanan modern`, `undangan aqiqah digital elegan`, `undangan wisuda & ulang tahun digital`.\n"
-            f"- **Mode EVENT (10 Tema):** `undangan digital acara kantor corporate`, `undangan reuni & grand opening digital`.\n"
-        )
-        with open(full_path, "w", encoding="utf-8") as f:
-            f.write(md)
-
-        summary_out = (
-            f"[RENCANA AKUISISI B2B WO & FUNNEL SEO — {ts}]\n"
-            f"• Skema Mitra WO Zero-Debt: Potongan langsung klien {mitra_pct}% via /partner (Anti-Stacking kupon {disc_pct}%)\n"
-            f"• Funnel Konversi: Draf Gratis {fd_days} Hari -> Checkout QRIS Midtrans\n"
-            f"• File Laporan: {rel_file}"
-        )
-        for aid in (15, 6, 16, 19, 27, 28):
-            update_agent_deliverable(aid, f"Menyelesaikan paket akuisisi B2B WO & Funnel SEO ({ts}).", summary_out, rel_file)
-
-        tb = load_taskboard()
-        for t in tb:
-            if t.get("taskType") == "generate_b2b_growth_seo_pack":
-                t["status"] = "DONE"
-                t["updatedAt"] = ts
-                t["artifactFile"] = rel_file
-                t["detail"] = f"Selesai disusun pada {ts}: Skema Mitra WO {mitra_pct}% Zero-Debt & Funnel Draf Gratis {fd_days} Hari."
-        save_taskboard(tb)
-
-        coord = generate_data_driven_coordination_event(custom_context={
-            "fromId": 19, "fromName": "Rendy", "fromRole": "Staf Outreach WO",
-            "toId": 15, "toName": "⭐ Aldo", "toRole": "Manajer Dept 3 (Growth & B2B)",
-            "walkMsg": f"🤝 Rendy & Tara menyerahkan dokumen eksekusi B2B WO ({rel_file}) ke Mgr Aldo...",
-            "fromBubble": f"📨 \"Mgr Aldo! Dokumen outreach Mitra WO (diskon langsung {mitra_pct}% Zero-Debt) & SEO 3 Mode sudah tersimpan di {rel_file}!\"",
-            "toBubble": f"⭐ \"Mantap Rendy! Langsung kita jalankan untuk pecah telur klien & mitra pertama.\"",
-            "artifactFile": rel_file,
-        })
-        return {"ok": True, "task": task_type, "timestamp": ts, "report_file": rel_file, "summary": summary_out, "coordination": coord}
+        return _launch_squad_project("GROWTH", "Paket aksi akuisisi mitra WO, funnel Draf Gratis & SEO",
+            "Susun paket aksi Growth yang siap dijalankan minggu ini berdasarkan data live dari tool MCP (harga paket, potongan mitra, kupon aktif, "
+            "jumlah tema per mode, setelan Draf Gratis): daftar target mitra WO/EO/fotografer beserta skrip outreach, perbaikan funnel Draf Gratis, "
+            "dan peta keyword SEO per mode acara. Angka wajib dari data live, bukan perkiraan.", task_type)
 
     # 5. Dept 6 Finance Unit Economics & Anti-Rugi Audit
     if task_type == "audit_finance_unit_economics":
@@ -6809,9 +6719,14 @@ def execute_department_work_engine(task_type, body=None):
         pph_pct = float(ue.get("pph_final_percent", 0.5))
         dom_sub = int(ue.get("domain_subsidy_cost") or 0)
 
-        pkgs = [("Serenade", 99000, False), ("Symphony", 149000, False), ("Eternity", 249000, True)]
+        live_pkgs = (luxvite_ops.tool_get_live_business_settings().get("packages") if luxvite_ops else None) or []
+        if not live_pkgs:
+            return {"ok": False, "error": "Harga paket live tidak terbaca dari luxvite.id; audit unit economics dibatalkan (tanpa angka tebakan)."}
+        pkgs = sorted(((str(p.get("name")), int(p.get("price") or 0), "custom_domain" in (p.get("capabilities") or [])) for p in live_pkgs), key=lambda x: x[1])
+        # Acuan BEP = paket tengah (harga median) agar tidak terlalu optimistis maupun pesimistis.
+        ref_name = pkgs[len(pkgs) // 2][0]
         pkg_rows = []
-        symphony_net = 124620
+        symphony_net = 1
         for pname, price, is_et in pkgs:
             # Anti-stacking: worst-case single discount is max(disc_pct, mitra_pct)
             eff_disc_pct = max(disc_pct, mitra_pct)
@@ -6821,7 +6736,7 @@ def execute_department_work_engine(task_type, body=None):
             dom_rp = dom_sub if is_et else 0
             net = paid - mdr_rp - pph_rp - dom_rp
             margin_pct = round((net / price) * 100, 1)
-            if pname == "Symphony":
+            if pname == ref_name:
                 symphony_net = max(1, net)
             pkg_rows.append(f"| **{pname}** | Rp {price:,} | {eff_disc_pct}% (Anti-Stacking) | Rp {paid:,} | Rp {mdr_rp + pph_rp + dom_rp:,} | **Rp {net:,}** (**{margin_pct}%**) |")
 
@@ -6831,13 +6746,13 @@ def execute_department_work_engine(task_type, body=None):
         md = (
             f"# Laporan Audit Keuangan, OPEX & Unit Economics Anti-Rugi Real-Time\n"
             f"**Waktu Audit:** {ts}\n"
-            f"**Tim Pelaksana:** Dept 6 Keuangan (`⭐ Tika`, `Nanda`, `Reza`, `Sinta`)\n\n"
+            "**Pelaksana:** perhitungan otomatis sistem dari `config/finance_ledger.json` dan harga paket live, bukan analisis staf\n\n"
             f"## 1. Posisi Kas & OPEX Bulanan (`config/finance_ledger.json`)\n"
             f"- **Total OPEX Tetap / Bulan:** `Rp {total_opex:,}`\n"
             f"- **Total Pemasukan Tercatat:** `Rp {total_inc:,}`\n"
             f"- **Total Pengeluaran Tambahan:** `Rp {total_exp:,}`\n"
             f"- **Saldo Laba / Rugi Kas Saat Ini:** `Rp {total_inc - (total_opex + total_exp):,}`\n"
-            f"- **Target Break-Even Point (BEP):** **`{bep_orders} Order Symphony / Bulan`** (Laba bersih Rp {symphony_net:,}/order)\n\n"
+            f"- **Target Break-Even Point (BEP):** **`{bep_orders} Order {ref_name} / Bulan`** (Laba bersih Rp {symphony_net:,}/order)\n\n"
             f"## 2. Tabel Margin Bersih Per Paket (Guardrail Anti-Stacking Kupon {disc_pct}% vs Mitra {mitra_pct}%)\n"
             f"| Paket | Harga Normal | Potongan Maks | Harga Bayar Klien | Potongan MDR {mdr_pct}% + PPh {pph_pct}% + Domain | Margin Bersih Luxvite |\n"
             f"|---|---|---|---|---|---|\n"
@@ -6848,12 +6763,12 @@ def execute_department_work_engine(task_type, body=None):
 
         summary_out = (
             f"[AUDIT UNIT ECONOMICS & BEP DEPT 6 — {ts}]\n"
-            f"• Total OPEX Tetap: Rp {total_opex:,}/bln | Kas Masuk: Rp {total_inc:,} | Target BEP: {bep_orders} Order Symphony/bln\n"
-            f"• Laba Bersih Symphony (setelah diskon mitra {max(disc_pct, mitra_pct)}%, MDR {mdr_pct}%, PPh {pph_pct}%): Rp {symphony_net:,}/order\n"
+            f"• Total OPEX Tetap: Rp {total_opex:,}/bln | Kas Masuk: Rp {total_inc:,} | Target BEP: {bep_orders} Order {ref_name}/bln\n"
+            f"• Laba Bersih {ref_name} (setelah diskon mitra {max(disc_pct, mitra_pct)}%, MDR {mdr_pct}%, PPh {pph_pct}%): Rp {symphony_net:,}/order\n"
             f"• File Laporan: {rel_file}"
         )
         for aid in (29, 32, 33, 34):
-            update_agent_deliverable(aid, f"Audit Unit Economics & BEP selesai ({ts}): BEP {bep_orders} order/bln.", summary_out, rel_file)
+            update_agent_deliverable(aid, f"Menerima hitungan otomatis Unit Economics & BEP ({ts}): BEP {bep_orders} order/bln.", summary_out, rel_file)
 
         tb = load_taskboard()
         for t in tb:
@@ -6861,14 +6776,14 @@ def execute_department_work_engine(task_type, body=None):
                 t["status"] = "DONE"
                 t["updatedAt"] = ts
                 t["artifactFile"] = rel_file
-                t["detail"] = f"Audit {ts}: OPEX Rp {total_opex:,}/bln, BEP {bep_orders} order Symphony/bln (Laba bersih Rp {symphony_net:,}/order)."
+                t["detail"] = f"Audit {ts}: OPEX Rp {total_opex:,}/bln, BEP {bep_orders} order {ref_name}/bln (Laba bersih Rp {symphony_net:,}/order)."
         save_taskboard(tb)
 
         coord = generate_data_driven_coordination_event(custom_context={
             "fromId": 32, "fromName": "Nanda", "fromRole": "Analis Unit Economics & BEP",
             "toId": 29, "toName": "⭐ Tika", "toRole": "Manajer Dept 6 (Head of Finance)",
             "walkMsg": f"💰 Nanda menyerahkan hasil perhitungan BEP ({bep_orders} order/bln) & tabel margin anti-rugi ke Mgr Tika...",
-            "fromBubble": f"📊 \"Mgr Tika! Dengan OPEX Rp {total_opex:,}/bln, BEP kita terkunci aman di {bep_orders} order Symphony/bln (margin bersih Rp {symphony_net:,}/order).\"",
+            "fromBubble": f"📊 \"Mgr Tika! Dengan OPEX Rp {total_opex:,}/bln, BEP kita di {bep_orders} order {ref_name}/bln (margin bersih Rp {symphony_net:,}/order).\"",
             "toBubble": f"⭐ \"Bagus sekali Nanda! Laporan {rel_file} sudah siap untuk bahan evaluasi CEO & GM Raka.\"",
             "artifactFile": rel_file,
         })
@@ -6887,11 +6802,11 @@ def execute_department_work_engine(task_type, body=None):
         md = (
             f"# Laporan Kesiapan Operasional Klien, CS & Custom Domain (`luxvite.id`)\n"
             f"**Waktu Verifikasi:** {ts}\n"
-            f"**Tim Pelaksana:** Dept 4 Client Ops & CS (`⭐ Putri @putri_cs`, `Dinda`, `Fajar`)\n\n"
-            f"- **Mode Pembayaran Aktif:** `{biz.get('paymentMode', 'AUTOMATIC')}`\n"
+            "**Pelaksana:** pemeriksaan otomatis sistem (business settings live + cek DNS/TLS), bukan analisis staf\n\n"
+            f"- **Mode Pembayaran Aktif:** `{biz.get('paymentMode') or 'tidak terbaca'}`\n"
             f"- **Kontak Support Resmi:** WA `{biz.get('supportWhatsapp', '-')}` · Email `{biz.get('supportEmail', '-')}`\n"
             f"- **Parameter Draf Gratis Dinamis:** Masa aktif **`{fd_days}` hari** · Maksimal **`{fd_photos}` foto** (ber-watermark sebelum lunas)\n"
-            f"- **Target CNAME Custom Domain Klien:** `{biz.get('cnameTarget', 'cname.domain.com')}` → IP Server `{biz.get('serverPublicIp', 'configured-via-mcp')}`\n"
+            f"- **Target CNAME Custom Domain Klien:** `{biz.get('cnameTarget') or 'tidak terbaca'}` → IP Server `{biz.get('serverPublicIp') or 'tidak terbaca'}`\n"
             f"- **Status TLS/SSL Domain Utama (`luxvite.id`):** `{json.dumps(dns_main.get('tls_handshake') or {}, ensure_ascii=False)}`\n"
         )
         with open(full_path, "w", encoding="utf-8") as f:
@@ -6899,12 +6814,12 @@ def execute_department_work_engine(task_type, body=None):
 
         summary_out = (
             f"[VERIFIKASI KESIAPAN CS & CUSTOM DOMAIN — {ts}]\n"
-            f"• Draf Gratis Live: {fd_days} hari / maks {fd_photos} foto | Mode Bayar: {biz.get('paymentMode', 'AUTOMATIC')}\n"
-            f"• CNAME Custom Domain: {biz.get('cnameTarget', 'cname.domain.com')} -> {biz.get('serverPublicIp', 'configured-via-mcp')} (TLS OK)\n"
+            f"• Draf Gratis Live: {fd_days} hari / maks {fd_photos} foto | Mode Bayar: {biz.get('paymentMode') or 'tidak terbaca'}\n"
+            f"• CNAME Custom Domain: {biz.get('cnameTarget') or 'tidak terbaca'} -> {biz.get('serverPublicIp') or 'tidak terbaca'} · TLS luxvite.id: {json.dumps(dns_main.get('tls_handshake') or 'tidak terbaca', ensure_ascii=False)[:120]}\n"
             f"• File Laporan: {rel_file}"
         )
         for aid in (8, 20, 21):
-            update_agent_deliverable(aid, f"Verifikasi CS, Draf Gratis {fd_days} hari & DNS selesai ({ts}).", summary_out, rel_file)
+            update_agent_deliverable(aid, f"Menerima hasil pemeriksaan otomatis CS, Draf Gratis {fd_days} hari & DNS ({ts}).", summary_out, rel_file)
 
         tb = load_taskboard()
         for t in tb:
@@ -6912,7 +6827,7 @@ def execute_department_work_engine(task_type, body=None):
                 t["status"] = "DONE"
                 t["updatedAt"] = ts
                 t["artifactFile"] = rel_file
-                t["detail"] = f"Terverifikasi {ts}: Draf Gratis {fd_days} hari ({fd_photos} foto), CNAME {biz.get('cnameTarget', 'cname.luxvite.id')} aktif."
+                t["detail"] = f"Terverifikasi {ts}: Draf Gratis {fd_days} hari ({fd_photos} foto), CNAME {biz.get('cnameTarget') or 'tidak terbaca'}."
         save_taskboard(tb)
 
         coord = generate_data_driven_coordination_event(custom_context={
@@ -6934,9 +6849,10 @@ def execute_department_work_engine(task_type, body=None):
         agent_id = int(body.get("agentId") or 10)
         agent_name = (body.get("agentName") or "Raka").strip()
         agent_role = (body.get("agentRole") or "General Manager / COO").strip()
-        model_id = (body.get("modelId") or "Gemini 4 Argon (High)").strip()
-        endpoint = (body.get("endpoint") or "").strip()
-        api_key = (body.get("apiKey") or "").strip()
+        cfg_mid, cfg_ep, cfg_key = _resolve_agent_model_creds(agent_id)
+        model_id = (body.get("modelId") or cfg_mid).strip()
+        endpoint = (body.get("endpoint") or cfg_ep or "").strip()
+        api_key = (body.get("apiKey") or cfg_key or "").strip()
         task_id = (body.get("taskId") or "").strip()
 
         live_ctx, executed_tools = build_dynamic_mcp_context_with_trace(directive_text, room=scope, agent_id=agent_id)
@@ -6953,17 +6869,8 @@ def execute_department_work_engine(task_type, body=None):
                 model_id, endpoint, api_key, exec_sys_prompt, [], f"EKSEKUSI ARAHAN CEO SEKARANG:\n{directive_text}", live_mcp_ctx=live_ctx, agent_id=agent_id
             )
         except Exception as e:
-            # Fallback structured execution report using real MCP snapshot if model offline
-            deliverable_md = (
-                f"# Dokumen Eksekusi Arahan CEO — {agent_name} ({agent_role})\n"
-                f"**Waktu Eksekusi:** {ts}\n"
-                f"**Departemen:** `{scope}`\n"
-                f"**Arahan CEO:** {directive_text}\n\n"
-                f"## Data Produksi & Konteks Real-Time Saat Eksekusi\n"
-                f"```\n{live_ctx}\n```\n\n"
-                f"*(Catatan: Model AI `{model_id}` sedang offline saat auto-generate dokumen penuh: {e})*"
-            )
-            used_engine = "Real-Time MCP Engine"
+            # Tanpa jawaban model tidak ada hasil kerja: tugas tetap terbuka, bukan ditandai selesai dengan dokumen pengganti.
+            return {"ok": False, "task": task_type, "error": f"{agent_name} belum bisa mengerjakan arahan: model gagal ({str(e)[:300]}). Tugas tetap terbuka."}
 
         slug = re.sub(r"[^a-z0-9]+", "-", directive_text.lower())[:36].strip("-") or "directive"
         stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -7042,126 +6949,21 @@ def execute_department_work_engine(task_type, body=None):
             "coordination": coord,
         }
 
-    # 8. Dept 2 Theme Factory — Generate real HTML from _blueprints/ & push directly as DRAFT_REVIEW (isActive=false) to VPS via Remote MCP!
+    # 8. Dept 2: permintaan tema baru dari form CEO dikerjakan squad Themes dan diwujudkan lewat Theme Atelier (riset, brief per seksi,
+    # master tulisan tangan, audit, kritik visual), bukan reskin blueprint. Draf yang lolos dikirim lewat MCP ke Draft Themes.
     if task_type == "create_draft_theme_to_vps":
-        raw_name = (body.get("name") or "Emerald Soiree").strip()
-        raw_slug = (body.get("slug") or re.sub(r"[^a-z0-9]+", "-", raw_name.lower()).strip("-")).strip().lower()
-        slug = re.sub(r"[^a-z0-9-]", "", raw_slug)[:48] or f"draft-theme-{int(time.time())}"
-        event_type = (body.get("eventType") or "WEDDING").strip().upper()
-        if event_type not in ("WEDDING", "PERSONAL", "EVENT"):
-            event_type = "WEDDING"
-        style = (body.get("style") or "modern").strip().lower()
-        if style not in ("minimalist", "modern", "traditional"):
-            style = "modern"
-        sub_event = (body.get("subEvent") or "").strip()
-        description = (body.get("description") or f"Tema {raw_name} ({event_type} · {style}) dibuat oleh Dept 2 Theme Lab (Bima, Kael, Vino, Zaki).").strip()
-        bg_hex = (body.get("paletteBg") or "#0f1c18").strip()
-        accent_hex = (body.get("paletteAccent") or "#c9a227").strip()
-        text_hex = (body.get("paletteText") or "#f5f2eb").strip()
-        # Nilai ini disisipkan apa adanya ke <style> master tema; hanya hex warna yang boleh masuk.
-        for label, hex_val in (("paletteBg", bg_hex), ("paletteAccent", accent_hex), ("paletteText", text_hex)):
-            if not re.fullmatch(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})", hex_val):
-                return {"ok": False, "error": f"{label} harus berupa warna hex (#rgb atau #rrggbb), diterima: {hex_val[:30]}"}
-
-        ev_folder = {"WEDDING": "wedding", "PERSONAL": "personal", "EVENT": "event"}[event_type]
-        proj_dir = (load_company_profile().get("projectPath") or "").strip()
-        bp_path = os.path.join(proj_dir, "themes", "_blueprints", ev_folder, "starter-blueprint.html") if proj_dir else ""
-        if not os.path.exists(bp_path):
-            return {"ok": False, "error": f"Blueprint tidak ditemukan di {bp_path}"}
-
-        with open(bp_path, "r", encoding="utf-8", errors="ignore") as f:
-            html_code = f.read()
-
-        # Apply clean :root token palette & title override without introducing hardcoded hex outside :root
-        override_css = (
-            f"\n/* Dept 2 Theme Factory ({ts}) — {raw_name} ({slug}) */\n"
-            f":root {{\n"
-            f"  --bg-primary: {bg_hex};\n"
-            f"  --color-bg: {bg_hex};\n"
-            f"  --accent-primary: {accent_hex};\n"
-            f"  --color-accent: {accent_hex};\n"
-            f"  --text-primary: {text_hex};\n"
-            f"  --color-text: {text_hex};\n"
-            f"}}\n"
-        )
-        if "</style>" in html_code:
-            html_code = html_code.replace("</style>", f"{override_css}</style>", 1)
-        html_code = re.sub(r"<title>.*?</title>", f"<title>{raw_name} — Luxvite Draft Preview</title>", html_code, count=1, flags=re.S | re.I)
-
-        # Save local backup in reports/draft-themes/
-        draft_dir = os.path.join(REPORTS_DIR, "draft-themes")
-        os.makedirs(draft_dir, exist_ok=True)
-        local_html = os.path.join(draft_dir, f"{slug}.html")
-        with open(local_html, "w", encoding="utf-8") as f:
-            f.write(html_code)
-
-        # Push directly to VPS via Remote MCP luxvite_create_draft_theme (using ENGINEERING key which has ops:write!)
-        mcp_res = call_remote_mcp_tool(
-            "luxvite_create_draft_theme",
-            {
-                "slug": slug,
-                "name": raw_name,
-                "eventType": event_type,
-                "style": style,
-                "description": description,
-                **({"subEvent": sub_event} if sub_event else {}),
-                "htmlContent": html_code,
-            },
-            room="ENGINEERING",
-        )
-        pushed_ok = bool(mcp_res.get("ok"))
-        preview_url = f"https://luxvite.id/demo/{slug}"
-        admin_url = "https://luxvite.id/admin?tab=themes"
-
-        # Append to persistent Dept 2 Draft Themes Log (reports/dept2-draft-themes-log.md)
-        log_rel = "reports/dept2-draft-themes-log.md"
-        log_abs = os.path.join(BASE_DIR, log_rel)
-        if not os.path.exists(log_abs):
-            with open(log_abs, "w", encoding="utf-8") as lf:
-                lf.write("# 🎨 Riwayat Draft Themes Dept 2 (Dikirim ke VPS · Status Nonaktif / Draft Review)\n\n")
-        status_txt = "✅ TERKIRIM KE VPS (Tab Draft Themes)" if pushed_ok else f"⚠️ Tersimpan Lokal (VPS belum deploy tool baru: {mcp_res.get('error', '')})"
-        log_entry = (
-            f"## {raw_name} (`{slug}`) — {ts}\n"
-            f"- **Mode & Gaya:** `{event_type}` · `{style}`{f' · {sub_event}' if sub_event else ''}\n"
-            f"- **Palet :root:** BG `{bg_hex}` · Accent `{accent_hex}` · Text `{text_hex}`\n"
-            f"- **Status Pengiriman Remote MCP:** {status_txt}\n"
-            f"- **🔗 Preview Admin (Login Admin):** {preview_url}\n"
-            f"- **⚙️ Review & Rilis di Admin:** {admin_url}\n"
-            f"- **Salinan Lokal:** `reports/draft-themes/{slug}.html`\n\n"
-        )
-        with open(log_abs, "a", encoding="utf-8") as lf:
-            lf.write(log_entry)
-
-        summary_out = (
-            f"[THEME FACTORY DEPT 2 — {raw_name} ({slug}) · {ts}]\n"
-            f"• Status VPS: {status_txt}\n"
-            f"• 🔗 Preview Admin: {preview_url}\n"
-            f"• ⚙️ Tab Draft Themes: {admin_url}"
-        )
-        for aid in (5, 12, 13, 14):
-            update_agent_deliverable(aid, f"Mengirim Draft Theme '{raw_name}' ({slug}) ke VPS ({ts}).", summary_out, log_rel)
-
-        coord = generate_data_driven_coordination_event(custom_context={
-            "fromId": 5, "fromName": "⭐ Bima", "fromRole": "Manajer Dept 2 (Theme Lab)",
-            "toId": 22, "toName": "⭐ Arya", "toRole": "Manajer Dept 5 (Engineering)",
-            "walkMsg": f"🎨 Bima & Vino mengirim Draft Theme baru '{raw_name}' ({slug}) ke VPS via Remote MCP (Status: Draft Review)...",
-            "fromBubble": f"✨ \"Arya, Draft Theme '{raw_name}' ({slug}) sudah lulus blueprint & dikirim ke tab Draft Themes VPS! Preview: {preview_url}\"",
-            "toBubble": f"🚀 \"Siap Bima! Status terkunci Nonaktif (aman dari publik), CEO tinggal preview & klik Rilis ke Katalog!\"",
-            "artifactFile": log_rel,
-        })
-        return {
-            "ok": True,
-            "task": task_type,
-            "pushedToVps": pushed_ok,
-            "vpsResponse": mcp_res,
-            "slug": slug,
-            "name": raw_name,
-            "previewUrl": preview_url,
-            "adminReviewUrl": admin_url,
-            "report_file": log_rel,
-            "summary": summary_out,
-            "coordination": coord,
-        }
+        name = (body.get("name") or "").strip()
+        event_type = (body.get("eventType") or "").strip().upper()
+        style = (body.get("style") or "").strip().lower()
+        if not name or event_type not in ("WEDDING", "PERSONAL", "EVENT") or style not in ("minimalist", "modern", "traditional"):
+            return {"ok": False, "error": "Nama tema, mode (WEDDING/PERSONAL/EVENT), dan gaya (minimalist/modern/traditional) wajib diisi."}
+        palette_hint = ", ".join(h for h in ((body.get("paletteBg") or "").strip(), (body.get("paletteAccent") or "").strip())
+                                 if re.fullmatch(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})", h))
+        return _launch_squad_project("THEMES", f"Tema baru '{name}' ({event_type} · {style})",
+            f"CEO meminta tema baru bernama '{name}', mode {event_type}, gaya {style}"
+            + (f", dengan arah warna {palette_hint}" if palette_hint else "")
+            + ". Riset referensi, susun brief THEME_DRAFT lengkap (concept + sections per seksi) agar dikerjakan Theme Atelier dan dikirim lewat MCP "
+              "ke Draft Themes setelah lolos audit dan kritik visual.", task_type)
 
     return {"ok": False, "error": f"Task tidak dikenal: {task_type}"}
 
