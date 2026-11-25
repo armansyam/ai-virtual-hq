@@ -10,6 +10,19 @@
     @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;0,700;1,600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
 
     * { box-sizing: border-box; user-select: none; }
+
+    /* Token grafik laporan keuangan (latar gelap #13131b). s1–s3 = palet kategorikal tervalidasi CVD/kontras untuk latar ini. */
+    .fin-viz {
+      --fin-surface: #13131b;
+      --fin-s1: #3987e5;
+      --fin-s2: #d95926;
+      --fin-s3: #199e70;
+      --fin-muted: #5c5c68;
+      --fin-neg: #e66767;
+      --fin-grid: rgba(255, 255, 255, 0.06);
+      --fin-axis: #8b8b97;
+      --fin-text: #f0efec;
+    }
     body {
       margin: 0;
       padding: 0;
@@ -12215,6 +12228,67 @@
         const b = document.getElementById(`fin-subbtn-${t}`);
         if (b) b.className = t === tab ? "px-3 py-1 rounded-md bg-amber-500/25 text-amber-200 font-bold cursor-pointer" : "px-3 py-1 rounded-md text-slate-300 cursor-pointer";
       });
+      if (tab === "kupon") loadCouponRules();
+    }
+
+    // Batas kupon tim pemasaran AI (Admin luxvite.id → Pemasaran) + daftar kupon bertanda [MCP]; dibaca lewat MCP luxvite_get_coupon_rules.
+    var FIN_COUPON_RULES = null;
+    var FIN_COUPON_RULES_ERROR = "";
+
+    async function loadCouponRules() {
+      try {
+        const res = await fetch("/api/coupons/rules");
+        const data = await res.json();
+        FIN_COUPON_RULES = data.ok ? data.rules : null;
+        FIN_COUPON_RULES_ERROR = data.ok ? "" : (data.error || `HTTP ${res.status}`);
+      } catch (e) {
+        FIN_COUPON_RULES = null;
+        FIN_COUPON_RULES_ERROR = e.message;
+      }
+      renderFinanceDiscountTabs();
+    }
+
+    async function refreshFinanceLive() {
+      try {
+        const res = await fetch("/api/finance-ledger?refresh=1");
+        const data = await res.json();
+        if (data.ok) FINANCE_LIVE = data.live || FINANCE_LIVE;
+      } catch (e) {}
+      renderFinanceModalAll();
+    }
+
+    async function createCouponFromPanel() {
+      const val = id => (document.getElementById(id)?.value || "").trim();
+      const plans = ["TIER_1", "TIER_2", "TIER_3"].filter(p => document.getElementById(`fin-cp-plan-${p}`)?.checked);
+      const fb = document.getElementById("fin-cp-feedback");
+      const body = { code: val("fin-cp-code").toUpperCase(), discountPercent: Number(val("fin-cp-pct")), quotaLimit: Number(val("fin-cp-quota")), validDays: Number(val("fin-cp-days")), purpose: val("fin-cp-purpose"), applicablePlans: plans };
+      if (fb) fb.innerHTML = `<span class="text-slate-400">Mengirim ke luxvite.id…</span>`;
+      try {
+        const res = await fetch("/api/coupons/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        const r = data.result || {};
+        updateToast(`Kupon ${r.coupon?.code || body.code} aktif di luxvite.id.`);
+        if (fb) fb.innerHTML = `<span class="text-emerald-300">Kupon ${escapeHtmlSafe(r.coupon?.code || body.code)} dibuat.${r.warning ? ` ${escapeHtmlSafe(r.warning)}` : ""}</span>`;
+        await refreshFinanceLive();
+        await loadCouponRules();
+      } catch (e) {
+        if (fb) fb.innerHTML = `<span class="text-rose-300">${escapeHtmlSafe(e.message)}</span>`;
+      }
+    }
+
+    async function deactivateCouponFromPanel(code) {
+      if (!confirm(`Nonaktifkan kupon ${code}? Klien tidak bisa memakainya lagi.`)) return;
+      try {
+        const res = await fetch("/api/coupons/deactivate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        updateToast(`Kupon ${code} dinonaktifkan.`);
+        await refreshFinanceLive();
+        await loadCouponRules();
+      } catch (e) {
+        updateToast(`⚠️ Gagal menonaktifkan ${code}: ${e.message}`);
+      }
     }
 
     // Margin bersih semua paket bila satu potongan tertentu (satu kupon / satu mitra) yang dipakai; rumus sama dengan computePackageMargins.
@@ -12246,20 +12320,52 @@
       const kuponEl = document.getElementById("fin-sub-kupon");
       if (kuponEl) {
         const list = (FINANCE_LIVE.coupons || []).slice().sort((a, b) => b.value - a.value);
-        kuponEl.innerHTML = !FINANCE_LIVE.ok ? "" : list.length ? `
+        const rules = FIN_COUPON_RULES;
+        const aiCodes = new Set(((rules && rules.coupons) || []).map(c => c.code));
+        const lim = rules ? rules.limits : null;
+        const rulesBox = rules
+          ? `<div class="rounded-lg bg-[#1c1c28] border border-white/10 p-2.5 text-[11px] text-slate-300 mb-2">
+               <div class="font-semibold text-amber-200 mb-0.5">Batas kupon tim pemasaran AI (Admin luxvite.id → Pemasaran)</div>
+               Potongan maks. <b>${lim.maxPercent}%</b> · kuota maks. <b>${lim.maxQuota}</b> · berlaku maks. <b>${lim.maxValidDays} hari</b> · aktif maks. <b>${lim.maxActive}</b> (sisa ${rules.remainingSlots}) · margin minimum <b>${lim.minMarginPercent}%</b> per paket
+               ${rules.promoEnabled ? "" : `<div class="text-amber-300 mt-1">Master promo di luxvite.id sedang mati: kupon baru belum bisa dipakai klien sampai dinyalakan di Admin → Pemasaran.</div>`}
+             </div>`
+          : `<div class="text-[11px] text-slate-500 mb-2">Batas kupon tim AI belum terbaca${FIN_COUPON_RULES_ERROR ? `: ${escapeHtmlSafe(FIN_COUPON_RULES_ERROR)}` : "…"}</div>`;
+        const tableHtml = list.length ? `
           <div class="rounded-lg border border-white/10 overflow-x-auto">
             <table class="w-full text-[11px]">
-              <thead class="text-slate-400 text-[10px] uppercase bg-[#1c1c28]"><tr><th class="${th}">Kode</th><th class="${th}">Potongan</th><th class="${th}">Terpakai</th><th class="${th}">Berlaku s.d.</th><th class="${th}">Margin terendah</th></tr></thead>
+              <thead class="text-slate-400 text-[10px] uppercase bg-[#1c1c28]"><tr><th class="${th}">Kode</th><th class="${th}">Potongan</th><th class="${th}">Terpakai</th><th class="${th}">Berlaku s.d.</th><th class="${th}">Margin terendah</th><th class="${th}"></th></tr></thead>
               <tbody>${list.map(c => {
                 const rows = finMarginsForDiscount(c);
-                const quota = c.quotaLimit == null ? "tanpa batas" : `${c.usageCount}/${c.quotaLimit}`;
+                const quota = c.quotaLimit == null ? `${c.usageCount}× (tanpa batas)` : `${c.usageCount}/${c.quotaLimit}`;
                 const until = c.validUntil ? new Date(c.validUntil).toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" }) : "tanpa batas";
-                return `<tr class="border-t border-white/5"><td class="${td} font-mono text-slate-100">${escapeHtmlSafe(c.code)}</td><td class="${td} font-mono">${fmtDisc(c)}</td><td class="${td}">${c.quotaLimit == null ? `${c.usageCount}× (${quota})` : quota}</td><td class="${td}">${until}</td><td class="${td}">${finMarginBadge(rows)}</td></tr>`;
+                const isAi = aiCodes.has(c.code);
+                return `<tr class="border-t border-white/5"><td class="${td} font-mono text-slate-100">${escapeHtmlSafe(c.code)}${isAi ? ' <span class="ml-1 px-1 rounded bg-sky-500/20 text-sky-200 text-[9px] font-sans">Tim AI</span>' : ' <span class="ml-1 px-1 rounded bg-white/10 text-slate-300 text-[9px] font-sans">Admin</span>'}</td><td class="${td} font-mono">${fmtDisc(c)}</td><td class="${td}">${quota}</td><td class="${td}">${until}</td><td class="${td}">${finMarginBadge(rows)}</td><td class="${td} text-right">${isAi ? `<button onclick="deactivateCouponFromPanel('${escapeHtmlSafe(c.code)}')" class="text-[10px] text-rose-300 hover:text-rose-200 cursor-pointer">Nonaktifkan</button>` : ""}</td></tr>`;
               }).join("")}</tbody>
             </table>
-          </div>
-          <div class="text-[10px] text-slate-500 mt-1.5">Margin terendah = paket dengan margin bersih paling kecil bila kupon itu dipakai (setelah fee gateway, PPh, dan biaya custom domain). Kupon dibuat dan dinonaktifkan di Admin luxvite.id → Marketing.</div>`
-          : `<div class="text-[11px] text-slate-500 italic py-2">Tidak ada kupon aktif di luxvite.id.</div>`;
+          </div>` : `<div class="text-[11px] text-slate-500 italic py-2">Tidak ada kupon aktif di luxvite.id.</div>`;
+        const inp = "px-2 py-1.5 rounded bg-[#1c1c28] border border-white/15 text-white text-[11px]";
+        const formHtml = !rules ? "" : `
+          <details class="mt-2 rounded-lg border border-white/10 bg-[#13131b]">
+            <summary class="px-2.5 py-2 text-[11px] font-semibold text-slate-200 cursor-pointer">+ Buat kupon (kunci MCP Growth, dalam batas di atas)</summary>
+            <div class="p-2.5 pt-0 space-y-2">
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                <input id="fin-cp-code" placeholder="KODE (4–20)" maxlength="20" class="${inp} font-mono uppercase" />
+                <input id="fin-cp-pct" type="number" min="1" max="${lim.maxPercent}" placeholder="% (maks ${lim.maxPercent})" class="${inp} font-mono" />
+                <input id="fin-cp-quota" type="number" min="1" max="${lim.maxQuota}" placeholder="Kuota (maks ${lim.maxQuota})" class="${inp} font-mono" />
+                <input id="fin-cp-days" type="number" min="1" max="${lim.maxValidDays}" placeholder="Hari (maks ${lim.maxValidDays})" class="${inp} font-mono" />
+              </div>
+              <input id="fin-cp-purpose" placeholder="Tujuan & kanal kampanye (mis: carousel IG akhir tahun 26 Nov, koordinasi Social)" class="${inp} w-full" />
+              <div class="flex flex-wrap items-center gap-3 text-[11px] text-slate-300">
+                <span class="text-slate-400">Paket:</span>
+                ${(FINANCE_LIVE.packages || []).map(p => `<label class="flex items-center gap-1"><input type="checkbox" id="fin-cp-plan-${escapeHtmlSafe(p.id)}" />${escapeHtmlSafe(p.name)}</label>`).join("")}
+                <span class="text-slate-500">(kosong = semua paket)</span>
+                <button onclick="createCouponFromPanel()" class="ml-auto px-3 py-1.5 rounded-lg bg-amber-500/25 hover:bg-amber-500/35 text-amber-100 font-semibold cursor-pointer">Buat kupon</button>
+              </div>
+              <div id="fin-cp-feedback" class="text-[11px]"></div>
+            </div>
+          </details>`;
+        kuponEl.innerHTML = !FINANCE_LIVE.ok ? "" : rulesBox + tableHtml + formHtml + `
+          <div class="text-[10px] text-slate-500 mt-1.5">Margin terendah = paket dengan margin bersih paling kecil bila kupon itu dipakai (setelah fee gateway, PPh, dan biaya custom domain). Server luxvite.id menolak kupon tim AI di luar batas; kupon Admin hanya bisa diubah di Admin luxvite.id → Pemasaran.</div>`;
       }
       const mitraEl = document.getElementById("fin-sub-mitra");
       if (mitraEl) {
@@ -12383,12 +12489,19 @@
       const status = document.getElementById("fin-rep-status");
       if (!year || !month) return;
       if (status) status.textContent = "Membaca data luxvite.id…";
-      const prevY = month === 1 ? year - 1 : year;
-      const prevM = month === 1 ? 12 : month - 1;
+      // Bulan terpilih + 5 bulan sebelumnya untuk tren; bulan sebelumnya juga dipakai sebagai pembanding.
+      const months = Array.from({ length: 6 }, (_, i) => {
+        const d = new Date(year, month - 1 - (5 - i), 1);
+        return { y: d.getFullYear(), m: d.getMonth() + 1, label: d.toLocaleDateString("id-ID", { month: "short", year: "2-digit" }) };
+      });
       try {
-        const [cur, prev] = await Promise.all([fetchFinanceReport(year, month), fetchFinanceReport(prevY, prevM).catch(() => null)]);
+        const reports = await Promise.all(months.map((mm, i) => i === 5 ? fetchFinanceReport(mm.y, mm.m) : fetchFinanceReport(mm.y, mm.m).catch(() => null)));
+        const cur = reports[5];
+        const prev = reports[4];
         FIN_REPORT_STATE.data = cur;
         FIN_REPORT_STATE.prev = prev;
+        FIN_REPORT_STATE.label = new Date(year, month - 1, 1).toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+        FIN_REPORT_STATE.trend = months.map((mm, i) => reports[i] ? { label: mm.label, gross: Number(reports[i].summary.grossRevenue) || 0, net: Number(reports[i].summary.netProfitAfterTax) || 0, orders: reports[i].summary.paidOrdersCount || 0 } : null).filter(Boolean);
         if (status) status.textContent = `Sumber: Admin Finance luxvite.id (MCP) · ${new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })} WITA`;
       } catch (e) {
         FIN_REPORT_STATE.data = null;
@@ -12403,19 +12516,6 @@
     function finPlanName(code) {
       const p = (FINANCE_LIVE.packages || []).find(x => x.id === code);
       return p ? p.name : code;
-    }
-
-    function finBreakdownTable(title, obj, labelFn = k => k) {
-      const rows = Object.entries(obj || {});
-      return `
-        <div class="rounded-xl bg-[#13131b] border border-white/10 p-3">
-          <div class="text-[10.5px] font-bold uppercase text-slate-400 mb-1.5">${escapeHtmlSafe(title)}</div>
-          ${rows.length ? rows.map(([k, v]) => `
-            <div class="flex items-center justify-between py-1 border-b border-white/5 last:border-0">
-              <span class="text-slate-200">${escapeHtmlSafe(labelFn(k))}</span>
-              <span class="font-mono text-slate-100">${typeof v === "object" ? `${v.count}× · ${formatRupiah(v.amount)}` : formatRupiah(v)}</span>
-            </div>`).join("") : `<div class="text-slate-500 italic">Belum ada data.</div>`}
-        </div>`;
     }
 
     function renderFinanceReport() {
@@ -12462,41 +12562,158 @@
         return;
       }
       const p = FIN_REPORT_STATE.prev ? (FIN_REPORT_STATE.prev.summary || {}) : null;
-      const delta = (k) => {
-        if (!p) return "";
-        const d = (Number(s[k]) || 0) - (Number(p[k]) || 0);
-        if (!d) return `<div class="text-[10px] text-slate-500">sama dengan bulan lalu</div>`;
-        return `<div class="text-[10px] ${d > 0 ? "text-emerald-300" : "text-rose-300"}">${d > 0 ? "▲" : "▼"} ${formatRupiah(Math.abs(d))} vs bulan lalu</div>`;
-      };
-      const kpi = (label, val, k, cls = "text-white") => `
-        <div class="p-3 rounded-xl bg-[#13131b] border border-white/10">
-          <div class="text-[10px] uppercase text-slate-400">${label}</div>
-          <div class="text-base font-extrabold mt-0.5 ${cls}">${val}</div>${k ? delta(k) : ""}
-        </div>`;
-      const health = { NO_REVENUE: "Belum ada omzet", SEHAT: "Sehat", WASPADA: "Waspada", BAHAYA_RUGI: "Bahaya rugi" }[s.marginHealth] || s.marginHealth;
       const pend = r.pendingReconciliation || {};
       const closing = r.financialClosing || {};
+      const health = { NO_REVENUE: "Belum ada omzet", SEHAT: "Sehat", WASPADA: "Waspada", BAHAYA_RUGI: "Bahaya rugi" }[s.marginHealth] || s.marginHealth;
+      const net = Number(s.netProfitAfterTax) || 0;
+      const dNet = p ? net - (Number(p.netProfitAfterTax) || 0) : null;
+      const bd = r.breakdown || {};
+      const planItems = Object.entries(bd.byPlanType || {}).map(([k, v]) => ({ label: finPlanName(k), value: v.amount, sub: `${v.count} order` }));
+      const payItems = Object.entries(bd.byPaymentMethod || {}).map(([k, v]) => ({ label: k, value: v.amount, sub: `${v.count} order` }));
+      const expItems = Object.entries(bd.expensesByCategory || {}).map(([k, v]) => ({ label: k, value: Number(v) || 0 })).sort((x, y) => y.value - x.value);
       body.innerHTML = `
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-2.5">
-          ${kpi("Omzet bruto", formatRupiah(s.grossRevenue), "grossRevenue", "text-emerald-300")}
-          ${kpi("Order lunas", `${s.paidOrdersCount} order`, "paidOrdersCount")}
-          ${kpi("Diskon diberikan", formatRupiah(s.totalPromoDiscount), "totalPromoDiscount")}
-          ${kpi("Tertagih via gateway", formatRupiah(s.totalChargedToGateway), "totalChargedToGateway")}
-          ${kpi("Pengeluaran (OPEX)", formatRupiah(s.totalOpex), "totalOpex", "text-rose-300")}
-          ${kpi("Laba sebelum pajak", formatRupiah(s.netProfitBeforeTax), "netProfitBeforeTax")}
-          ${kpi("Estimasi PPh 0,5%", formatRupiah(s.estimatedPphFinal05), "")}
-          ${kpi("Laba bersih", formatRupiah(s.netProfitAfterTax), "netProfitAfterTax", (s.netProfitAfterTax || 0) >= 0 ? "text-emerald-300" : "text-rose-300")}
-        </div>
-        <div class="text-[11px] text-slate-300">Margin bersih ${s.netMarginPercent}% · status <b>${escapeHtmlSafe(health)}</b> · order kedaluwarsa ${s.expiredOrdersCount} · YTD ${r.yearToDate ? `${r.yearToDate.paidOrdersCount} order, ${formatRupiah(r.yearToDate.grossRevenue)}` : "-"} · tutup buku: ${closing.closed ? "sudah" : "belum"}</div>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-2.5">
-          ${finBreakdownTable("Per paket", (r.breakdown || {}).byPlanType, finPlanName)}
-          ${finBreakdownTable("Per metode bayar", (r.breakdown || {}).byPaymentMethod)}
-          ${finBreakdownTable("Pengeluaran per kategori", (r.breakdown || {}).expensesByCategory)}
-        </div>
-        <div class="rounded-xl bg-[#13131b] border border-white/10 p-3">
-          <div class="text-[10.5px] font-bold uppercase text-slate-400 mb-1.5">Order menunggu rekonsiliasi (${pend.count || 0} · ${formatRupiah(pend.totalPendingAmount || 0)})</div>
-          ${(pend.items || []).length ? pend.items.map(o => `<div class="flex justify-between py-1 border-b border-white/5 last:border-0"><span>${escapeHtmlSafe(o.invoiceNumber || o.id)} · ${escapeHtmlSafe(finPlanName(o.planType))} · ${escapeHtmlSafe(o.paymentMethod)}${o.hasTransferProof ? " · ada bukti transfer" : ""}</span><span class="font-mono">${formatRupiah(o.amount)}</span></div>`).join("") : `<div class="text-slate-500 italic">Tidak ada.</div>`}
+        <div class="fin-viz space-y-3">
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+            <div class="md:col-span-4 rounded-xl bg-[#13131b] border border-white/10 p-4 flex flex-col justify-between">
+              <div>
+                <div class="text-[10.5px] uppercase text-slate-400">Laba bersih ${escapeHtmlSafe(FIN_REPORT_STATE.label || "")}</div>
+                <div class="text-3xl font-extrabold mt-1 ${net >= 0 ? "text-slate-50" : "text-rose-300"}">${formatRupiah(net)}</div>
+                ${dNet === null ? "" : `<div class="text-[11px] mt-0.5 text-slate-300">${dNet === 0 ? "sama dengan bulan lalu" : `${dNet > 0 ? "▲" : "▼"} ${formatRupiah(Math.abs(dNet))} vs bulan lalu`}</div>`}
+              </div>
+              <div class="text-[11px] text-slate-400 mt-3 leading-relaxed">Margin ${s.netMarginPercent}% · ${escapeHtmlSafe(health)}<br>${s.paidOrdersCount} order lunas · ${s.expiredOrdersCount} kedaluwarsa<br>YTD ${r.yearToDate ? `${r.yearToDate.paidOrdersCount} order · ${formatRupiah(r.yearToDate.grossRevenue)}` : "-"} · tutup buku ${closing.closed ? "sudah" : "belum"}</div>
+            </div>
+            <div class="md:col-span-8 rounded-xl bg-[#13131b] border border-white/10 p-4">
+              <div class="text-[10.5px] font-bold uppercase text-slate-400 mb-2">Alur uang bulan ini</div>
+              ${finFlowChart(s)}
+            </div>
+          </div>
+          <div class="rounded-xl bg-[#13131b] border border-white/10 p-4">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <div class="text-[10.5px] font-bold uppercase text-slate-400">Tren 6 bulan</div>
+              <div class="flex items-center gap-3 text-[10.5px] text-slate-300">
+                <span class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:var(--fin-s1)"></span>Omzet bruto</span>
+                <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-0.5" style="background:var(--fin-s3)"></span>Laba bersih</span>
+              </div>
+            </div>
+            ${finTrendChart(FIN_REPORT_STATE.trend || [])}
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div class="rounded-xl bg-[#13131b] border border-white/10 p-4"><div class="text-[10.5px] font-bold uppercase text-slate-400 mb-2">Omzet per paket</div>${finDonut(planItems, "omzet paket")}</div>
+            <div class="rounded-xl bg-[#13131b] border border-white/10 p-4"><div class="text-[10.5px] font-bold uppercase text-slate-400 mb-2">Omzet per metode bayar</div>${finDonut(payItems, "omzet")}</div>
+            <div class="rounded-xl bg-[#13131b] border border-white/10 p-4"><div class="text-[10.5px] font-bold uppercase text-slate-400 mb-2">Pengeluaran per kategori</div>${finHBars(expItems)}</div>
+          </div>
+          <div class="rounded-xl bg-[#13131b] border border-white/10 p-3">
+            <div class="text-[10.5px] font-bold uppercase text-slate-400 mb-1.5">Order menunggu rekonsiliasi (${pend.count || 0} · ${formatRupiah(pend.totalPendingAmount || 0)})</div>
+            ${(pend.items || []).length ? pend.items.map(o => `<div class="flex justify-between py-1 border-b border-white/5 last:border-0"><span>${escapeHtmlSafe(o.invoiceNumber || o.id)} · ${escapeHtmlSafe(finPlanName(o.planType))} · ${escapeHtmlSafe(o.paymentMethod)}${o.hasTransferProof ? " · ada bukti transfer" : ""}</span><span class="font-mono">${formatRupiah(o.amount)}</span></div>`).join("") : `<div class="text-slate-500 italic">Tidak ada.</div>`}
+          </div>
+          <div id="fin-viz-tip" class="hidden fixed z-[70] pointer-events-none px-2.5 py-1.5 rounded-lg bg-[#0b0b10] border border-white/15 text-[11px] text-slate-100 shadow-xl"></div>
         </div>`;
+    }
+
+    // ===== Grafik laporan bulanan (SVG): palet kategorikal tervalidasi untuk latar gelap #13131b (biru, oranye, aqua) =====
+    const FIN_SERIES = ["var(--fin-s1)", "var(--fin-s2)", "var(--fin-s3)"];
+
+    function finTipShow(evt, html) {
+      const tip = document.getElementById("fin-viz-tip");
+      if (!tip) return;
+      tip.innerHTML = html;
+      tip.classList.remove("hidden");
+      const x = Math.min(evt.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
+      tip.style.left = `${Math.max(8, x)}px`;
+      tip.style.top = `${evt.clientY + 14}px`;
+    }
+    function finTipHide() { document.getElementById("fin-viz-tip")?.classList.add("hidden"); }
+    function finTipAttrs(html) {
+      return `onmousemove="finTipShow(event, this.dataset.tip)" onmouseleave="finTipHide()" data-tip="${escapeHtmlSafe(html).replace(/"/g, "&quot;")}"`;
+    }
+    function finShortRp(n) {
+      const a = Math.abs(n);
+      const dec = v => v.toFixed(1).replace(".", ",").replace(",0", "");
+      const t = a >= 1e9 ? `${dec(a / 1e9)} M` : a >= 1e6 ? `${dec(a / 1e6)} jt` : a >= 1e3 ? `${Math.round(a / 1e3)} rb` : `${Math.round(a)}`;
+      return `${n < 0 ? "-" : ""}Rp ${t}`;
+    }
+
+    // Alur uang: omzet → potong pengeluaran → potong PPh → laba bersih (waterfall horizontal, satu skala Rupiah).
+    function finFlowChart(s) {
+      const gross = Number(s.grossRevenue) || 0, opex = Number(s.totalOpex) || 0, pph = Number(s.estimatedPphFinal05) || 0, net = Number(s.netProfitAfterTax) || 0;
+      if (!gross && !opex) return `<div class="text-[11px] text-slate-500 italic py-6 text-center">Belum ada omzet maupun pengeluaran tercatat bulan ini.</div>`;
+      const max = Math.max(gross, opex + pph, Math.abs(net), 1);
+      const rows = [
+        { label: "Omzet bruto", from: 0, to: gross, color: "var(--fin-s1)", val: gross },
+        { label: "− Pengeluaran", from: Math.max(0, gross - opex), to: gross, color: "var(--fin-muted)", val: -opex },
+        { label: "− PPh 0,5%", from: Math.max(0, gross - opex - pph), to: Math.max(0, gross - opex), color: "var(--fin-muted)", val: -pph },
+        { label: "Laba bersih", from: Math.min(0, net), to: Math.max(0, net), color: net >= 0 ? "var(--fin-s3)" : "var(--fin-neg)", val: net },
+      ];
+      return `<div class="space-y-2">${rows.map(r => {
+        const left = (Math.max(0, r.from) / max) * 100, width = Math.max(0.6, ((r.to - Math.max(0, r.from)) / max) * 100);
+        return `<div class="grid grid-cols-2 sm:grid-cols-12 items-center gap-x-2 gap-y-1 text-[11px]" ${finTipAttrs(`<b>${r.label}</b><br>${formatRupiah(r.val)}`)}>
+          <div class="sm:col-span-3 text-slate-300 whitespace-nowrap">${r.label}</div>
+          <div class="sm:col-span-3 sm:order-3 text-right font-mono text-slate-100 whitespace-nowrap">${formatRupiah(r.val)}</div>
+          <div class="col-span-2 sm:col-span-6 sm:order-2 relative h-4 rounded bg-white/[0.04]"><div class="absolute top-0 h-4 rounded" style="left:${left}%;width:${width}%;background:${r.color}"></div></div>
+        </div>`;
+      }).join("")}</div>`;
+    }
+
+    // Tren 6 bulan: batang omzet + garis laba bersih pada satu sumbu Rupiah.
+    function finTrendChart(points) {
+      if (!points.length) return `<div class="text-[11px] text-slate-500 italic py-6 text-center">Data tren belum terbaca.</div>`;
+      if (points.every(pt => !pt.gross && !pt.net)) return `<div class="text-[11px] text-slate-500 italic py-6 text-center">Belum ada omzet maupun laba dalam ${points.length} bulan terakhir (${escapeHtmlSafe(points[0].label)} – ${escapeHtmlSafe(points[points.length - 1].label)}).</div>`;
+      // Lebar viewBox mengikuti layar agar teks sumbu tetap terbaca di HP (viewBox lebar ⇒ teks mengecil saat diskalakan).
+      const narrow = window.innerWidth < 640;
+      const W = narrow ? 440 : 900, H = narrow ? 240 : 210, L = 84, R = 10, T = 12, B = 26;
+      const vals = points.flatMap(pt => [pt.gross, pt.net]);
+      const maxV = Math.max(1, ...vals), minV = Math.min(0, ...vals);
+      const y = v => T + (H - T - B) * (1 - (v - minV) / (maxV - minV));
+      const colW = (W - L - R) / points.length, barW = Math.min(34, colW * 0.5);
+      const ticks = minV < 0 ? [minV, 0, maxV] : [0, maxV / 2, maxV];
+      const grid = ticks.map(v => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--fin-grid)" stroke-width="1"/><text x="${L - 8}" y="${y(v) + 4}" text-anchor="end" font-size="13" fill="var(--fin-axis)">${finShortRp(v)}</text>`).join("");
+      const bars = points.map((pt, i) => {
+        const cx = L + colW * i + colW / 2, top = y(Math.max(0, pt.gross)), base = y(0);
+        const h = Math.max(pt.gross > 0 ? 1 : 0, base - top);
+        const path = h > 0 ? `<path d="M${cx - barW / 2},${base} V${top + 4} Q${cx - barW / 2},${top} ${cx - barW / 2 + 4},${top} H${cx + barW / 2 - 4} Q${cx + barW / 2},${top} ${cx + barW / 2},${top + 4} V${base} Z" fill="var(--fin-s1)"/>` : "";
+        return `${path}<text x="${cx}" y="${H - 6}" text-anchor="middle" font-size="13" fill="var(--fin-axis)">${escapeHtmlSafe(pt.label)}</text>
+          <rect x="${L + colW * i}" y="${T}" width="${colW}" height="${H - T - B}" fill="transparent" ${finTipAttrs(`<b>${pt.label}</b><br>Omzet ${formatRupiah(pt.gross)}<br>Laba bersih ${formatRupiah(pt.net)}<br>${pt.orders} order`)}/>`;
+      }).join("");
+      const line = points.map((pt, i) => `${i ? "L" : "M"}${L + colW * i + colW / 2},${y(pt.net)}`).join(" ");
+      const dots = points.map((pt, i) => `<circle cx="${L + colW * i + colW / 2}" cy="${y(pt.net)}" r="4" fill="var(--fin-s3)" stroke="var(--fin-surface)" stroke-width="2" pointer-events="none"/>`).join("");
+      return `<svg viewBox="0 0 ${W} ${H}" class="w-full h-auto" role="img" aria-label="Tren omzet bruto dan laba bersih 6 bulan">${grid}${bars}<path d="${line}" fill="none" stroke="var(--fin-s3)" stroke-width="2" pointer-events="none"/>${dots}</svg>`;
+    }
+
+    // Donat komposisi: maks. 3 irisan berwarna (palet tervalidasi), sisanya dilipat ke "Lainnya" abu-abu.
+    function finDonut(items, unitLabel) {
+      const total = items.reduce((a, x) => a + (Number(x.value) || 0), 0);
+      if (!total) return `<div class="text-[11px] text-slate-500 italic py-8 text-center">Belum ada ${escapeHtmlSafe(unitLabel)} bulan ini.</div>`;
+      let list = items.slice().sort((a, b) => b.value - a.value);
+      if (list.length > 3) {
+        const rest = list.slice(2);
+        list = list.slice(0, 2).concat([{ label: "Lainnya", value: rest.reduce((a, x) => a + x.value, 0), sub: `${rest.length} kategori` }]);
+      }
+      const R0 = 46, R1 = 64, C = 70;
+      let ang = -Math.PI / 2;
+      const gap = list.length > 1 ? 0.035 : 0;
+      const arcs = list.map((it, i) => {
+        const frac = it.value / total, a0 = ang + gap / 2, a1 = ang + frac * 2 * Math.PI - gap / 2;
+        ang += frac * 2 * Math.PI;
+        const color = it.label === "Lainnya" ? "var(--fin-muted)" : FIN_SERIES[i];
+        const pct = Math.round(frac * 1000) / 10;
+        const tip = `<b>${escapeHtmlSafe(it.label)}</b><br>${formatRupiah(it.value)} (${pct}%)${it.sub ? `<br>${escapeHtmlSafe(it.sub)}` : ""}`;
+        if (frac >= 0.999) return `<circle cx="${C}" cy="${C}" r="${(R0 + R1) / 2}" fill="none" stroke="${color}" stroke-width="${R1 - R0}" ${finTipAttrs(tip)}/>`;
+        const large = a1 - a0 > Math.PI ? 1 : 0;
+        const pt = (r, a) => `${C + r * Math.cos(a)},${C + r * Math.sin(a)}`;
+        return `<path d="M${pt(R1, a0)} A${R1},${R1} 0 ${large} 1 ${pt(R1, a1)} L${pt(R0, a1)} A${R0},${R0} 0 ${large} 0 ${pt(R0, a0)} Z" fill="${color}" ${finTipAttrs(tip)}/>`;
+      }).join("");
+      const legend = list.map((it, i) => `<div class="flex items-center justify-between gap-2 text-[11px]"><span class="flex items-center gap-1.5 min-w-0"><span class="inline-block w-2.5 h-2.5 rounded-sm shrink-0" style="background:${it.label === "Lainnya" ? "var(--fin-muted)" : FIN_SERIES[i]}"></span><span class="truncate text-slate-200">${escapeHtmlSafe(it.label)}</span></span><span class="font-mono text-slate-300 shrink-0">${Math.round(it.value * 1000 / total) / 10}%</span></div>`).join("");
+      return `<div class="flex items-center gap-3"><svg viewBox="0 0 140 140" class="w-28 h-28 shrink-0" role="img" aria-label="Komposisi ${escapeHtmlSafe(unitLabel)}">${arcs}<text x="70" y="65" text-anchor="middle" font-size="13" fill="var(--fin-axis)">Total</text><text x="70" y="84" text-anchor="middle" font-size="15" font-weight="700" fill="var(--fin-text)">${finShortRp(total)}</text></svg><div class="flex-1 space-y-1 min-w-0">${legend}</div></div>`;
+    }
+
+    // Batang horizontal satu warna untuk besaran (pengeluaran per kategori), diurutkan dari terbesar.
+    function finHBars(items) {
+      const max = Math.max(0, ...items.map(x => x.value));
+      if (!max) return `<div class="text-[11px] text-slate-500 italic py-8 text-center">Belum ada pengeluaran tercatat bulan ini.</div>`;
+      return `<div class="space-y-1.5">${items.map(it => `<div class="text-[11px]" ${finTipAttrs(`<b>${escapeHtmlSafe(it.label)}</b><br>${formatRupiah(it.value)}`)}>
+        <div class="flex justify-between text-slate-300"><span>${escapeHtmlSafe(it.label)}</span><span class="font-mono">${formatRupiah(it.value)}</span></div>
+        <div class="h-2 mt-0.5 rounded bg-white/[0.04]"><div class="h-2 rounded" style="width:${Math.max(1, it.value * 100 / max)}%;background:var(--fin-s2)"></div></div>
+      </div>`).join("")}</div>`;
     }
 
     function renderFinanceTransactionsList() {

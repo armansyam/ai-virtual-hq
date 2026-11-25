@@ -4388,6 +4388,9 @@ REMOTE_MCP_OFFICIAL_TOOLS = {
     "luxvite_sync_themes",
     "luxvite_purge_cache",
     "luxvite_create_draft_theme",
+    "luxvite_get_coupon_rules",
+    "luxvite_create_coupon",
+    "luxvite_deactivate_coupon",
 }
 
 
@@ -7293,6 +7296,16 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             })
             return
 
+        if self.path.startswith("/api/coupons/rules"):
+            res = call_remote_mcp_tool("luxvite_get_coupon_rules", {}, room="GROWTH")
+            if not res.get("ok"):
+                res = call_remote_mcp_tool("luxvite_get_coupon_rules", {}, room="FINANCE")
+            if not res.get("ok"):
+                self._send_json(502, {"ok": False, "error": res.get("error") or "Aturan kupon tidak terbaca dari luxvite.id."})
+                return
+            self._send_json(200, {"ok": True, "rules": res.get("result"), "slot": res.get("slot")})
+            return
+
         if self.path.startswith("/api/finance-report"):
             # Laporan keuangan produksi (bulanan + rincian harian WIB) langsung dari luxvite.id; tanpa angka pengganti bila MCP gagal.
             now_wib = time.localtime()
@@ -7876,6 +7889,29 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 tb_now = load_taskboard()
                 _execute_meeting_tasks_background([t for t in tb_now if t.get("status") == "TODO" and str(t.get("id", "")).startswith("task_week_")][:4])
             self._send_json(200 if res.get("ok") else 400, res)
+            return
+
+        if clean_path in ("/api/coupons/create", "/api/coupons/deactivate"):
+            # Aksi CEO dari panel Keuangan; memakai kunci MCP Growth sehingga scope & batas kupon tetap ditegakkan server luxvite.id.
+            if clean_path.endswith("create"):
+                args = {
+                    "code": str(body.get("code") or "").strip().upper(),
+                    "discountPercent": body.get("discountPercent"),
+                    "quotaLimit": body.get("quotaLimit"),
+                    "validDays": body.get("validDays"),
+                    "purpose": str(body.get("purpose") or "").strip(),
+                }
+                plans = [p for p in (body.get("applicablePlans") or []) if p in ("TIER_1", "TIER_2", "TIER_3")]
+                if plans:
+                    args["applicablePlans"] = plans
+                res = call_remote_mcp_tool("luxvite_create_coupon", args, room="GROWTH")
+            else:
+                res = call_remote_mcp_tool("luxvite_deactivate_coupon", {"code": str(body.get("code") or "").strip().upper()}, room="GROWTH")
+            _LIVE_FINANCE_CACHE.update(ts=0.0, data=None)
+            if not res.get("ok"):
+                self._send_json(400, {"ok": False, "error": res.get("error") or "Ditolak luxvite.id."})
+                return
+            self._send_json(200, {"ok": True, "result": res.get("result")})
             return
 
         if clean_path == "/api/content-queue/update":
@@ -8644,6 +8680,11 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
 
 def _is_read_only_mcp_tool(tool_name):
     return bool(re.match(r"^(luxvite_)?(get|list|search|check|read|audit)_", str(tool_name or "").lower()))
+
+
+# Tool tulis yang batasnya ditegakkan server luxvite.id (persen/kuota/masa berlaku/jumlah aktif/margin minimum yang diatur CEO
+# di Admin → Pemasaran): boleh dijalankan langsung tanpa antre ACC, tetapi hanya dari ruang departemen pemiliknya.
+MCP_SERVER_GUARDED_WRITE_TOOLS = {"luxvite_create_coupon": "GROWTH", "luxvite_deactivate_coupon": "GROWTH"}
 
 
 def _queue_agent_action_for_ceo_approval(kind, title, detail, payload, room="", agent_id=None, agent_name=""):
@@ -10306,7 +10347,7 @@ def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, p
                     sid = str(req_obj.get("serverId") or "").strip()
                     tname = str(req_obj.get("tool") or "").strip()
                     targs = req_obj.get("args") if isinstance(req_obj.get("args"), dict) else {}
-                    if not _is_read_only_mcp_tool(tname):
+                    if not _is_read_only_mcp_tool(tname) and not (tname in MCP_SERVER_GUARDED_WRITE_TOOLS and str(room or "").upper() == MCP_SERVER_GUARDED_WRITE_TOOLS[tname]):
                         args_preview = json.dumps({k: (v if len(str(v)) <= 120 else f"<{len(str(v))} karakter>") for k, v in targs.items()}, ensure_ascii=False)
                         apv_id = _queue_agent_action_for_ceo_approval(
                             "MCP_TOOL",
@@ -11260,7 +11301,7 @@ def run_gm_autopilot_cycle(manual=False):
             "Kamu baru saja bangun untuk melakukan patroli rutin sebagai Kepala Kantor tanpa menunggu perintah CEO.\n"
             f"Fokus dari CEO: {cfg.get('focusAreas')}\n\n"
             "ATURAN WEWENANG (WAJIB DIPATUHI):\n"
-            "1. INTERNAL_SAFE (BOLEH langsung didelegasikan & dikerjakan mandiri): riset tren, audit kesehatan platform, membuat draf konten/skrip lokal, rekap keuangan/OPEX, menyusun SOP/rencana internal, merancang tema baru & mendorongnya masuk ke LIST DRAFT SERVER (`luxvite_create_draft_theme`, status Draft non-aktif sehingga aman untuk direview CEO di Admin), atau mengeksekusi tugas PENDING internal di Taskboard.\n"
+            "1. INTERNAL_SAFE (BOLEH langsung didelegasikan & dikerjakan mandiri): riset tren, audit kesehatan platform, membuat draf konten/skrip lokal, rekap keuangan/OPEX, menyusun SOP/rencana internal, merancang tema baru & mendorongnya masuk ke LIST DRAFT SERVER (`luxvite_create_draft_theme`, status Draft non-aktif sehingga aman untuk direview CEO di Admin), atau mengeksekusi tugas PENDING internal di Taskboard, termasuk kupon persen kampanye oleh Dept Growth dalam batas `luxvite_get_coupon_rules` (server menolak yang melewati batas CEO).\n"
             "2. NEEDS_CEO_APPROVAL (DILARANG dieksekusi langsung — wajib usulkan ke CEO): mengubah konfigurasi/aktivasi produksi live di luar Draft, mengubah harga jual, rekrut/pecat staf, atau install skill baru. "
             "Pekerjaan Dept Finance (menghitung pendapatan, pengeluaran bulanan, laba/rugi, kesehatan keuangan, simulasi) SELALU INTERNAL_SAFE: tidak ada tim yang memegang atau membayarkan uang.\n"
             "3. Jika tidak ada pekerjaan mendesak dan semua sudah berjalan baik hari ini, pilih ALL_CLEAR agar hemat token.\n\n"
@@ -11841,7 +11882,9 @@ def _execute_single_department_project(item, idx=1, total=1):
                     "EKSEKUSI MANDIRI STAF SPESIALIS:\n"
                     "1. Kamu adalah eksekutor utama sub-tugas ini — kerjakan secara tuntas, konkret, dan siap pakai.\n"
                     "2. Gunakan tool baca di Katalog Tool (Remote MCP, Local STDIO MCP, Folder Lokal terotorisasi, Skills SKILL.md) via [[TOOL_CALL:...]] / [[LOAD_SKILL:...]] bila butuh data nyata. Kamu hanya punya 2 putaran tool, jadi minta semua data yang dibutuhkan sekaligus. Tool yang mengubah produksi masuk antrean ACC CEO (laporkan 'menunggu ACC').\n"
-                    "3. Patuhi koridor keamanan: Dept Themes BOLEH langsung mendorong tema baru ke List Draft server via `luxvite_create_draft_theme` (status Draft aman); dilarang mengubah konfigurasi produksi live di luar Draft atau melakukan pengeluaran dana tanpa ACC CEO.\n"
+                    "3. Patuhi koridor keamanan: Dept Themes BOLEH langsung mendorong tema baru ke List Draft server via `luxvite_create_draft_theme` (status Draft aman); "
+                    "Dept Growth BOLEH membuat/menonaktifkan kupon persen via `luxvite_create_coupon` / `luxvite_deactivate_coupon` setelah membaca batasnya di `luxvite_get_coupon_rules` "
+                    "dan menyepakati kanal pemakaiannya dengan Dept Social (tulis tujuan & kanal di `purpose`; server menolak kupon di luar batas CEO); dilarang mengubah konfigurasi produksi live di luar Draft atau melakukan pengeluaran dana tanpa ACC CEO.\n"
                     "4. Tulis hasil kerjamu secara rapi dan padat dalam Markdown (siap di-review Quality Gate oleh Manajer)."
                 )
                 s_prompt = (
