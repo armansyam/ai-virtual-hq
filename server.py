@@ -7982,6 +7982,30 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             tb = load_taskboard()
             target_task = next((t for t in tb if t.get("id") == task_id), None)
             t_type = (body.get("taskType") or (target_task or {}).get("taskType") or "execute_custom_directive").strip()
+            # Tugas hasil rapat/squad (termasuk putaran revisi QA) dikerjakan squad departemennya, bukan mesin tugas tunggal.
+            if target_task and t_type == "meeting_action_item" and str(target_task.get("dept") or "").upper() in DEPT_SQUADS:
+                with _ACTIVE_TASK_IDS_LOCK:
+                    already = task_id in _ACTIVE_RUNNING_TASK_IDS
+                if not already:
+                    now_str = time.strftime("%Y-%m-%d %H:%M:%S WITA")
+                    with TASKBOARD_LOCK:
+                        tb_now = load_taskboard()
+                        for t in tb_now:
+                            if t.get("id") == task_id:
+                                rev = int(t.get("revisionRound") or 0)
+                                t["status"] = "IN_PROGRESS"
+                                t["updatedAt"] = now_str
+                                t["detail"] = f"Sedang dikerjakan tim {t.get('dept', '')} (dijalankan CEO {now_str}" + (f", revisi putaran {rev}" if rev else "") + ")."
+                                target_task = t
+                                break
+                        save_taskboard(tb_now)
+                    _execute_meeting_tasks_background([target_task])
+                self._send_json(200, {
+                    "ok": True, "queued": True, "alreadyRunning": already, "taskId": task_id,
+                    "summary": f"Tim {target_task.get('dept')} " + ("sudah sedang mengerjakan" if already else "mulai mengerjakan") + f" '{str(target_task.get('title'))[:80]}'.",
+                    "taskboard": load_taskboard(), "world": load_world_state(),
+                })
+                return
             exec_payload = dict(body)
             if target_task:
                 exec_payload.setdefault("directive", f"{target_task.get('title', '')} — {target_task.get('detail', '')}")

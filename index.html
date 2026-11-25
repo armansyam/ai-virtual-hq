@@ -12086,7 +12086,7 @@
           if (data.coordinationEvent) {
             runCoordinationAnimation(data.coordinationEvent, true);
           }
-          updateToast(`✅ Tugas selesai dieksekusi! Deliverable tersimpan di ${data.file || 'reports/'}.`);
+          updateToast(data.queued ? `⚡ ${data.summary} Hasilnya masuk Papan Tugas setelah QA.` : `✅ Tugas selesai dieksekusi! Deliverable tersimpan di ${data.file || 'reports/'}.`);
         } else {
           updateToast(`⚠️ Gagal mengeksekusi tugas: ${data.error || 'Unknown error'}`);
           renderInterDeptLogBody();
