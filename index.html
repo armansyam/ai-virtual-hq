@@ -11,12 +11,13 @@
 
     * { box-sizing: border-box; user-select: none; }
 
-    /* Token grafik laporan keuangan (latar gelap #13131b). s1–s3 = palet kategorikal tervalidasi CVD/kontras untuk latar ini. */
+    /* Token grafik laporan keuangan (latar gelap #13131b). s1–s4 = palet kategorikal tervalidasi CVD/kontras untuk latar ini. */
     .fin-viz {
       --fin-surface: #13131b;
       --fin-s1: #3987e5;
       --fin-s2: #d95926;
       --fin-s3: #199e70;
+      --fin-s4: #c98500;
       --fin-muted: #5c5c68;
       --fin-neg: #e66767;
       --fin-grid: rgba(255, 255, 255, 0.06);
@@ -12555,7 +12556,7 @@
           <div class="rounded-xl bg-[#13131b] border border-white/10 overflow-x-auto">
             <table class="w-full text-[11px]">
               <thead class="text-slate-400 text-[10px] uppercase">
-                <tr class="border-b border-white/10"><th class="px-2 py-2 text-left">Tanggal</th><th class="${cell}">Order</th><th class="px-2 py-2 text-left">Omzet</th><th class="${cell}">Diskon</th><th class="${cell}">Tertagih</th><th class="${cell}">Pengeluaran</th><th class="${cell}">Laba Harian</th></tr>
+                <tr class="border-b border-white/10"><th class="px-2 py-2 text-left">Tanggal</th><th class="${cell}">Order</th><th class="px-2 py-2 text-left">Omzet</th><th class="${cell}">Paket</th><th class="${cell}">Add-on</th><th class="${cell}">Diskon</th><th class="${cell}">Tertagih</th><th class="${cell}">Pengeluaran</th><th class="${cell}">Laba Harian</th></tr>
               </thead>
               <tbody>
                 ${days.slice().reverse().map(d => {
@@ -12565,6 +12566,8 @@
                     <td class="px-2 py-1.5 text-slate-200 whitespace-nowrap">${dt.toLocaleDateString("id-ID", { weekday: "short", day: "2-digit", month: "short" })}${d.date === todayKey ? ' <span class="text-amber-300 text-[9.5px]">hari ini</span>' : ""}</td>
                     <td class="${cell}">${d.paidOrdersCount}</td>
                     <td class="px-2 py-1.5"><div class="flex items-center gap-2"><div class="h-1.5 rounded bg-emerald-400/70" style="width:${Math.round(60 * d.grossRevenue / maxGross)}px"></div><span class="font-mono">${formatRupiah(d.grossRevenue)}</span></div></td>
+                    <td class="${cell}">${d.packageRevenue === undefined ? "-" : formatRupiah(d.packageRevenue)}</td>
+                    <td class="${cell}">${d.addonRevenue === undefined ? "-" : formatRupiah(d.addonRevenue)}</td>
                     <td class="${cell} text-slate-400">${formatRupiah(d.totalDiscount)}</td>
                     <td class="${cell}">${formatRupiah(d.totalChargedToGateway)}</td>
                     <td class="${cell} text-rose-300">${formatRupiah(d.totalExpenses)}</td>
@@ -12572,7 +12575,7 @@
                   </tr>`;
                 }).join("")}
               </tbody>
-              <tfoot class="font-bold text-slate-100"><tr class="border-t border-white/15"><td class="px-2 py-2">Total ${days.length} hari</td><td class="${cell}">${tot("paidOrdersCount")}</td><td class="px-2 py-2 font-mono">${formatRupiah(tot("grossRevenue"))}</td><td class="${cell}">${formatRupiah(tot("totalDiscount"))}</td><td class="${cell}">${formatRupiah(tot("totalChargedToGateway"))}</td><td class="${cell}">${formatRupiah(tot("totalExpenses"))}</td><td class="${cell}">${formatRupiah(tot("grossRevenue") - tot("totalExpenses"))}</td></tr></tfoot>
+              <tfoot class="font-bold text-slate-100"><tr class="border-t border-white/15"><td class="px-2 py-2">Total ${days.length} hari</td><td class="${cell}">${tot("paidOrdersCount")}</td><td class="px-2 py-2 font-mono">${formatRupiah(tot("grossRevenue"))}</td><td class="${cell}">${formatRupiah(tot("packageRevenue"))}</td><td class="${cell}">${formatRupiah(tot("addonRevenue"))}</td><td class="${cell}">${formatRupiah(tot("totalDiscount"))}</td><td class="${cell}">${formatRupiah(tot("totalChargedToGateway"))}</td><td class="${cell}">${formatRupiah(tot("totalExpenses"))}</td><td class="${cell}">${formatRupiah(tot("grossRevenue") - tot("totalExpenses"))}</td></tr></tfoot>
             </table>
           </div>
           <div class="text-[10px] text-slate-500">Laba harian = omzet bruto − pengeluaran yang dicatat pada tanggal itu (belum termasuk PPh dan biaya tetap HQ).</div>`;
@@ -12585,7 +12588,10 @@
       const net = Number(s.netProfitAfterTax) || 0;
       const dNet = p ? net - (Number(p.netProfitAfterTax) || 0) : null;
       const bd = r.breakdown || {};
-      const planItems = Object.entries(bd.byPlanType || {}).map(([k, v]) => ({ label: finPlanName(k), value: v.amount, sub: `${v.count} order` }));
+      // Omzet paket dihitung tanpa add-on (packageRevenueByPlan, dipecah per item di server); jenis pendapatan memisahkan add-on.
+      const planItems = Object.entries(bd.packageRevenueByPlan || {}).map(([k, v]) => ({ label: finPlanName(k), value: v.amount, sub: `${v.count} pembelian` }));
+      const kindItems = Object.entries(bd.revenueByKind || {}).map(([k, v]) => ({ label: FIN_KIND_LABELS[k] || k, value: v.amount, sub: `${v.count} item` }));
+      const addonTotal = ["MEMORIES_TOPUP", "GALLERY_EXTENSION"].reduce((a, k) => a + Number(((bd.revenueByKind || {})[k] || {}).amount || 0), 0);
       const payItems = Object.entries(bd.byPaymentMethod || {}).map(([k, v]) => ({ label: k, value: v.amount, sub: `${v.count} order` }));
       const expItems = Object.entries(bd.expensesByCategory || {}).map(([k, v]) => ({ label: k, value: Number(v) || 0 })).sort((x, y) => y.value - x.value);
       body.innerHTML = `
@@ -12614,8 +12620,10 @@
             </div>
             ${finTrendChart(FIN_REPORT_STATE.trend || [])}
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div class="rounded-xl bg-[#13131b] border border-white/10 p-4"><div class="text-[10.5px] font-bold uppercase text-slate-400 mb-2">Omzet per paket</div>${finDonut(planItems, "omzet paket")}</div>
+          ${bd.revenueByKind ? "" : `<div class="text-[11px] text-amber-300">Server luxvite.id belum mengirim rincian add-on; omzet per paket di bawah masih bisa tercampur add-on.</div>`}
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="rounded-xl bg-[#13131b] border border-white/10 p-4"><div class="flex justify-between text-[10.5px] font-bold uppercase text-slate-400 mb-2"><span>Omzet per jenis pendapatan</span><span class="font-mono normal-case text-slate-300">add-on ${formatRupiah(addonTotal)}</span></div>${finDonut(kindItems, "omzet")}</div>
+            <div class="rounded-xl bg-[#13131b] border border-white/10 p-4"><div class="text-[10.5px] font-bold uppercase text-slate-400 mb-2">Omzet paket (tanpa add-on)</div>${finDonut(bd.packageRevenueByPlan ? planItems : Object.entries(bd.byPlanType || {}).map(([k, v]) => ({ label: finPlanName(k), value: v.amount, sub: `${v.count} order` })), "omzet paket")}</div>
             <div class="rounded-xl bg-[#13131b] border border-white/10 p-4"><div class="text-[10.5px] font-bold uppercase text-slate-400 mb-2">Omzet per metode bayar</div>${finDonut(payItems, "omzet")}</div>
             <div class="rounded-xl bg-[#13131b] border border-white/10 p-4"><div class="text-[10.5px] font-bold uppercase text-slate-400 mb-2">Pengeluaran per kategori</div>${finHBars(expItems)}</div>
           </div>
@@ -12627,8 +12635,9 @@
         </div>`;
     }
 
-    // ===== Grafik laporan bulanan (SVG): palet kategorikal tervalidasi untuk latar gelap #13131b (biru, oranye, aqua) =====
-    const FIN_SERIES = ["var(--fin-s1)", "var(--fin-s2)", "var(--fin-s3)"];
+    // ===== Grafik laporan bulanan (SVG): palet kategorikal tervalidasi untuk latar gelap #13131b (biru, oranye, aqua, kuning) =====
+    const FIN_SERIES = ["var(--fin-s1)", "var(--fin-s2)", "var(--fin-s3)", "var(--fin-s4)"];
+    const FIN_KIND_LABELS = { NEW: "Paket baru", UPGRADE: "Upgrade paket", MEMORIES_TOPUP: "Top-up rol foto", GALLERY_EXTENSION: "Perpanjangan galeri" };
 
     function finTipShow(evt, html) {
       const tip = document.getElementById("fin-viz-tip");
@@ -12696,14 +12705,14 @@
       return `<svg viewBox="0 0 ${W} ${H}" class="w-full h-auto" role="img" aria-label="Tren omzet bruto dan laba bersih 6 bulan">${grid}${bars}<path d="${line}" fill="none" stroke="var(--fin-s3)" stroke-width="2" pointer-events="none"/>${dots}</svg>`;
     }
 
-    // Donat komposisi: maks. 3 irisan berwarna (palet tervalidasi), sisanya dilipat ke "Lainnya" abu-abu.
+    // Donat komposisi: maks. 4 irisan berwarna (palet tervalidasi), sisanya dilipat ke "Lainnya" abu-abu.
     function finDonut(items, unitLabel) {
       const total = items.reduce((a, x) => a + (Number(x.value) || 0), 0);
       if (!total) return `<div class="text-[11px] text-slate-500 italic py-8 text-center">Belum ada ${escapeHtmlSafe(unitLabel)} bulan ini.</div>`;
       let list = items.slice().sort((a, b) => b.value - a.value);
-      if (list.length > 3) {
-        const rest = list.slice(2);
-        list = list.slice(0, 2).concat([{ label: "Lainnya", value: rest.reduce((a, x) => a + x.value, 0), sub: `${rest.length} kategori` }]);
+      if (list.length > 4) {
+        const rest = list.slice(3);
+        list = list.slice(0, 3).concat([{ label: "Lainnya", value: rest.reduce((a, x) => a + x.value, 0), sub: `${rest.length} kategori` }]);
       }
       const R0 = 46, R1 = 64, C = 70;
       let ang = -Math.PI / 2;
