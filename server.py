@@ -4391,6 +4391,7 @@ REMOTE_MCP_OFFICIAL_TOOLS = {
     "luxvite_get_coupon_rules",
     "luxvite_create_coupon",
     "luxvite_deactivate_coupon",
+    "luxvite_set_coupon_limits",
 }
 
 
@@ -7889,6 +7890,24 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 tb_now = load_taskboard()
                 _execute_meeting_tasks_background([t for t in tb_now if t.get("status") == "TODO" and str(t.get("id", "")).startswith("task_week_")][:4])
             self._send_json(200 if res.get("ok") else 400, res)
+            return
+
+        if clean_path == "/api/coupons/ask-finance":
+            # Tim Finance menghitung batas kupon anti-rugi; usulan luxvite_set_coupon_limits otomatis masuk antrean ACC CEO
+            # (tool tulis dari ruang FINANCE tidak termasuk MCP_SERVER_GUARDED_WRITE_TOOLS).
+            note = str(body.get("note") or "").strip()[:400]
+            res = _launch_squad_project(
+                "FINANCE",
+                "Hitung & usulkan batas kupon anti-rugi tim pemasaran",
+                "Baca luxvite_get_coupon_rules (batas efektif, batas Finance, batas keras CEO, kupon tim AI) dan luxvite_get_finance_report "
+                "(omzet, OPEX, diskon, kupon & potongan mitra aktif), lalu hitung batas kupon yang aman: margin bersih tiap paket setelah potongan "
+                "terbesar (kupon ATAU potongan mitra, tidak pernah digabung), fee gateway, dan PPh 0,5% tidak boleh membuat bisnis rugi, dan potongan "
+                "kupon publik tidak boleh lebih menarik dari potongan mitra sampai mitra merasa dirugikan. Usulkan lewat luxvite_set_coupon_limits "
+                "dengan reason berisi angka dasar perhitungan; usulan itu menunggu ACC CEO. Jangan melewati batas keras CEO."
+                + (f" Catatan CEO: {note}" if note else ""),
+                "ask_finance_coupon_limits",
+            )
+            self._send_json(200, res)
             return
 
         if clean_path in ("/api/coupons/create", "/api/coupons/deactivate"):
@@ -11884,7 +11903,9 @@ def _execute_single_department_project(item, idx=1, total=1):
                     "2. Gunakan tool baca di Katalog Tool (Remote MCP, Local STDIO MCP, Folder Lokal terotorisasi, Skills SKILL.md) via [[TOOL_CALL:...]] / [[LOAD_SKILL:...]] bila butuh data nyata. Kamu hanya punya 2 putaran tool, jadi minta semua data yang dibutuhkan sekaligus. Tool yang mengubah produksi masuk antrean ACC CEO (laporkan 'menunggu ACC').\n"
                     "3. Patuhi koridor keamanan: Dept Themes BOLEH langsung mendorong tema baru ke List Draft server via `luxvite_create_draft_theme` (status Draft aman); "
                     "Dept Growth BOLEH membuat/menonaktifkan kupon persen via `luxvite_create_coupon` / `luxvite_deactivate_coupon` setelah membaca batasnya di `luxvite_get_coupon_rules` "
-                    "dan menyepakati kanal pemakaiannya dengan Dept Social (tulis tujuan & kanal di `purpose`; server menolak kupon di luar batas CEO); dilarang mengubah konfigurasi produksi live di luar Draft atau melakukan pengeluaran dana tanpa ACC CEO.\n"
+                    "dan menyepakati kanal pemakaiannya dengan Dept Social (tulis tujuan & kanal di `purpose`; server menolak kupon di luar batas CEO); "
+                    "Dept Finance yang menetapkan batas kupon anti-rugi via `luxvite_set_coupon_limits` (wajib `reason` berisi angka; menunggu ACC CEO, tidak boleh melewati batas keras CEO) "
+                    "dan Growth wajib berkoordinasi dengan Finance sebelum menawarkan potongan baru ke mitra; dilarang mengubah konfigurasi produksi live di luar Draft atau melakukan pengeluaran dana tanpa ACC CEO.\n"
                     "4. Tulis hasil kerjamu secara rapi dan padat dalam Markdown (siap di-review Quality Gate oleh Manajer)."
                 )
                 s_prompt = (

@@ -12277,6 +12277,19 @@
       }
     }
 
+    async function askFinanceCouponLimits() {
+      const note = prompt("Catatan untuk Tim Finance (opsional, mis. hasil rapat atau target kampanye):", "") ?? null;
+      if (note === null) return;
+      try {
+        const res = await fetch("/api/coupons/ask-finance", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ note }) });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        updateToast(`⚡ ${data.summary} Usulan batasnya akan masuk antrean ACC CEO.`);
+      } catch (e) {
+        updateToast(`⚠️ Gagal meminta Finance: ${e.message}`);
+      }
+    }
+
     async function deactivateCouponFromPanel(code) {
       if (!confirm(`Nonaktifkan kupon ${code}? Klien tidak bisa memakainya lagi.`)) return;
       try {
@@ -12325,8 +12338,12 @@
         const lim = rules ? rules.limits : null;
         const rulesBox = rules
           ? `<div class="rounded-lg bg-[#1c1c28] border border-white/10 p-2.5 text-[11px] text-slate-300 mb-2">
-               <div class="font-semibold text-amber-200 mb-0.5">Batas kupon tim pemasaran AI (Admin luxvite.id → Pemasaran)</div>
+               <div class="flex flex-wrap items-center justify-between gap-2 mb-0.5">
+                 <span class="font-semibold text-amber-200">Batas kupon efektif (ditetapkan Finance, di dalam batas keras CEO)</span>
+                 <button onclick="askFinanceCouponLimits()" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-slate-100 text-[10.5px] font-semibold cursor-pointer">Minta Finance hitung batas</button>
+               </div>
                Potongan maks. <b>${lim.maxPercent}%</b> · kuota maks. <b>${lim.maxQuota}</b> · berlaku maks. <b>${lim.maxValidDays} hari</b> · aktif maks. <b>${lim.maxActive}</b> (sisa ${rules.remainingSlots}) · margin minimum <b>${lim.minMarginPercent}%</b> per paket
+               ${rules.ceoBounds ? `<div class="text-[10.5px] text-slate-400 mt-1">Batas keras CEO (hanya diubah di Admin luxvite.id → Pemasaran): potongan ≤ ${rules.ceoBounds.maxPercent}% · kuota ≤ ${rules.ceoBounds.maxQuota} · berlaku ≤ ${rules.ceoBounds.maxValidDays} hari · aktif ≤ ${rules.ceoBounds.maxActive} · margin ≥ ${rules.ceoBounds.minMarginPercent}%. Usulan Finance masuk antrean ACC CEO.</div>` : ""}
                ${rules.promoEnabled ? "" : `<div class="text-amber-300 mt-1">Master promo di luxvite.id sedang mati: kupon baru belum bisa dipakai klien sampai dinyalakan di Admin → Pemasaran.</div>`}
              </div>`
           : `<div class="text-[11px] text-slate-500 mb-2">Batas kupon tim AI belum terbaca${FIN_COUPON_RULES_ERROR ? `: ${escapeHtmlSafe(FIN_COUPON_RULES_ERROR)}` : "…"}</div>`;
