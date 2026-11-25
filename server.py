@@ -5037,7 +5037,8 @@ def build_dynamic_mcp_context_with_trace(user_prompt="", room="", agent_id=None)
                     lines.append(f"- Local STDIO MCP `{sm['id']}` ({sm['name']}): [{', '.join(tlist[:16])}]")
         lines.append(
             "Format panggil tool on-demand (hanya jika perlu): "
-            "[[TOOL_CALL:{\"source\":\"remote_mcp\"|\"local_mcp\"|\"local_folder\", ...}]]"
+            "[[TOOL_CALL:{\"source\":\"remote_mcp\",\"tool\":\"<nama_tool>\",\"args\":{<argumen sesuai skema tool>}}]] "
+            "(local_mcp: tambah \"serverId\"; local_folder: \"folderId\" + \"action\"). Semua argumen tool WAJIB di dalam \"args\"."
         )
 
     room_key = {"DEPT1_SOCIAL": "SOCIAL", "DEPT2_THEMES": "THEMES", "DEPT3_GROWTH": "GROWTH", "DEPT4_OPS": "ADMIN", "DEPT5_ENG": "ENGINEERING", "DEPT6_FIN": "FINANCE"}.get(
@@ -10389,7 +10390,15 @@ def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, p
                 elif src == "remote_mcp":
                     sid = str(req_obj.get("serverId") or "").strip()
                     tname = str(req_obj.get("tool") or "").strip()
-                    targs = req_obj.get("args") if isinstance(req_obj.get("args"), dict) else {}
+                    # Agen kadang menamai argumen "arguments"/"params"/"input"; tanpa ini argumen hilang dan antrean ACC berisi {} kosong.
+                    targs = next((req_obj[k] for k in ("args", "arguments", "params", "input") if isinstance(req_obj.get(k), dict)), {})
+                    if not _is_read_only_mcp_tool(tname) and not targs:
+                        executed_tools.append({"tool": f"{tname} (argumen kosong)", "source": "REMOTE_MCP", "summary": "ditolak HQ"})
+                        tool_results_lines.append(
+                            f"- TOOL `{tname}` TIDAK DIKIRIM: argumen kosong. Kirim ulang dengan format "
+                            f"[[TOOL_CALL:{{\"source\":\"remote_mcp\",\"tool\":\"{tname}\",\"args\":{{...semua argumen wajib...}}}}]]."
+                        )
+                        continue
                     if not _is_read_only_mcp_tool(tname) and not (tname in MCP_SERVER_GUARDED_WRITE_TOOLS and str(room or "").upper() == MCP_SERVER_GUARDED_WRITE_TOOLS[tname]):
                         args_preview = json.dumps({k: (v if len(str(v)) <= 120 else f"<{len(str(v))} karakter>") for k, v in targs.items()}, ensure_ascii=False)
                         apv_id = _queue_agent_action_for_ceo_approval(
@@ -10403,8 +10412,8 @@ def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, p
                         )
                         executed_tools.append({"tool": f"{tname} (menunggu ACC)", "source": "REMOTE_MCP", "summary": apv_id})
                         tool_results_lines.append(
-                            f"- TOOL `{tname}` BELUM DIJALANKAN: tool ini mengubah sistem produksi dan menunggu ACC CEO (antrean {apv_id}). "
-                            "Laporkan statusnya sebagai menunggu persetujuan, bukan selesai."
+                            f"- TOOL `{tname}` BELUM DIJALANKAN: tool ini mengubah sistem produksi dan menunggu ACC CEO (antrean {apv_id}) "
+                            f"dengan argumen persis {args_preview}. Laporkan statusnya sebagai menunggu persetujuan, bukan selesai, dan kutip argumen ini apa adanya."
                         )
                         continue
                     res = call_remote_mcp_tool(tname, targs, room=room, server_id=sid)
