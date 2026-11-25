@@ -5,6 +5,7 @@ import csv
 import sys
 import re
 import json
+import math
 import time
 import hmac
 import shlex
@@ -5166,23 +5167,11 @@ def load_finance_ledger():
                 return json.load(f)
         except Exception:
             pass
+    # Pos OPEX diisi CEO sendiri di panel Keuangan. Kupon, potongan mitra, dan harga paket tidak disimpan di sini:
+    # selalu dibaca live dari luxvite.id lewat live_finance_inputs(). PPh Final 0,5% mengikuti PP 55/2022.
     return {
-        "monthly_fixed_opex": [
-            {"id": "vps", "name": "Sewa Server VPS Produksi", "category": "INFRASTRUCTURE", "amount": 150000},
-            {"id": "domain", "name": "Domain Utama luxvite.id (Alokasi Bulanan)", "category": "INFRASTRUCTURE", "amount": 25000},
-            {"id": "smtp", "name": "Layanan Email SMTP OTP 6-Digit", "category": "UTILITIES", "amount": 0},
-            {"id": "r2", "name": "Cloudflare R2 Object Storage & CDN", "category": "INFRASTRUCTURE", "amount": 0},
-            {"id": "ai", "name": "Langganan AI / API / Canva / Tooling", "category": "SOFTWARE_LICENSES", "amount": 0},
-            {"id": "ads", "name": "Budget Iklan Meta / TikTok / Google Ads", "category": "MARKETING", "amount": 0}
-        ],
-        "unit_economics_rules": {
-            "midtrans_fee_percent": 0.7,
-            "pph_final_percent": 0.5,
-            "default_coupon_discount_percent": 10.0,
-            "default_partner_commission_percent": 15.0,
-            "eternity_includes_domain_subsidy": False,
-            "domain_subsidy_cost": 0
-        },
+        "monthly_fixed_opex": [],
+        "unit_economics_rules": {"midtrans_fee_percent": 0.7, "pph_final_percent": 0.5, "domain_subsidy_cost": 0},
         "transactions": []
     }
 
@@ -5190,6 +5179,76 @@ def load_finance_ledger():
 def save_finance_ledger(data):
     with open(FINANCE_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+_LIVE_FINANCE_CACHE = {"ts": 0.0, "data": None}
+
+
+def live_finance_inputs(max_age=600):
+    """Harga paket (+ paket yang punya custom domain), kupon aktif, potongan mitra aktif, dan OPEX/komitmen yang tercatat
+    di admin luxvite.id, dibaca lewat MCP. ok=False bila salah satu sumber gagal; angka tidak pernah ditebak."""
+    now = time.time()
+    if _LIVE_FINANCE_CACHE["data"] and now - _LIVE_FINANCE_CACHE["ts"] < max_age:
+        return _LIVE_FINANCE_CACHE["data"]
+    out = {"ok": False, "packages": [], "coupons": [], "partners": [], "prodOpex": 0, "prodRecurring": 0,
+           "fetchedAt": time.strftime("%Y-%m-%d %H:%M WITA"), "error": ""}
+    try:
+        biz = luxvite_ops.tool_get_live_business_settings() if luxvite_ops else {}
+        rep = call_remote_mcp_tool("luxvite_get_finance_report", {}, room="FINANCE")
+        rep = rep.get("result") if isinstance(rep, dict) and isinstance(rep.get("result"), dict) else rep
+    except Exception as e:
+        out["error"] = f"MCP luxvite.id gagal: {str(e)[:200]}"
+        return out
+    pkgs = [{"name": str(p.get("name")), "price": int(p.get("price") or 0), "customDomain": "custom_domain" in (p.get("capabilities") or [])}
+            for p in (biz.get("packages") or []) if p.get("name") and int(p.get("price") or 0) > 0]
+    if not pkgs or not isinstance(rep, dict) or "summary" not in rep:
+        out["error"] = "Harga paket atau laporan keuangan luxvite.id tidak terbaca."
+        return out
+    ms = rep.get("marketingSummary") or {}
+    out.update(
+        ok=True, packages=sorted(pkgs, key=lambda p: p["price"]),
+        coupons=[{"type": str(c.get("discountType") or "PERCENT"), "value": float(c.get("discountValue") or 0)} for c in ms.get("activeCoupons") or []],
+        partners=[{"type": str(p.get("discountType") or "PERCENT"), "value": float(p.get("discountValue") or 0),
+                   "category": str(p.get("vendorCategory") or "Mitra")} for p in ms.get("activePartners") or []],
+        prodOpex=int((rep.get("summary") or {}).get("totalOpex") or 0),
+        prodRecurring=int((rep.get("recurringCommitments") or {}).get("estimatedMonthlyTotal") or 0),
+    )
+    _LIVE_FINANCE_CACHE.update(ts=now, data=out)
+    return out
+
+
+def _round_half_up(x):
+    # Sama dengan Math.round di panel (round() Python membulatkan .5 ke genap, sehingga angka panel & laporan bisa beda Rp1).
+    return int(math.floor(x + 0.5))
+
+
+def _discount_rp(price, d):
+    return min(price, _round_half_up(price * d["value"] / 100)) if d["type"] == "PERCENT" else min(price, int(d["value"]))
+
+
+def compute_package_margins(ledger, live):
+    """Margin bersih per paket, skenario terburuk. Luxenary menerapkan potongan mitra ATAU kupon publik (tidak pernah
+    keduanya; app/api/payments/checkout/confirm), jadi yang dipakai adalah satu potongan terbesar yang sedang aktif.
+    Biaya custom domain hanya dibebankan ke paket yang memang punya kemampuan custom_domain."""
+    ue = ledger.get("unit_economics_rules") or {}
+    fee_pct = float(ue.get("midtrans_fee_percent", 0.7))
+    pph_pct = float(ue.get("pph_final_percent", 0.5))
+    dom_cost = int(ue.get("domain_subsidy_cost") or 0)
+    rows = []
+    for p in live.get("packages") or []:
+        cands = [("tanpa potongan", 0)]
+        cands += [(f"kupon {c['value']:g}{'%' if c['type'] == 'PERCENT' else ' (Rp)'}", _discount_rp(p["price"], c)) for c in live.get("coupons") or []]
+        cands += [(f"mitra {m['category']} {m['value']:g}{'%' if m['type'] == 'PERCENT' else ' (Rp)'}", _discount_rp(p["price"], m)) for m in live.get("partners") or []]
+        disc_label, disc_rp = max(cands, key=lambda x: x[1])
+        paid = p["price"] - disc_rp
+        fee_rp = _round_half_up(paid * fee_pct / 100)
+        pph_rp = _round_half_up(paid * pph_pct / 100)
+        dom_rp = dom_cost if p["customDomain"] else 0
+        net = paid - fee_rp - pph_rp - dom_rp
+        rows.append({"name": p["name"], "price": p["price"], "customDomain": p["customDomain"], "discountLabel": disc_label,
+                     "discountRp": disc_rp, "paid": paid, "feeRp": fee_rp, "pphRp": pph_rp, "domainRp": dom_rp, "net": net,
+                     "marginPct": round(net * 100 / p["price"], 1) if p["price"] else 0})
+    return rows
 
 
 def load_hq_layout():
@@ -6419,11 +6478,14 @@ def generate_data_driven_coordination_event(preferred_dept=None, custom_context=
     fin = load_finance_ledger()
     total_opex = sum(int(x.get("amount") or 0) for x in fin.get("monthly_fixed_opex", []))
     total_inc = sum(int(t.get("amount") or 0) for t in fin.get("transactions", []) if t.get("type") == "INCOME")
-    ue = fin.get("unit_economics_rules") or {}
-    disc_pct = ue.get("default_coupon_discount_percent", 10)
-    mitra_pct = ue.get("default_partner_commission_percent", 15)
-    symphony_net = int(149000 * (1 - mitra_pct / 100.0) * (1 - 0.012))
-    bep_orders = max(1, (total_opex + symphony_net - 1) // max(1, symphony_net))
+    live_fin = live_finance_inputs()
+    fmt_d = lambda d: f"{d['value']:g}%" if d["type"] == "PERCENT" else f"Rp{int(d['value']):,}"
+    disc_pct = ", ".join(fmt_d(c) for c in live_fin["coupons"]) or "tidak ada kupon aktif"
+    mitra_pct = ", ".join(fmt_d(m) for m in live_fin["partners"]) or "belum ada mitra aktif"
+    margin_rows = compute_package_margins(fin, live_fin)
+    ref_row = margin_rows[len(margin_rows) // 2] if margin_rows else None
+    symphony_net = max(1, ref_row["net"]) if ref_row else 1
+    bep_orders = max(1, (total_opex + symphony_net - 1) // symphony_net) if ref_row else "?"
 
     directives = load_ceo_directives()
     latest_dir = directives[0].get("summary") if directives else None
@@ -6469,8 +6531,8 @@ def generate_data_driven_coordination_event(preferred_dept=None, custom_context=
             "fromId": 29, "fromName": "⭐ Tika", "fromRole": "Manajer Dept 6 (Head of Finance)",
             "toId": 10, "toName": "👑 Raka", "toRole": "GM / COO (@raka_ops)",
             "walkMsg": f"💰 [Data Buku Kas] Tika melaporkan OPEX Rp {total_opex:,}/bln, Kas Masuk Rp {total_inc:,} & target BEP {bep_orders} order ke GM Raka...",
-            "fromBubble": f"📊 \"Raka, OPEX tetap kita Rp {total_opex:,}/bln dan pemasukan tercatat Rp {total_inc:,}. Dengan potongan mitra {mitra_pct}% (Zero-Debt), BEP kita cukup {bep_orders} order Symphony/bln.\"",
-            "toBubble": f"👑 \"Angka yang sangat sehat, Tika! Pastikan anti-stacking kupon {disc_pct}% vs diskon mitra {mitra_pct}% tetap terkunci agar margin selalu di atas 80%.\"",
+            "fromBubble": f"📊 \"Raka, OPEX tetap kita Rp {total_opex:,}/bln dan pemasukan tercatat Rp {total_inc:,}. Dengan potongan harga mitra ({mitra_pct}), BEP kita {bep_orders} order {ref_row['name'] if ref_row else 'paket acuan'}/bln.\"",
+            "toBubble": f"👑 \"Oke Tika. Ingat potongan mitra dan kupon ({disc_pct}) tidak pernah digabung; pantau margin paket termurah tetap di atas 35%.\"",
         },
         {
             "dept": "SOCIAL",
@@ -6484,9 +6546,9 @@ def generate_data_driven_coordination_event(preferred_dept=None, custom_context=
             "dept": "GROWTH",
             "fromId": 15, "fromName": "⭐ Aldo", "fromRole": "Manajer Dept 3 (Growth & B2B WO)",
             "toId": 19, "toName": "Rendy", "toRole": "Staf Akuisisi Mitra WO",
-            "walkMsg": f"🤝 [Funnel B2B] Aldo & Rendy mengkoordinasikan outreach Mitra WO dengan skema potongan langsung {mitra_pct}% (Zero-Debt)...",
-            "fromBubble": f"🎯 \"Rendy, tawarkan Portal Mitra /partner ke WO: mereka cukup daftarkan klien via Magic Link 48 jam dan klien otomatis dapat diskon {mitra_pct}% saat checkout!\"",
-            "toBubble": f"📨 \"Siap Mgr Aldo! Skema Zero-Debt ({mitra_pct}% potongan langsung tanpa antre pencairan komisi) jauh lebih disukai vendor WO!\"",
+            "walkMsg": f"🤝 [Funnel B2B] Aldo & Rendy mengkoordinasikan outreach Mitra WO dengan skema potongan harga langsung ({mitra_pct}, Zero-Debt)...",
+            "fromBubble": f"🎯 \"Rendy, tawarkan Portal Mitra /partner ke WO: mereka cukup daftarkan klien via Magic Link 48 jam dan klien otomatis dapat potongan harga mitra saat checkout.\"",
+            "toBubble": f"📨 \"Siap Mgr Aldo! Saya jelaskan bahwa potongannya langsung ke harga klien, tanpa komisi atau tagihan ke mitra.\"",
         },
         {
             "dept": "ADMIN",
@@ -6713,32 +6775,18 @@ def execute_department_work_engine(task_type, body=None):
         total_inc = sum(int(t.get("amount") or 0) for t in fin.get("transactions", []) if t.get("type") == "INCOME")
         total_exp = sum(int(t.get("amount") or 0) for t in fin.get("transactions", []) if t.get("type") == "EXPENSE")
         ue = fin.get("unit_economics_rules") or {}
-        disc_pct = float(ue.get("default_coupon_discount_percent", 10))
-        mitra_pct = float(ue.get("default_partner_commission_percent", 15))
-        mdr_pct = float(ue.get("midtrans_fee_percent", 0.7))
-        pph_pct = float(ue.get("pph_final_percent", 0.5))
-        dom_sub = int(ue.get("domain_subsidy_cost") or 0)
-
-        live_pkgs = (luxvite_ops.tool_get_live_business_settings().get("packages") if luxvite_ops else None) or []
-        if not live_pkgs:
-            return {"ok": False, "error": "Harga paket live tidak terbaca dari luxvite.id; audit unit economics dibatalkan (tanpa angka tebakan)."}
-        pkgs = sorted(((str(p.get("name")), int(p.get("price") or 0), "custom_domain" in (p.get("capabilities") or [])) for p in live_pkgs), key=lambda x: x[1])
-        # Acuan BEP = paket tengah (harga median) agar tidak terlalu optimistis maupun pesimistis.
-        ref_name = pkgs[len(pkgs) // 2][0]
-        pkg_rows = []
-        symphony_net = 1
-        for pname, price, is_et in pkgs:
-            # Anti-stacking: worst-case single discount is max(disc_pct, mitra_pct)
-            eff_disc_pct = max(disc_pct, mitra_pct)
-            paid = round(price * (1.0 - eff_disc_pct / 100.0))
-            mdr_rp = round(paid * (mdr_pct / 100.0))
-            pph_rp = round(paid * (pph_pct / 100.0))
-            dom_rp = dom_sub if is_et else 0
-            net = paid - mdr_rp - pph_rp - dom_rp
-            margin_pct = round((net / price) * 100, 1)
-            if pname == ref_name:
-                symphony_net = max(1, net)
-            pkg_rows.append(f"| **{pname}** | Rp {price:,} | {eff_disc_pct}% (Anti-Stacking) | Rp {paid:,} | Rp {mdr_rp + pph_rp + dom_rp:,} | **Rp {net:,}** (**{margin_pct}%**) |")
+        live_fin = live_finance_inputs(max_age=0)
+        if not live_fin["ok"]:
+            return {"ok": False, "error": f"Audit unit economics dibatalkan (tanpa angka tebakan): {live_fin['error']}"}
+        margin_rows = compute_package_margins(fin, live_fin)
+        # Acuan BEP = paket harga tengah agar tidak terlalu optimistis maupun pesimistis.
+        ref = margin_rows[len(margin_rows) // 2]
+        ref_name, symphony_net = ref["name"], max(1, ref["net"])
+        pkg_rows = [f"| **{r['name']}** | Rp {r['price']:,} | {r['discountLabel']} (Rp {r['discountRp']:,}) | Rp {r['paid']:,} | "
+                    f"Rp {r['feeRp'] + r['pphRp'] + r['domainRp']:,} | **Rp {r['net']:,}** (**{r['marginPct']}%**) |" for r in margin_rows]
+        fmt_d = lambda d: f"{d['value']:g}%" if d["type"] == "PERCENT" else f"Rp{int(d['value']):,}"
+        coupons_txt = ", ".join(fmt_d(c) for c in live_fin["coupons"]) or "tidak ada"
+        partners_txt = ", ".join(f"{m['category']} {fmt_d(m)}" for m in live_fin["partners"]) or "tidak ada"
 
         bep_orders = max(1, (total_opex + symphony_net - 1) // symphony_net) if total_opex > 0 else 0
         rel_file = "reports/finance-anti-rugi-live.md"
@@ -6746,15 +6794,16 @@ def execute_department_work_engine(task_type, body=None):
         md = (
             f"# Laporan Audit Keuangan, OPEX & Unit Economics Anti-Rugi Real-Time\n"
             f"**Waktu Audit:** {ts}\n"
-            "**Pelaksana:** perhitungan otomatis sistem dari `config/finance_ledger.json` dan harga paket live, bukan analisis staf\n\n"
+            "**Pelaksana:** perhitungan otomatis sistem dari `config/finance_ledger.json` dan data live luxvite.id (MCP), bukan analisis staf\n\n"
             f"## 1. Posisi Kas & OPEX Bulanan (`config/finance_ledger.json`)\n"
             f"- **Total OPEX Tetap / Bulan:** `Rp {total_opex:,}`\n"
             f"- **Total Pemasukan Tercatat:** `Rp {total_inc:,}`\n"
             f"- **Total Pengeluaran Tambahan:** `Rp {total_exp:,}`\n"
             f"- **Saldo Laba / Rugi Kas Saat Ini:** `Rp {total_inc - (total_opex + total_exp):,}`\n"
+            f"- **Pembanding Admin Finance luxvite.id:** OPEX tercatat bulan ini `Rp {live_fin['prodOpex']:,}`, komitmen rutin `Rp {live_fin['prodRecurring']:,}`/bln\n"
             f"- **Target Break-Even Point (BEP):** **`{bep_orders} Order {ref_name} / Bulan`** (Laba bersih Rp {symphony_net:,}/order)\n\n"
-            f"## 2. Tabel Margin Bersih Per Paket (Guardrail Anti-Stacking Kupon {disc_pct}% vs Mitra {mitra_pct}%)\n"
-            f"| Paket | Harga Normal | Potongan Maks | Harga Bayar Klien | Potongan MDR {mdr_pct}% + PPh {pph_pct}% + Domain | Margin Bersih Luxvite |\n"
+            f"## 2. Tabel Margin Bersih Per Paket (potongan terbesar yang aktif: kupon {coupons_txt}; mitra {partners_txt}; tidak pernah digabung)\n"
+            f"| Paket | Harga Normal | Potongan Terbesar | Harga Bayar Klien | Fee {ue.get('midtrans_fee_percent', 0.7)}% + PPh {ue.get('pph_final_percent', 0.5)}% + Domain | Margin Bersih Luxvite |\n"
             f"|---|---|---|---|---|---|\n"
             + "\n".join(pkg_rows) + "\n"
         )
@@ -6764,7 +6813,7 @@ def execute_department_work_engine(task_type, body=None):
         summary_out = (
             f"[AUDIT UNIT ECONOMICS & BEP DEPT 6 — {ts}]\n"
             f"• Total OPEX Tetap: Rp {total_opex:,}/bln | Kas Masuk: Rp {total_inc:,} | Target BEP: {bep_orders} Order {ref_name}/bln\n"
-            f"• Laba Bersih {ref_name} (setelah diskon mitra {max(disc_pct, mitra_pct)}%, MDR {mdr_pct}%, PPh {pph_pct}%): Rp {symphony_net:,}/order\n"
+            f"• Laba Bersih {ref_name} (setelah {ref['discountLabel']}, fee & PPh): Rp {symphony_net:,}/order\n"
             f"• File Laporan: {rel_file}"
         )
         for aid in (29, 32, 33, 34):
@@ -7242,7 +7291,9 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             return
 
         if self.path.startswith("/api/finance-ledger"):
-            self._send_json(200, {"ok": True, "ledger": load_finance_ledger()})
+            ledger = load_finance_ledger()
+            live = live_finance_inputs(max_age=0 if "refresh=1" in self.path else 600)
+            self._send_json(200, {"ok": True, "ledger": ledger, "live": live, "margins": compute_package_margins(ledger, live)})
             return
 
         if self.path.startswith("/api/hq-layout"):
@@ -7429,6 +7480,10 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             total_exp = sum(int(t.get("amount") or 0) for t in fin.get("transactions", []) if t.get("type") == "EXPENSE")
             ue = fin.get("unit_economics_rules", {})
             opex_lines = "\n".join(f"- {x.get('name')}: Rp {int(x.get('amount') or 0):,}" for x in fin.get("monthly_fixed_opex", []))
+            live_fin_rep = live_finance_inputs()
+            fmt_disc = lambda d: f"{d['value']:g}%" if d["type"] == "PERCENT" else f"Rp {int(d['value']):,}"
+            coupons_line = ", ".join(fmt_disc(c) for c in live_fin_rep["coupons"]) or ("tidak ada" if live_fin_rep["ok"] else f"tidak terbaca ({live_fin_rep['error']})")
+            partners_line = ", ".join(f"{m['category']} {fmt_disc(m)}" for m in live_fin_rep["partners"]) or ("tidak ada" if live_fin_rep["ok"] else "tidak terbaca")
             fin_summary_md = (
                 f"# Ringkasan Buku Kas & OPEX Real-Time (Dept 6 Keuangan)\n\n"
                 f"- **Total OPEX Tetap / Bulan**: Rp {total_opex:,}\n"
@@ -7437,11 +7492,11 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 f"- **Laba / Rugi Kas Saat Ini**: Rp {total_inc - (total_opex + total_exp):,}\n\n"
                 f"## Rincian OPEX Bulanan\n{opex_lines}\n\n"
                 f"## Parameter Guardrail Anti-Rugi Aktif\n"
-                f"- Diskon Kupon: {ue.get('default_coupon_discount_percent', 10)}%\n"
-                f"- Potongan Mitra WO (Zero-Debt): {ue.get('default_partner_commission_percent', 15)}%\n"
-                f"- Fee Midtrans QRIS: {ue.get('midtrans_fee_percent', 0.7)}%\n"
+                f"- Kupon aktif (live luxvite.id): {coupons_line}\n"
+                f"- Potongan harga mitra aktif (live, Zero-Debt): {partners_line}\n"
+                f"- Fee gateway pembayaran: {ue.get('midtrans_fee_percent', 0.7)}%\n"
                 f"- PPh Final UMKM: {ue.get('pph_final_percent', 0.5)}%\n"
-                f"- Subsidi Domain Eternity: Rp {int(ue.get('domain_subsidy_cost') or 0):,}\n"
+                f"- Biaya custom domain / order (paket ber-custom-domain): Rp {int(ue.get('domain_subsidy_cost') or 0):,}\n"
             )
             payload.setdefault("DEPT6_FIN", []).insert(0, {
                 "relPath": "config/finance_ledger.json",
@@ -7696,9 +7751,26 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
 
         if self.path.startswith("/api/finance-ledger/save"):
             ledger = body.get("ledger")
-            if isinstance(ledger, dict):
-                save_finance_ledger(ledger)
-            self._send_json(200, {"ok": True, "ledger": load_finance_ledger()})
+            if not isinstance(ledger, dict):
+                self._send_json(400, {"ok": False, "error": "Data buku kas tidak valid."})
+                return
+            cur = load_finance_ledger()
+            opex = []
+            for i, it in enumerate(ledger.get("monthly_fixed_opex") or []):
+                name = str((it or {}).get("name") or "").strip()[:120]
+                if not name:
+                    continue
+                opex.append({"id": str(it.get("id") or f"opex_{int(time.time() * 1000)}_{i}")[:60], "name": name,
+                             "category": str(it.get("category") or "LAINNYA").strip().upper()[:40], "amount": max(0, int(float(it.get("amount") or 0)))})
+            rules_in = ledger.get("unit_economics_rules") or {}
+            rules = {k: max(0.0, float(rules_in.get(k, (cur.get("unit_economics_rules") or {}).get(k, 0)) or 0))
+                     for k in ("midtrans_fee_percent", "pph_final_percent")}
+            rules["domain_subsidy_cost"] = max(0, int(float(rules_in.get("domain_subsidy_cost") or 0)))
+            save_finance_ledger({**cur, "monthly_fixed_opex": opex, "unit_economics_rules": rules,
+                                 "transactions": ledger.get("transactions") if isinstance(ledger.get("transactions"), list) else cur.get("transactions", [])})
+            saved = load_finance_ledger()
+            live = live_finance_inputs()
+            self._send_json(200, {"ok": True, "ledger": saved, "live": live, "margins": compute_package_margins(saved, live)})
             return
 
         if self.path.startswith("/api/world-state/update"):

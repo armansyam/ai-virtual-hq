@@ -949,7 +949,7 @@
             <h3 class="font-bold text-sm text-white">Departemen 6 Keuangan — Analisis Arus Kas, OPEX, Margin & Anti-Rugi (BEP)</h3>
             <span class="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-mono">⭐ Mgr Tika · Nanda · Reza · Sinta</span>
           </div>
-          <p class="text-[11px] text-slate-400 mt-0.5">Hitung biaya server, domain, SMTP, R2, iklan, diskon kupon, komisi mitra WO, fee Midtrans & PPh 0,5% agar bisnis tidak pernah rugi</p>
+          <p class="text-[11px] text-slate-400 mt-0.5">Pos OPEX diisi CEO; harga paket, kupon aktif, dan potongan harga mitra dibaca live dari luxvite.id lewat MCP</p>
         </div>
         <button onclick="closeModals()" class="text-slate-400 hover:text-white text-sm cursor-pointer px-1">✕</button>
       </div>
@@ -960,7 +960,7 @@
           <div class="p-3.5 rounded-xl bg-[#13131b] border border-rose-500/35">
             <div class="text-[10.5px] text-slate-400 uppercase">Total OPEX Tetap / Bulan</div>
             <div id="fin-kpi-opex" class="text-xl font-extrabold text-rose-300 mt-1">Rp 0</div>
-            <div class="text-[10px] text-slate-400 mt-0.5">VPS + Domain + SMTP + R2 + AI + Ads</div>
+            <div id="fin-kpi-opex-sub" class="text-[10px] text-slate-400 mt-0.5">Jumlah pos OPEX di bawah</div>
           </div>
           <div class="p-3.5 rounded-xl bg-[#13131b] border border-emerald-500/35">
             <div class="text-[10.5px] text-slate-400 uppercase">Pemasukan Tercatat</div>
@@ -970,7 +970,7 @@
           <div class="p-3.5 rounded-xl bg-[#13131b] border border-amber-500/35">
             <div class="text-[10.5px] text-slate-400 uppercase">Target Balik Modal (BEP)</div>
             <div id="fin-kpi-bep" class="text-xl font-extrabold text-amber-300 mt-1">0 Order/Bln</div>
-            <div id="fin-kpi-bep-sub" class="text-[10px] text-slate-400 mt-0.5">Estimasi paket Symphony (149K)</div>
+            <div id="fin-kpi-bep-sub" class="text-[10px] text-slate-400 mt-0.5">Acuan: paket harga tengah</div>
           </div>
           <div class="p-3.5 rounded-xl bg-[#13131b] border border-sky-500/35">
             <div class="text-[10.5px] text-slate-400 uppercase">Laba / Rugi Bersih Saat Ini</div>
@@ -987,27 +987,27 @@
               <button onclick="saveFinanceLedgerToServer()" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-[10.5px] cursor-pointer">💾 Simpan Biaya</button>
             </div>
             <div id="fin-opex-list" class="space-y-2"></div>
+            <div class="grid grid-cols-12 gap-1.5 pt-1">
+              <input id="fin-opex-new-name" type="text" placeholder="Nama pos biaya baru" class="col-span-5 px-2 py-1.5 rounded bg-[#1c1c28] border border-white/15 text-white text-[11px]" />
+              <input id="fin-opex-new-cat" type="text" placeholder="Kategori" class="col-span-3 px-2 py-1.5 rounded bg-[#1c1c28] border border-white/15 text-white text-[11px] uppercase" />
+              <input id="fin-opex-new-amount" type="number" min="0" step="5000" placeholder="Rp/bulan" class="col-span-2 px-2 py-1.5 rounded bg-[#1c1c28] border border-white/15 text-white font-mono text-[11px] text-right" />
+              <button onclick="addOpexItem()" class="col-span-2 px-2 py-1.5 rounded bg-white/10 hover:bg-white/15 text-slate-100 font-semibold text-[11px] cursor-pointer">+ Pos</button>
+            </div>
+            <div id="fin-prod-opex-note" class="text-[10px] text-slate-400"></div>
           </div>
 
           <!-- Right: Unit Economics & Anti-Rugi Guard -->
           <div class="md:col-span-6 rounded-xl bg-[#13131b] border border-amber-500/30 p-4 space-y-3">
-            <div class="font-bold text-amber-300 uppercase text-[11px]">2. Guard Margin & Anti-Rugi (Diskon + Mitra + Midtrans + PPh 0,5%)</div>
+            <div class="font-bold text-amber-300 uppercase text-[11px]">2. Guard Margin & Anti-Rugi (potongan terbesar + fee gateway + PPh)</div>
+            <div id="fin-live-inputs" class="rounded-lg bg-[#1c1c28] border border-white/10 p-2.5 text-[11px] text-slate-300 space-y-1"></div>
             <div class="grid grid-cols-2 gap-2 text-[11px]">
               <label class="block">
-                <span class="text-slate-400">Diskon Kupon (%)</span>
-                <input id="fin-rule-disc" type="number" step="0.5" oninput="recalcFinanceView()" class="mt-1 w-full px-2.5 py-1.5 rounded bg-[#1c1c28] border border-white/15 text-white font-mono" />
+                <span class="text-slate-400">Fee gateway pembayaran (%)</span>
+                <input id="fin-rule-mdr" type="number" step="0.1" min="0" oninput="recalcFinanceView()" class="mt-1 w-full px-2.5 py-1.5 rounded bg-[#1c1c28] border border-white/15 text-white font-mono" />
               </label>
               <label class="block">
-                <span class="text-slate-400">Komisi Mitra WO (%)</span>
-                <input id="fin-rule-comm" type="number" step="0.5" oninput="recalcFinanceView()" class="mt-1 w-full px-2.5 py-1.5 rounded bg-[#1c1c28] border border-white/15 text-white font-mono" />
-              </label>
-              <label class="block">
-                <span class="text-slate-400">Fee Midtrans QRIS (%)</span>
-                <input id="fin-rule-mdr" type="number" step="0.1" oninput="recalcFinanceView()" class="mt-1 w-full px-2.5 py-1.5 rounded bg-[#1c1c28] border border-white/15 text-white font-mono" />
-              </label>
-              <label class="block">
-                <span class="text-slate-400">Subsidi Domain Eternity (Rp)</span>
-                <input id="fin-rule-dom" type="number" step="5000" oninput="recalcFinanceView()" class="mt-1 w-full px-2.5 py-1.5 rounded bg-[#1c1c28] border border-white/15 text-white font-mono" />
+                <span class="text-slate-400">Biaya custom domain / order (Rp)</span>
+                <input id="fin-rule-dom" type="number" step="5000" min="0" oninput="recalcFinanceView()" class="mt-1 w-full px-2.5 py-1.5 rounded bg-[#1c1c28] border border-white/15 text-white font-mono" />
               </label>
             </div>
             <div id="fin-margin-table" class="space-y-2 pt-1"></div>
@@ -3301,7 +3301,7 @@
         model: "Gemini 4 Neon (XHigh)", dotColor: "#facc15", shirtColor: 0xca8a04, hairColor: 0x292524,
         pos: { x: 34.0, y: 0, z: 3.4, rotY: 0 }, hasDesk: true,
         progressMsg: "Manajer Dept 6 Keuangan (Gedung B Sayap Selatan). Memimpin Nanda, Reza & Sinta menjaga arus kas, OPEX server/domain/ads, guardrail diskon+mitra, & Break-Even Point (BEP) agar Luxvite tidak pernah rugi.",
-        resultOutput: `[MANAJER DEPT 6 KEUANGAN — ⭐ TIKA (Head of Finance & Profitability · Gedung B)]\n• Memimpin 3 Spesialis: Nanda (Unit Economics & BEP), Reza (OPEX & PPh 0,5%), Sinta (Kasir, Midtrans & Payout Mitra).\n• Fokus Anti-Rugi: Mengunci total potongan (Diskon Kupon + Komisi Mitra) <= 30% & mencegah subsidi domain tanpa perhitungan margin di paket Eternity.`
+        resultOutput: `[MANAJER DEPT 6 KEUANGAN — ⭐ TIKA (Head of Finance & Profitability · Gedung B)]\n• Memimpin 3 Spesialis: Nanda (Unit Economics & BEP), Reza (OPEX & PPh 0,5%), Sinta (Kasir, Midtrans & rekonsiliasi order).\n• Fokus Anti-Rugi: memantau potongan terbesar yang aktif (kupon atau potongan harga mitra, tidak pernah digabung) dan biaya custom domain agar margin tiap paket tetap aman.`
       },
       {
         id: 30, room: "ENGINEERING", name: "Kevin", shortPill: "Kevin · Frontend Studio Dev",
@@ -3324,7 +3324,7 @@
         role: "Staf Unit Economics, Harga, Diskon, Margin Mitra & BEP", deskLabel: "Gedung B · Dept 6 Keuangan · Meja F2",
         model: "gh/gpt-4.1", dotColor: "#fbbf24", shirtColor: 0xd97706, hairColor: 0x1c1917,
         pos: { x: 27.5, y: 0, z: 8.6, rotY: Math.PI }, hasDesk: true,
-        progressMsg: "Staf Dept 6 Keuangan (Gedung B · melapor ke Mgr Tika). Menghitung margin bersih paket Serenade/Symphony/Eternity, simulasi kupon + komisi WO + subsidi domain, & target BEP bulanan.",
+        progressMsg: "Staf Dept 6 Keuangan (Gedung B · melapor ke Mgr Tika). Menghitung margin bersih tiap paket dari harga live, potongan terbesar (kupon atau potongan harga mitra), biaya custom domain, & target BEP bulanan.",
         resultOutput: `[UNIT ECONOMICS & ANTI-RUGI — OLEH NANDA (Dept 6: Finance · Gedung B)]\n• Menjaga guardrail margin bersih >= 35% per transaksi & memberi peringatan merah otomatis jika kombinasi diskon + mitra + domain membuat margin tipis/negatif.`
       },
       {
@@ -3341,7 +3341,7 @@
         model: "gh/gpt-4o-mini", dotColor: "#fde047", shirtColor: 0xeab308, hairColor: 0x292524,
         pos: { x: 40.5, y: 0, z: 8.6, rotY: Math.PI }, hasDesk: true,
         progressMsg: "Staf Dept 6 Keuangan (Gedung B · melapor ke Mgr Tika). Memverifikasi invoice Midtrans QRIS (MDR 0,7%), bukti transfer manual, pencairan AffiliateCommission WO, & pembukuan kas masuk/keluar.",
-        resultOutput: `[KASIR, MIDTRANS & PAYOUT MITRA — OLEH SINTA (Dept 6: Finance · Gedung B)]\n• Menjaga rekonsiliasi 100% cocok antara order PAID di PostgreSQL, mutasi Midtrans/rekening, dan jadwal pencairan komisi mitra WO.`
+        resultOutput: `[KASIR, MIDTRANS & REKONSILIASI — OLEH SINTA (Dept 6: Finance · Gedung B)]\n• Menjaga rekonsiliasi 100% cocok antara order PAID di PostgreSQL dan mutasi Midtrans/rekening, termasuk order klien mitra yang mendapat potongan harga langsung (tanpa komisi ke mitra).`
       },
       {
         id: 10, room: "ADMIN", name: "Raka", shortPill: "👑 Raka · GM / COO (@raka_ops)",
@@ -12064,25 +12064,9 @@
     }
 
     // ================= DEPARTEMEN 6: KEUANGAN, OPEX, UNIT ECONOMICS & ANTI-RUGI =================
-    var FINANCE_LEDGER = {
-      monthly_fixed_opex: [
-        { id: "vps", name: "Sewa Server VPS Produksi", category: "INFRASTRUCTURE", amount: 150000 },
-        { id: "domain", name: "Domain Utama Perusahaan (Alokasi Bulanan)", category: "INFRASTRUCTURE", amount: 25000 },
-        { id: "smtp", name: "Layanan Email SMTP OTP 6-Digit", category: "UTILITIES", amount: 0 },
-        { id: "r2", name: "Cloudflare R2 Object Storage & CDN", category: "INFRASTRUCTURE", amount: 0 },
-        { id: "ai", name: "Langganan AI / API / Canva / Tooling", category: "SOFTWARE_LICENSES", amount: 0 },
-        { id: "ads", name: "Budget Iklan Meta / TikTok / Google Ads", category: "MARKETING", amount: 0 }
-      ],
-      unit_economics_rules: {
-        midtrans_fee_percent: 0.7,
-        pph_final_percent: 0.5,
-        default_coupon_discount_percent: 10.0,
-        default_partner_commission_percent: 15.0,
-        eternity_includes_domain_subsidy: false,
-        domain_subsidy_cost: 0
-      },
-      transactions: []
-    };
+    var FINANCE_LEDGER = { monthly_fixed_opex: [], unit_economics_rules: { midtrans_fee_percent: 0.7, pph_final_percent: 0.5, domain_subsidy_cost: 0 }, transactions: [] };
+    // Harga paket, kupon aktif, dan potongan harga mitra dibaca live dari luxvite.id (MCP) lewat /api/finance-ledger.
+    var FINANCE_LIVE = { ok: false, packages: [], coupons: [], partners: [], prodOpex: 0, prodRecurring: 0, error: "" };
 
     function formatRupiah(num) {
       const n = Math.round(Number(num) || 0);
@@ -12101,42 +12085,76 @@
         const data = await res.json();
         if (data.ok && data.ledger) {
           FINANCE_LEDGER = data.ledger;
+          FINANCE_LIVE = data.live || FINANCE_LIVE;
         }
       } catch (e) {}
       renderFinanceModalAll();
     }
 
     function renderFinanceModalAll() {
+      renderOpexList();
+      const ue = FINANCE_LEDGER.unit_economics_rules || {};
+      const elMdr = document.getElementById("fin-rule-mdr");
+      const elDom = document.getElementById("fin-rule-dom");
+      if (elMdr) elMdr.value = ue.midtrans_fee_percent ?? 0.7;
+      if (elDom) elDom.value = ue.domain_subsidy_cost ?? 0;
+
+      const fmtDisc = d => d.type === "PERCENT" ? `${d.value}%` : formatRupiah(d.value);
+      const liveEl = document.getElementById("fin-live-inputs");
+      if (liveEl) {
+        liveEl.innerHTML = FINANCE_LIVE.ok
+          ? `<div><span class="text-slate-400">Harga paket (live):</span> ${FINANCE_LIVE.packages.map(p => `${escapeHtmlSafe(p.name)} ${formatRupiah(p.price)}${p.customDomain ? " · custom domain" : ""}`).join(" · ")}</div>
+             <div><span class="text-slate-400">Kupon aktif:</span> ${FINANCE_LIVE.coupons.length ? FINANCE_LIVE.coupons.map(fmtDisc).join(", ") : "tidak ada"}</div>
+             <div><span class="text-slate-400">Potongan harga mitra aktif:</span> ${FINANCE_LIVE.partners.length ? FINANCE_LIVE.partners.map(m => `${escapeHtmlSafe(m.category)} ${fmtDisc(m)}`).join(", ") : "tidak ada"}</div>
+             <div class="text-[10px] text-slate-500">Luxenary memberi potongan mitra ATAU kupon (tidak pernah keduanya); margin di bawah memakai satu potongan terbesar. Dibaca ${escapeHtmlSafe(FINANCE_LIVE.fetchedAt || "")}.</div>`
+          : `<div class="text-rose-300">Data live luxvite.id tidak terbaca: ${escapeHtmlSafe(FINANCE_LIVE.error || "MCP tidak merespons")}. Margin tidak dihitung tanpa harga asli.</div>`;
+      }
+      const prodNote = document.getElementById("fin-prod-opex-note");
+      if (prodNote) {
+        prodNote.textContent = FINANCE_LIVE.ok
+          ? `Pembanding: OPEX tercatat di Admin Finance luxvite.id bulan ini ${formatRupiah(FINANCE_LIVE.prodOpex)}, komitmen tagihan rutin ${formatRupiah(FINANCE_LIVE.prodRecurring)}/bln.`
+          : "";
+      }
+      renderFinanceTransactionsList();
+      recalcFinanceView();
+    }
+
+    function renderOpexList() {
       const opexListEl = document.getElementById("fin-opex-list");
       const items = FINANCE_LEDGER.monthly_fixed_opex || [];
-      if (opexListEl) {
-        opexListEl.innerHTML = items.map((item, idx) => `
+      if (!opexListEl) return;
+      opexListEl.innerHTML = items.length ? items.map((item, idx) => `
           <div class="flex items-center justify-between gap-2 p-2 rounded-lg bg-[#1c1c28] border border-white/10">
             <div class="min-w-0 flex-1">
               <div class="text-[11.5px] font-semibold text-slate-200 truncate">${escapeHtmlSafe(item.name)}</div>
-              <div class="text-[9.5px] text-slate-400 font-mono">${escapeHtmlSafe(item.category || "OPEX")}</div>
+              <div class="text-[9.5px] text-slate-400 font-mono">${escapeHtmlSafe(item.category || "LAINNYA")}</div>
             </div>
             <div class="flex items-center gap-1 shrink-0">
               <span class="text-[10.5px] text-slate-400">Rp</span>
               <input type="number" step="5000" min="0" value="${Number(item.amount) || 0}"
                 oninput="updateOpexItemAmount(${idx}, this.value)"
                 class="w-28 px-2 py-1 rounded bg-[#12121a] border border-white/15 text-right text-white font-mono text-[11.5px]" />
+              <button onclick="removeOpexItem(${idx})" class="px-1.5 text-slate-400 hover:text-rose-400 text-xs cursor-pointer" title="Hapus pos">✕</button>
             </div>
           </div>
-        `).join("");
-      }
+        `).join("") : `<div class="text-[11px] text-slate-500 italic py-2">Belum ada pos OPEX. Tambahkan biaya tetap bulanan di bawah.</div>`;
+    }
 
-      const ue = FINANCE_LEDGER.unit_economics_rules || {};
-      const elDisc = document.getElementById("fin-rule-disc");
-      const elComm = document.getElementById("fin-rule-comm");
-      const elMdr = document.getElementById("fin-rule-mdr");
-      const elDom = document.getElementById("fin-rule-dom");
-      if (elDisc) elDisc.value = ue.default_coupon_discount_percent ?? 10;
-      if (elComm) elComm.value = ue.default_partner_commission_percent ?? 15;
-      if (elMdr) elMdr.value = ue.midtrans_fee_percent ?? 0.7;
-      if (elDom) elDom.value = ue.domain_subsidy_cost ?? 0;
+    function addOpexItem() {
+      const name = (document.getElementById("fin-opex-new-name")?.value || "").trim();
+      const category = (document.getElementById("fin-opex-new-cat")?.value || "").trim().toUpperCase() || "LAINNYA";
+      const amount = Math.max(0, Number(document.getElementById("fin-opex-new-amount")?.value) || 0);
+      if (!name) { updateToast("⚠️ Isi nama pos biaya terlebih dahulu."); return; }
+      FINANCE_LEDGER.monthly_fixed_opex = FINANCE_LEDGER.monthly_fixed_opex || [];
+      FINANCE_LEDGER.monthly_fixed_opex.push({ id: "opex_" + Date.now(), name, category, amount });
+      ["fin-opex-new-name", "fin-opex-new-cat", "fin-opex-new-amount"].forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
+      renderOpexList();
+      recalcFinanceView();
+    }
 
-      renderFinanceTransactionsList();
+    function removeOpexItem(idx) {
+      (FINANCE_LEDGER.monthly_fixed_opex || []).splice(idx, 1);
+      renderOpexList();
       recalcFinanceView();
     }
 
@@ -12146,116 +12164,88 @@
       recalcFinanceView();
     }
 
-    function recalcFinanceView() {
-      const discPct = Math.max(0, Number(document.getElementById("fin-rule-disc")?.value) || 0);
-      const commPct = Math.max(0, Number(document.getElementById("fin-rule-comm")?.value) || 0);
-      const mdrPct = Math.max(0, Number(document.getElementById("fin-rule-mdr")?.value) || 0);
-      const domSub = Math.max(0, Number(document.getElementById("fin-rule-dom")?.value) || 0);
-      const pphPct = Number(FINANCE_LEDGER.unit_economics_rules?.pph_final_percent ?? 0.5);
+    // Sama dengan compute_package_margins() di server: satu potongan terbesar (kupon ATAU mitra), fee gateway & PPh dari
+    // harga bayar, biaya custom domain hanya untuk paket yang punya kemampuan custom_domain.
+    function computePackageMargins() {
+      const ue = FINANCE_LEDGER.unit_economics_rules || {};
+      const feePct = Number(ue.midtrans_fee_percent ?? 0.7);
+      const pphPct = Number(ue.pph_final_percent ?? 0.5);
+      const domCost = Number(ue.domain_subsidy_cost || 0);
+      const discRp = (price, d) => d.type === "PERCENT" ? Math.min(price, Math.round(price * d.value / 100)) : Math.min(price, Math.round(d.value));
+      return (FINANCE_LIVE.packages || []).map(p => {
+        const cands = [["tanpa potongan", 0]]
+          .concat((FINANCE_LIVE.coupons || []).map(c => [`kupon ${c.type === "PERCENT" ? c.value + "%" : formatRupiah(c.value)}`, discRp(p.price, c)]))
+          .concat((FINANCE_LIVE.partners || []).map(m => [`mitra ${m.category} ${m.type === "PERCENT" ? m.value + "%" : formatRupiah(m.value)}`, discRp(p.price, m)]));
+        const [discountLabel, discountRp] = cands.reduce((best, c) => c[1] > best[1] ? c : best, cands[0]);
+        const paid = p.price - discountRp;
+        const feeRp = Math.round(paid * feePct / 100);
+        const pphRp = Math.round(paid * pphPct / 100);
+        const domainRp = p.customDomain ? domCost : 0;
+        const net = paid - feeRp - pphRp - domainRp;
+        return { ...p, discountLabel, discountRp, paid, feeRp, pphRp, domainRp, net, marginPct: p.price ? Math.round(net * 1000 / p.price) / 10 : 0 };
+      });
+    }
 
+    function recalcFinanceView() {
       FINANCE_LEDGER.unit_economics_rules = {
         ...FINANCE_LEDGER.unit_economics_rules,
-        default_coupon_discount_percent: discPct,
-        default_partner_commission_percent: commPct,
-        midtrans_fee_percent: mdrPct,
-        pph_final_percent: pphPct,
-        domain_subsidy_cost: domSub,
-        eternity_includes_domain_subsidy: domSub > 0
+        midtrans_fee_percent: Math.max(0, Number(document.getElementById("fin-rule-mdr")?.value) || 0),
+        domain_subsidy_cost: Math.max(0, Number(document.getElementById("fin-rule-dom")?.value) || 0)
       };
-
       const totalOpex = (FINANCE_LEDGER.monthly_fixed_opex || []).reduce((acc, x) => acc + (Number(x.amount) || 0), 0);
       const txs = FINANCE_LEDGER.transactions || [];
       const totalIncome = txs.filter(t => t.type === "INCOME").reduce((acc, t) => acc + (Number(t.amount) || 0), 0);
       const totalExpTx = txs.filter(t => t.type === "EXPENSE").reduce((acc, t) => acc + (Number(t.amount) || 0), 0);
       const netCash = totalIncome - (totalOpex + totalExpTx);
 
-      const pkgs = [
-        { name: "Serenade", price: 99000, isEternity: false },
-        { name: "Symphony", price: 149000, isEternity: false },
-        { name: "Eternity", price: 249000, isEternity: true }
-      ];
-
-      let symphonyNet = 0;
+      const rows = computePackageMargins();
+      const ref = rows.length ? rows[Math.floor(rows.length / 2)] : null;
       let anyDanger = false;
-      const rowsHtml = pkgs.map(pkg => {
-        const discRp = Math.round(pkg.price * (discPct / 100));
-        const paid = Math.max(0, pkg.price - discRp);
-        const mdrRp = Math.round(paid * (mdrPct / 100));
-        const pphRp = Math.round(paid * (pphPct / 100));
-        const commRp = Math.round(paid * (commPct / 100));
-        const domRp = pkg.isEternity ? domSub : 0;
-        const net = paid - mdrRp - pphRp - commRp - domRp;
-        const marginPct = pkg.price > 0 ? Math.round((net / pkg.price) * 1000) / 10 : 0;
-        if (pkg.name === "Symphony") symphonyNet = net;
-
+      const rowsHtml = rows.map(r => {
         let badgeClass = "bg-emerald-500/20 text-emerald-300 border-emerald-500/40";
-        let badgeTxt = `✅ AMAN (${marginPct}%)`;
-        if (net <= 0) {
+        let badgeTxt = `AMAN (${r.marginPct}%)`;
+        if (r.net <= 0) {
           anyDanger = true;
           badgeClass = "bg-rose-500/25 text-rose-200 border-rose-500/60";
-          badgeTxt = `🔴 RUGI (${marginPct}%)`;
-        } else if (marginPct < 35) {
+          badgeTxt = `RUGI (${r.marginPct}%)`;
+        } else if (r.marginPct < 35) {
           anyDanger = true;
           badgeClass = "bg-amber-500/20 text-amber-200 border-amber-500/50";
-          badgeTxt = `⚠️ TIPIS (${marginPct}%)`;
+          badgeTxt = `TIPIS (${r.marginPct}%)`;
         }
-
         return `
-          <div class="p-2.5 rounded-lg bg-[#1c1c28] border ${net <= 0 ? 'border-rose-500/60' : 'border-white/10'} flex items-center justify-between gap-2">
-            <div>
-              <div class="font-bold text-white text-[11.5px]">${pkg.name} <span class="text-slate-400 font-normal">(${formatRupiah(pkg.price)})</span></div>
-              <div class="text-[10px] text-slate-400">
-                Bayar: ${formatRupiah(paid)} · Potongan (MDR+PPh+Mitra${domRp > 0 ? '+Domain' : ''}): ${formatRupiah(mdrRp + pphRp + commRp + domRp)}
-              </div>
+          <div class="flex items-center justify-between gap-2 p-2.5 rounded-lg bg-[#1c1c28] border border-white/10">
+            <div class="min-w-0">
+              <div class="font-bold text-white text-[11.5px]">${escapeHtmlSafe(r.name)} <span class="font-normal text-slate-400">(${formatRupiah(r.price)})${r.customDomain ? " · custom domain" : ""}</span></div>
+              <div class="text-[10px] text-slate-400">Potongan terbesar: ${escapeHtmlSafe(r.discountLabel)} (${formatRupiah(r.discountRp)}) · Bayar ${formatRupiah(r.paid)} · Fee ${formatRupiah(r.feeRp)} + PPh ${formatRupiah(r.pphRp)}${r.domainRp ? ` + Domain ${formatRupiah(r.domainRp)}` : ""}</div>
             </div>
             <div class="text-right shrink-0">
-              <div class="font-mono font-bold text-xs ${net <= 0 ? 'text-rose-400' : 'text-emerald-300'}">${formatRupiah(net)}</div>
-              <span class="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[9.5px] font-bold border ${badgeClass}">${badgeTxt}</span>
+              <div class="font-mono font-bold text-[12px] ${r.net > 0 ? "text-emerald-300" : "text-rose-300"}">${formatRupiah(r.net)}</div>
+              <span class="inline-block mt-0.5 px-1.5 py-0.5 rounded border text-[9.5px] font-bold ${badgeClass}">${badgeTxt}</span>
             </div>
-          </div>
-        `;
+          </div>`;
       }).join("");
-
-      const alertBanner = anyDanger
-        ? `<div class="p-2.5 rounded-lg bg-rose-500/15 border border-rose-500/50 text-rose-200 text-[10.5px]">
-             <b>🚨 PERINGATAN ANTI-RUGI (Mgr Tika & Nanda):</b> Kombinasi Diskon (${discPct}%) + Komisi Mitra (${commPct}%)${domSub > 0 ? ` + Subsidi Domain (${formatRupiah(domSub)})` : ""} membuat margin turun di bawah batas aman 35% atau MINUS! Kunci total Diskon + Komisi <= 25% dan hindari subsidi domain gratis di luar add-on.
-           </div>`
-        : `<div class="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10.5px]">
-             <b>✅ Guardrail Aman:</b> Seluruh paket memiliki margin bersih sehat (>= 35%) setelah dipotong kupon, mitra WO, Midtrans ${mdrPct}% & PPh ${pphPct}%.
-           </div>`;
-
+      const ue = FINANCE_LEDGER.unit_economics_rules || {};
+      const alertBanner = !rows.length ? "" : anyDanger
+        ? `<div class="p-2.5 rounded-lg bg-rose-500/15 border border-rose-500/50 text-rose-200 text-[10.5px]"><b>Peringatan anti-rugi:</b> dengan potongan terbesar yang sedang aktif, fee gateway ${ue.midtrans_fee_percent}% dan PPh ${ue.pph_final_percent}%, ada paket yang marginnya di bawah 35% atau minus.</div>`
+        : `<div class="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10.5px]"><b>Guardrail aman:</b> semua paket bermargin ≥ 35% pada skenario potongan terbesar yang sedang aktif.</div>`;
       const marginTableEl = document.getElementById("fin-margin-table");
       if (marginTableEl) marginTableEl.innerHTML = alertBanner + rowsHtml;
 
-      const elOpex = document.getElementById("fin-kpi-opex");
-      const elInc = document.getElementById("fin-kpi-income");
-      const elBep = document.getElementById("fin-kpi-bep");
-      const elBepSub = document.getElementById("fin-kpi-bep-sub");
+      const bepTxt = !ref ? "-" : totalOpex === 0 ? "0 Order/Bln" : ref.net <= 0 ? "∞ (RUGI!)" : `${Math.ceil(totalOpex / ref.net)} Order/Bln`;
+      const setTxt = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+      setTxt("fin-kpi-opex", formatRupiah(totalOpex));
+      setTxt("fin-kpi-opex-sub", `${(FINANCE_LEDGER.monthly_fixed_opex || []).length} pos OPEX`);
+      setTxt("fin-kpi-income", formatRupiah(totalIncome));
+      setTxt("fin-kpi-bep", bepTxt);
+      setTxt("fin-kpi-bep-sub", ref ? `Acuan ${ref.name}: laba bersih ${formatRupiah(ref.net)}/order` : "Harga paket live belum terbaca");
       const elNet = document.getElementById("fin-kpi-net");
-      const elNetSub = document.getElementById("fin-kpi-net-sub");
-
-      if (elOpex) elOpex.textContent = formatRupiah(totalOpex);
-      if (elInc) elInc.textContent = formatRupiah(totalIncome);
-      if (elBep) {
-        if (totalOpex === 0) {
-          elBep.textContent = "0 Order/Bln";
-        } else if (symphonyNet <= 0) {
-          elBep.textContent = "∞ (RUGI!)";
-        } else {
-          elBep.textContent = `${Math.ceil(totalOpex / symphonyNet)} Order/Bln`;
-        }
-      }
-      if (elBepSub) elBepSub.textContent = `Acuan laba bersih Symphony: ${formatRupiah(symphonyNet)}/order`;
       if (elNet) {
         elNet.textContent = formatRupiah(netCash);
         elNet.className = `text-xl font-extrabold mt-1 ${netCash >= 0 ? 'text-emerald-300' : 'text-rose-300'}`;
       }
-      if (elNetSub) elNetSub.textContent = `Pemasukan (${formatRupiah(totalIncome)}) - [OPEX + Keluar (${formatRupiah(totalOpex + totalExpTx)})]`;
-      const elAuditFin = document.getElementById("audit-row-finance");
-      if (elAuditFin) {
-        const bepCount = totalOpex === 0 ? 0 : (symphonyNet > 0 ? Math.ceil(totalOpex / symphonyNet) : "∞");
-        elAuditFin.textContent = `OPEX ${formatRupiah(totalOpex)}/bln · Kas ${formatRupiah(totalIncome)} · BEP ${bepCount} Order`;
-      }
+      setTxt("fin-kpi-net-sub", `Pemasukan (${formatRupiah(totalIncome)}) - [OPEX + Keluar (${formatRupiah(totalOpex + totalExpTx)})]`);
+      setTxt("audit-row-finance", `OPEX ${formatRupiah(totalOpex)}/bln · Kas ${formatRupiah(totalIncome)} · BEP ${bepTxt}`);
       if (typeof updateLive3DAnalyticsScreens === "function") {
         updateLive3DAnalyticsScreens(null, FINANCE_LEDGER);
       }
@@ -12296,8 +12286,13 @@
           body: JSON.stringify({ ledger: FINANCE_LEDGER })
         });
         const data = await res.json();
-        if (data.ok && !silent) {
-          updateToast("💰 Buku Kas, OPEX & Guardrail Anti-Rugi tersimpan ke config/finance_ledger.json (langsung dibaca Mgr Tika & GM Raka)!");
+        if (data.ok) {
+          FINANCE_LEDGER = data.ledger;
+          FINANCE_LIVE = data.live || FINANCE_LIVE;
+          renderFinanceModalAll();
+        }
+        if (!silent) {
+          updateToast(data.ok ? "Buku kas & OPEX tersimpan (dibaca Mgr Tika & GM Raka)." : `⚠️ Gagal menyimpan: ${data.error || "server menolak"}`);
         }
       } catch (e) {
         if (!silent) updateToast("⚠️ Gagal menyimpan buku kas ke server lokal.");
