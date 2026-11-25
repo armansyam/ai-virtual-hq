@@ -6098,7 +6098,7 @@ def load_taskboard():
             "taskType": "generate_social_content_pack",
             "priority": "HIGH",
             "status": "IN_PROGRESS",
-            "detail": f"Menyusun skrip Reels 25s, caption, optimasi Bio @luxvite.id, dan me-render 6 slide PNG 1080×1350 dengan highlight Draf Gratis {fd_days} Hari.",
+            "detail": f"Menyusun skrip Reels 25s, caption, optimasi Bio @luxvite.id, dan merujuk carousel terbaru di antrean dengan highlight Draf Gratis {fd_days} Hari.",
             "artifactFile": "daily-content/2026-11-22-day1-early-launch-pack.md",
             "updatedAt": time.strftime("%Y-%m-%d %H:%M WITA"),
         },
@@ -6412,6 +6412,9 @@ def generate_data_driven_coordination_event(preferred_dept=None, custom_context=
     diff_themes = max(0, total_disk - prod_api)
     fd_days = (snap.get("live_settings") or {}).get("freeDraftRetentionDays") or 14
     fd_photos = (snap.get("live_settings") or {}).get("freeDraftMaxPhotos") or 3
+    latest_carousel = next((it for it in load_content_queue() if it.get("dept") == "SOCIAL" and it.get("format") == "carousel"), None)
+    carousel_note = (f"carousel terbaru '{str(latest_carousel.get('title'))[:48]}' ({len(latest_carousel.get('slides') or [])} slide) di antrean {latest_carousel.get('status')}"
+                     if latest_carousel else "belum ada carousel baru di antrean")
 
     fin = load_finance_ledger()
     total_opex = sum(int(x.get("amount") or 0) for x in fin.get("monthly_fixed_opex", []))
@@ -6474,8 +6477,8 @@ def generate_data_driven_coordination_event(preferred_dept=None, custom_context=
             "fromId": 17, "fromName": "⭐ Senna", "fromRole": "Manajer Dept 1 (Social & Konten)",
             "toId": 7, "toName": "Maya", "toRole": "Spesialis Upload & Jadwal IG",
             "walkMsg": f"📱 [Live Settings] Senna & Maya menyelaraskan CTA konten IG dengan fitur Draf Gratis {fd_days} Hari (maks {fd_photos} foto)...",
-            "fromBubble": f"📢 \"Maya, setting live produksi saat ini mengizinkan Draf Gratis {fd_days} Hari ({fd_photos} foto). Pastikan CTA di 6 slide carousel & Reels hari ini menonjolkan angka {fd_days} hari!\"",
-            "toBubble": f"🚀 \"Siap Mgr Senna! 6 slide PNG 1080×1350 di uploads/2026-11-22-carousel/ & caption CTA Draf Gratis {fd_days} Hari sudah sinkron!\"",
+            "fromBubble": f"📢 \"Maya, setting live produksi saat ini mengizinkan Draf Gratis {fd_days} Hari ({fd_photos} foto). Pastikan CTA di carousel & Reels hari ini menonjolkan angka {fd_days} hari!\"",
+            "toBubble": f"🚀 \"Siap Mgr Senna! Saya cek CTA Draf Gratis {fd_days} Hari pada {carousel_note}.\"",
         },
         {
             "dept": "GROWTH",
@@ -6680,17 +6683,11 @@ def execute_department_work_engine(task_type, body=None):
         cat = snap.get("catalog") or {}
         total_themes = cat.get("total_physical_themes") or 81
 
-        # Re-run generate_daily_carousel.py if present so PNG slides are freshly verified
-        carousel_script = os.path.join(BASE_DIR, "generate_daily_carousel.py")
-        rendered_slides = 0
-        if os.path.exists(carousel_script):
-            try:
-                subprocess.run([sys.executable, carousel_script], cwd=BASE_DIR, timeout=20, capture_output=True)
-                c_dir = os.path.join(UPLOADS_DIR, "2026-11-22-carousel")
-                if os.path.isdir(c_dir):
-                    rendered_slides = len([f for f in os.listdir(c_dir) if f.endswith(".png")])
-            except Exception:
-                pass
+        # Carousel nyata dibuat staf lewat antrean konten; paket ini hanya merujuk yang terbaru, tidak merender ulang slide lama.
+        latest_c = next((it for it in load_content_queue() if it.get("dept") == "SOCIAL" and it.get("format") == "carousel"), None)
+        rendered_slides = len([s for s in (latest_c or {}).get("slides") or [] if os.path.isfile(os.path.join(DATA_DIR, s))])
+        carousel_ref = (f"'{latest_c.get('title')}' ({rendered_slides} slide, {latest_c.get('dir')}, status {latest_c.get('status')})"
+                        if latest_c else "belum ada carousel di antrean")
 
         rel_file = f"daily-content/{date_slug}-live-content-pack.md"
         full_path = os.path.join(BASE_DIR, rel_file)
@@ -6705,7 +6702,7 @@ def execute_department_work_engine(task_type, body=None):
             f"- **10–18s (Showcase {total_themes} Tema & 3 Mode Acara):** *\"Ada {total_themes} tema bergaya majalah & adat Nusantara—bukan cuma buat Wedding, tapi juga Khitanan, Aqiqah, Ultah, Wisuda, sampai Event Corporate.\"*\n"
             f"- **18–25s (Guest Camera & CTA):** *\"Lengkap dengan QR Check-in meja tamu & Guest Camera Analog 5 filter film. Mulai Rp99 ribu di luxvite.id/demo!\"*\n\n"
             f"## 2. Struktur 6 Slide Carousel 1080×1350 (Oleh Cleo & Damar)\n"
-            f"- **Status Render PNG:** `{rendered_slides or 6}` slide siap upload di `uploads/2026-11-22-carousel/slide-01.png` s/d `slide-06.png`\n"
+            f"- **Carousel terbaru di antrean:** {carousel_ref}\n"
             f"- **Highlight Utama:** Editorial Design · Studio Mandiri 16 Seksi · Draf Gratis {fd_days} Hari · QR Check-in · Guest Camera 5 Filter · Harga 99K/149K/249K.\n\n"
             f"## 3. Caption & Optimasi Bio IG `@luxvite.id` (Oleh Sora & Maya)\n"
             f"- **Display Name:** `Luxvite — Undangan Digital Editorial & Resepsionis QR`\n"
@@ -6717,7 +6714,7 @@ def execute_department_work_engine(task_type, body=None):
         summary_out = (
             f"[PAKET KONTEN HARIAN & CAROUSEL IG — {ts}]\n"
             f"• Skrip Reels 25s + Caption + Bio IG disesuaikan dengan data live ({total_themes} tema, Draf Gratis {fd_days} hari)\n"
-            f"• Render Visual Carousel: {rendered_slides or 6} slide PNG (1080×1350) terverifikasi di uploads/2026-11-22-carousel/\n"
+            f"• Carousel terbaru di antrean: {carousel_ref}\n"
             f"• File Tersimpan: {rel_file}"
         )
         for aid in (17, 1, 2, 3, 7):
@@ -6729,14 +6726,14 @@ def execute_department_work_engine(task_type, body=None):
                 t["status"] = "DONE"
                 t["updatedAt"] = ts
                 t["artifactFile"] = rel_file
-                t["detail"] = f"Selesai dibuat pada {ts}: Paket konten {rel_file} & {rendered_slides or 6} slide PNG siap upload."
+                t["detail"] = f"Selesai dibuat pada {ts}: Paket konten {rel_file}; carousel terbaru {carousel_ref}."
         save_taskboard(tb)
 
         coord = generate_data_driven_coordination_event(custom_context={
             "fromId": 2, "fromName": "Cleo", "fromRole": "Spesialis Carousel IG",
             "toId": 17, "toName": "⭐ Senna", "toRole": "Manajer Dept 1 (Social & Konten)",
-            "walkMsg": f"🎨 Cleo & Maya menyerahkan paket konten baru ({rel_file}) & 6 slide PNG ke Mgr Senna...",
-            "fromBubble": f"🖼️ \"Mgr Senna! Paket konten harian & {rendered_slides or 6} slide PNG 1080×1350 (Draf Gratis {fd_days} Hari) sudah siap di {rel_file}!\"",
+            "walkMsg": f"🎨 Cleo & Maya menyerahkan paket konten baru ({rel_file}) ke Mgr Senna...",
+            "fromBubble": f"🖼️ \"Mgr Senna! Paket konten harian (Draf Gratis {fd_days} Hari) sudah siap di {rel_file}; carousel terbaru {carousel_ref}.\"",
             "toBubble": f"⭐ \"Luar biasa Cleo! Hasil kerja Dept 1 langsung diperbarui di Pusat Hasil Kerja CEO.\"",
             "artifactFile": rel_file,
         })
@@ -7619,6 +7616,10 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                         })
                 payload[dept_key] = docs
 
+            q_visuals, q_docs = queue_report_outputs()
+            for dept_key, qd in q_docs.items():
+                payload[dept_key] = (qd + payload.get(dept_key, []))[:14]
+
             # Also prepend live snapshot of config/finance_ledger.json into DEPT6_FIN
             fin = load_finance_ledger()
             total_opex = sum(int(x.get("amount") or 0) for x in fin.get("monthly_fixed_opex", []))
@@ -7650,6 +7651,7 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
             self._send_json(200, {
                 "ok": True,
                 "departments": payload,
+                "visuals": q_visuals,
                 "deliverables": load_agent_deliverables()
             })
             return
@@ -9415,6 +9417,7 @@ def create_theme_draft_from_spec(spec, room="THEMES"):
         "file": f"{rel_dir}/laporan-atelier.md",
         "slides": [f"{rel_dir}/{os.path.basename(p)}" for k, p in best["sheets"].items() if k != "catalog"],
         "caption": f"Terdaftar di Draft Themes luxvite.id (nonaktif) lewat MCP setelah {len(rounds)} giliran. Preview admin: https://luxvite.id/demo/{slug}",
+        "previewUrl": f"https://luxvite.id/demo/{slug}",
         "preview": "\n".join(report[:14]),
         "dir": rel_dir,
         "status": "SIAP_DIPAKAI",
@@ -9465,6 +9468,51 @@ def save_content_queue(items):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(items[:100], f, ensure_ascii=False, indent=2)
     os.replace(tmp, CONTENT_QUEUE_FILE)
+
+
+QUEUE_DEPT_TO_REPORT = {"SOCIAL": "DEPT1_SOCIAL", "THEMES": "DEPT2_THEMES", "GROWTH": "DEPT3_GROWTH",
+                        "ADMIN": "DEPT4_OPS", "ENGINEERING": "DEPT5_ENG", "FINANCE": "DEPT6_FIN"}
+
+
+def _queue_file_url(rel):
+    return "/api/content-queue/file?path=" + urllib.parse.quote(rel)
+
+
+def queue_report_outputs(visual_per_dept=12, docs_per_dept=8, doc_chars=20000):
+    """Hasil kerja nyata per departemen dari antrean konten (terbaru dulu): visual (slide, video, foto draf tema + URL preview)
+    dan dokumen md/csv yang benar-benar ada di disk."""
+    visuals = {k: [] for k in QUEUE_DEPT_TO_REPORT.values()}
+    docs = {k: [] for k in QUEUE_DEPT_TO_REPORT.values()}
+    for it in load_content_queue():
+        key = QUEUE_DEPT_TO_REPORT.get(str(it.get("dept") or "").upper())
+        if not key:
+            continue
+        slides = [s for s in (it.get("slides") or []) if isinstance(s, str) and os.path.isfile(os.path.join(DATA_DIR, s))]
+        video = it.get("video") if isinstance(it.get("video"), str) and os.path.isfile(os.path.join(DATA_DIR, it["video"])) else ""
+        if (slides or video) and len(visuals[key]) < visual_per_dept:
+            preview = re.search(r"https://luxvite\.id/demo/[a-z0-9-]+", str(it.get("caption") or ""))
+            visuals[key].append({
+                "id": it.get("id"), "title": it.get("title"), "format": it.get("format"), "status": it.get("status"),
+                "agentName": it.get("agentName"), "createdAt": it.get("createdAt"), "postTime": it.get("postTime") or "",
+                "caption": it.get("caption") or "", "slides": [_queue_file_url(s) for s in slides],
+                "video": _queue_file_url(video) if video else "",
+                "previewUrl": it.get("previewUrl") or (preview.group(0) if preview else ""),
+                "reportUrl": _queue_file_url(it["file"]) if it.get("file") else "",
+            })
+        rel = it.get("file")
+        if isinstance(rel, str) and rel and len(docs[key]) < docs_per_dept:
+            full = os.path.join(DATA_DIR, rel)
+            if os.path.isfile(full):
+                st = os.stat(full)
+                with open(full, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read(doc_chars + 1)
+                docs[key].append({
+                    "relPath": rel, "title": f"{it.get('title')} — {it.get('agentName') or it.get('dept')}",
+                    "updatedAt": time.strftime("%Y-%m-%d %H:%M WITA", time.localtime(st.st_mtime)),
+                    "sizeKb": round(st.st_size / 1024, 1),
+                    "content": content[:doc_chars] + ("\n\n… (terpotong; buka berkas penuh di antrean Siap dipakai)" if len(content) > doc_chars else ""),
+                })
+    return visuals, docs
 
 
 def _slide_font(kind, size):

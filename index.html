@@ -905,22 +905,6 @@
 
       <!-- Structured Scrollable Content -->
       <div class="flex-1 overflow-y-auto p-5 space-y-4">
-        <!-- Visual Carousel Gallery (Shown for ALL & Dept 1 Social only) -->
-        <div id="res-modal-visual-gallery" class="rounded-xl bg-[#13131b] border border-amber-500/30 p-3.5">
-          <div class="text-[11px] font-semibold text-amber-300 mb-2 flex items-center justify-between">
-            <span>🖼️ Aset Visual Nyata Dept 1 Social (6 Slide Carousel 1080×1350 Siap Upload ke @luxvite.id):</span>
-            <span class="text-[10px] font-mono text-slate-400">uploads/2026-11-22-carousel/</span>
-          </div>
-          <div class="flex items-center gap-3 overflow-x-auto pb-1">
-            <img src="./uploads/2026-11-22-carousel/slide-01.png" class="h-40 rounded-lg border border-amber-400/40 shadow-md shrink-0" alt="Slide 1" />
-            <img src="./uploads/2026-11-22-carousel/slide-02.png" class="h-40 rounded-lg border border-white/15 shadow-md shrink-0" alt="Slide 2" />
-            <img src="./uploads/2026-11-22-carousel/slide-03.png" class="h-40 rounded-lg border border-white/15 shadow-md shrink-0" alt="Slide 3" />
-            <img src="./uploads/2026-11-22-carousel/slide-04.png" class="h-40 rounded-lg border border-white/15 shadow-md shrink-0" alt="Slide 4" />
-            <img src="./uploads/2026-11-22-carousel/slide-05.png" class="h-40 rounded-lg border border-white/15 shadow-md shrink-0" alt="Slide 5" />
-            <img src="./uploads/2026-11-22-carousel/slide-06.png" class="h-40 rounded-lg border border-amber-400/40 shadow-md shrink-0" alt="Slide 6" />
-          </div>
-        </div>
-
         <!-- Structured Department Summary, Real Disk Documents & Staff Deliverables -->
         <div id="res-modal-body" class="space-y-4 text-xs text-slate-200 select-text"></div>
       </div>
@@ -11137,6 +11121,7 @@
     ];
 
     let cachedDeptReports = {};
+    let cachedDeptVisuals = {};
     let activeResultDept = "ALL";
 
     async function fetchDepartmentReportsFromServer() {
@@ -11145,6 +11130,7 @@
         const data = await res.json();
         if (data.ok && data.departments) {
           cachedDeptReports = data.departments;
+          cachedDeptVisuals = data.visuals || {};
         }
         if (data.deliverables) {
           applyServerDeliverables(data.deliverables);
@@ -11159,7 +11145,6 @@
     function renderDepartmentOutputsView(deptKey = "ALL", singleAgentId = null) {
       activeResultDept = deptKey;
       const bodyEl = document.getElementById("res-modal-body");
-      const galleryEl = document.getElementById("res-modal-visual-gallery");
       const tabsEl = document.getElementById("res-dept-tabs");
 
       // Update active tab styling
@@ -11179,7 +11164,6 @@
         if (!ag) return;
         const st = evaluateAgentModelStatus(ag);
         const ownerDept = DEPT_CATALOG.find(d => d.memberIds.includes(ag.id)) || DEPT_CATALOG[0];
-        if (galleryEl) galleryEl.classList.toggle("hidden", ownerDept.key !== "DEPT1_SOCIAL");
         document.getElementById("res-modal-title").textContent = `Hasil Kerja Staf — ${ag.name} (${ag.role})`;
         document.getElementById("res-modal-sub").textContent = `${ownerDept.title} · Model: ${ag.model} · Status: ${st.label}`;
 
@@ -11198,15 +11182,13 @@
               </button>
             </div>
           </div>
+          ${renderVisualOutputsBlock((cachedDeptVisuals[ownerDept.key] || []).filter(v => v.agentName && String(ag.name).includes(v.agentName)))}
           ${renderDiskDocsBlock(deptDocs)}
         `;
         return;
       }
 
       // Department-level or Full Company View
-      if (galleryEl) {
-        galleryEl.classList.toggle("hidden", !(deptKey === "ALL" || deptKey === "DEPT1_SOCIAL"));
-      }
 
       const targetDepts = deptKey === "ALL"
         ? DEPT_CATALOG
@@ -11236,6 +11218,7 @@
               </div>
             </div>
 
+            ${renderVisualOutputsBlock(cachedDeptVisuals[dept.key] || [])}
             ${renderDiskDocsBlock(docs)}
 
             <div>
@@ -11259,6 +11242,40 @@
           </div>
         `;
       }).join("");
+    }
+
+    // Hasil kerja visual nyata dari antrean konten: slide carousel, video reels, dan foto draf tema + tautan preview admin.
+    function renderVisualOutputsBlock(items) {
+      if (!items || items.length === 0) return "";
+      const fmtLabel = { carousel: "Carousel", reel: "Reels", md: "Draf Tema" };
+      const card = v => {
+        const isTheme = !!v.previewUrl;
+        const media = v.video
+          ? `<video src="${escapeHtmlSafe(v.video)}" ${v.slides[0] ? `poster="${escapeHtmlSafe(v.slides[0])}"` : ""} controls preload="none" playsinline class="h-56 rounded-lg border border-white/15 bg-black shrink-0"></video>`
+          : v.slides.map(s => `<a href="${escapeHtmlSafe(s)}" target="_blank" rel="noopener" class="shrink-0"><img src="${escapeHtmlSafe(s)}" loading="lazy" class="${isTheme ? "h-56" : "h-44"} rounded-lg border border-white/15 hover:border-amber-400/60 transition" alt="" /></a>`).join("");
+        return `
+          <div class="rounded-xl bg-[#0e0e15] border border-amber-500/25 p-3 space-y-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="min-w-0">
+                <div class="font-semibold text-amber-200 text-[11.5px] truncate">${escapeHtmlSafe(v.title)}</div>
+                <div class="text-[10px] font-mono text-slate-400">${escapeHtmlSafe(fmtLabel[v.format] || v.format || "")} · ${escapeHtmlSafe(v.agentName || "-")} · ${escapeHtmlSafe(v.createdAt || "")}${v.postTime ? ` · Jadwal ${escapeHtmlSafe(v.postTime)}` : ""}</div>
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <span class="px-2 py-0.5 rounded-full bg-white/10 text-slate-200 text-[9.5px] font-mono">${escapeHtmlSafe(v.status || "")}</span>
+                ${isTheme ? `<a href="${escapeHtmlSafe(v.previewUrl)}" target="_blank" rel="noopener" class="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-[10.5px] font-semibold">Buka Preview Draf ↗</a>` : ""}
+                ${v.reportUrl ? `<a href="${escapeHtmlSafe(v.reportUrl)}" target="_blank" rel="noopener" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/15 text-slate-200 text-[10.5px]">Laporan</a>` : ""}
+              </div>
+            </div>
+            <div class="flex items-start gap-2.5 overflow-x-auto pb-1">${media}</div>
+            ${isTheme ? `<div class="text-[10px] text-slate-400">Preview draf hanya terbuka setelah login admin di luxvite.id: <span class="font-mono text-slate-300">${escapeHtmlSafe(v.previewUrl)}</span></div>` : ""}
+            ${v.caption && !isTheme ? `<details><summary class="text-[10.5px] text-slate-400 cursor-pointer">Caption</summary><div class="mt-1 text-[11px] text-slate-300 whitespace-pre-line">${escapeHtmlSafe(v.caption)}</div></details>` : ""}
+          </div>`;
+      };
+      return `
+        <div class="space-y-2">
+          <div class="text-[10.5px] font-bold uppercase tracking-wider text-amber-300">🖼️ Hasil Kerja Visual (${items.length} terbaru dari antrean Siap dipakai / Siap Posting):</div>
+          ${items.map(card).join("")}
+        </div>`;
     }
 
     function renderDiskDocsBlock(docs) {
