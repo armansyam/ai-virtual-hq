@@ -106,6 +106,29 @@ else
   need "Pasang Antigravity CLI (agy) di host ini lalu login"
 fi
 
+# 8. rclone + remote Google Drive 'gdrive' (arsip konten yang sudah diposting/dipakai/ditolak)
+RCLONE_VER="v1.68.2"
+RCLONE="$(command -v rclone || echo "$HOME/.local/bin/rclone")"
+if [ ! -x "$RCLONE" ]; then
+  case "$OS-$ARCH" in
+    Linux-x86_64) RPLAT="linux-amd64" ;; Linux-aarch64|Linux-arm64) RPLAT="linux-arm64" ;;
+    Darwin-arm64) RPLAT="osx-arm64" ;; Darwin-x86_64) RPLAT="osx-amd64" ;; *) RPLAT="" ;;
+  esac
+  if [ -z "$RPLAT" ]; then need "rclone untuk $OS/$ARCH harus dipasang manual"; else
+    act "Unduh rclone $RCLONE_VER ($RPLAT) ke ~/.local/bin"
+    TMPZ="$(mktemp -d)"
+    curl -fsSL "https://downloads.rclone.org/$RCLONE_VER/rclone-$RCLONE_VER-$RPLAT.zip" -o "$TMPZ/rclone.zip"
+    python3 -c "import zipfile,sys;zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$TMPZ/rclone.zip" "$TMPZ"
+    mkdir -p "$HOME/.local/bin"; install -m 0755 "$TMPZ/rclone-$RCLONE_VER-$RPLAT/rclone" "$HOME/.local/bin/rclone"; rm -rf "$TMPZ"
+    RCLONE="$HOME/.local/bin/rclone"
+  fi
+fi
+if [ -x "$RCLONE" ]; then
+  if "$RCLONE" listremotes 2>/dev/null | grep -qx "gdrive:"; then ok "rclone $("$RCLONE" version | head -1 | awk '{print $2}') + remote gdrive"; else
+    need "Login Google Drive untuk arsip (sekali): $RCLONE config → n → nama: gdrive → storage: drive → scope: drive.file (lihat deploy/HOMELAB-GUIDE.md). Tanpa ini arsip tetap disimpan lokal."
+  fi
+fi
+
 echo
 if [ ${#TODO[@]} -eq 0 ]; then echo "SEMUA ALAT SIAP."; else
   echo "MASIH PERLU DIKERJAKAN MANUSIA (${#TODO[@]}):"; for t in "${TODO[@]}"; do echo " - $t"; done; exit 1

@@ -7795,6 +7795,15 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 found["ceoNote"] = str(body.get("note") or "").strip()[:500]
                 found["decidedAt"] = time.strftime("%Y-%m-%d %H:%M:%S WITA")
                 save_content_queue(q)
+            if new_status in ARCHIVE_FINAL_STATUSES and found.get("dir"):
+                def _archive_bg(rel=found["dir"], iid=item_id, st=new_status):
+                    try:
+                        res = archive_queue_dir(rel, iid, f"status {st}")
+                        where = res.get("drive") or (f"lokal ({res.get('driveError')})" if res.get("ok") else res.get("error"))
+                        bump_world_chat_version(toast_msg=f"🗄️ Arsip '{os.path.basename(rel)[:40]}': {where}")
+                    except Exception as e:
+                        print(f"[archive] {rel} gagal: {e!r}", flush=True)
+                threading.Thread(target=_archive_bg, daemon=True).start()
             self._send_json(200, {"ok": True, "items": q[:30]})
             return
 
@@ -9113,9 +9122,11 @@ def tools_readiness():
         "browser": any(b and os.path.exists(b) for b in browsers),
         "luxenaryEngine": bool(proj) and os.path.isfile(os.path.join(proj, "node_modules", ".bin", "tsx")),
         "sandbox": bool(shutil.which("sandbox-exec")) if sys.platform == "darwin" else bool(shutil.which("bwrap")),
+        "driveArchive": bool(archive_remote()),
     }
     uses = {"agy": "semua karyawan", "pillow": "carousel & lembar foto tema", "node": "Reels & Atelier", "reelFactory": "Reels",
-            "browser": "Reels & foto tema", "luxenaryEngine": "render & audit tema Atelier", "sandbox": "ruang kerja aman Atelier"}
+            "browser": "Reels & foto tema", "luxenaryEngine": "render & audit tema Atelier", "sandbox": "ruang kerja aman Atelier",
+            "driveArchive": "arsip konten ke Google Drive (rclone remote 'gdrive'); tanpa ini arsip disimpan lokal"}
     return [{"tool": k, "ready": v, "usedBy": uses[k]} for k, v in checks.items()]
 
 
@@ -9182,6 +9193,11 @@ def create_theme_draft_from_spec(spec, room="THEMES"):
             if best is not None:
                 for src in best["sheets"].values():
                     shutil.copy(src, os.path.join(out_dir, os.path.basename(src)))
+            # Hemat disk: draf lolos cukup foto final; draf gagal cukup foto giliran terakhir sebagai bukti untuk QA.
+            keep_prefix = "" if best is not None else f"r{turn}-"
+            for fname in os.listdir(out_dir):
+                if re.match(r"r\d+-", fname) and not (keep_prefix and fname.startswith(keep_prefix)):
+                    os.remove(os.path.join(out_dir, fname))
     finally:
         shutil.rmtree(work, ignore_errors=True)
 
@@ -9315,6 +9331,175 @@ def queue_report_outputs(visual_per_dept=12, docs_per_dept=8, doc_chars=20000):
                     "content": content[:doc_chars] + ("\n\n… (terpotong; buka berkas penuh di antrean Siap dipakai)" if len(content) > doc_chars else ""),
                 })
     return visuals, docs
+
+
+# ===== Arsip antrean konten: kompres → zip → Google Drive (rclone) → hapus salinan lokal setelah terverifikasi =====
+ARCHIVE_DIR = os.path.join(DATA_DIR, "archive")
+ARCHIVE_INDEX_FILE = os.path.join(CONFIG_DIR, "archive_index.json")
+ARCHIVE_FINAL_STATUSES = ("POSTED", "DIPAKAI", "REJECTED")
+ARCHIVE_ORPHAN_MIN_AGE_DAYS = 2
+ARCHIVE_LOCK = threading.Lock()
+
+
+def _rclone_bin():
+    return shutil.which("rclone") or next((p for p in (os.path.expanduser("~/.local/bin/rclone"), "/usr/local/bin/rclone", "/opt/homebrew/bin/rclone") if os.path.isfile(p)), "")
+
+
+def archive_remote():
+    """Tujuan Drive: env ARCHIVE_RCLONE_REMOTE (mis. 'gdrive:Luxvite-Arsip'); bila kosong dan remote rclone 'gdrive' sudah login, pakai itu."""
+    explicit = os.environ.get("ARCHIVE_RCLONE_REMOTE", "").strip()
+    if explicit:
+        return explicit
+    rb = _rclone_bin()
+    if not rb:
+        return ""
+    try:
+        remotes = subprocess.run([rb, "listremotes"], capture_output=True, text=True, timeout=20).stdout.split()
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return "gdrive:Luxvite-Arsip" if "gdrive:" in remotes else ""
+
+
+def _load_archive_index():
+    try:
+        with open(ARCHIVE_INDEX_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        return {}
+
+
+def _save_archive_index(idx):
+    tmp = ARCHIVE_INDEX_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(idx, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, ARCHIVE_INDEX_FILE)
+
+
+def _zip_queue_dir(src_dir, zip_path):
+    """Zip folder antrean; PNG dikonversi ke WebP (kualitas 85) agar arsip jauh lebih kecil, berkas lain apa adanya."""
+    import zipfile
+    from PIL import Image
+    os.makedirs(os.path.dirname(zip_path), exist_ok=True)
+    tmp_zip = zip_path + ".part"
+    with zipfile.ZipFile(tmp_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for root, _, files in os.walk(src_dir):
+            for fname in sorted(files):
+                full = os.path.join(root, fname)
+                arc = os.path.relpath(full, src_dir)
+                if fname.lower().endswith(".png"):
+                    buf = io.BytesIO()
+                    with Image.open(full) as im:
+                        im.save(buf, "WEBP", quality=85, method=6)
+                    zf.writestr(os.path.splitext(arc)[0] + ".webp", buf.getvalue())
+                else:
+                    zf.write(full, arc)
+    os.replace(tmp_zip, zip_path)
+
+
+def _upload_archive_zip(zip_path, month):
+    """Unggah ke Drive lalu cocokkan MD5 Drive dengan lokal. Mengembalikan (path_remote, None) atau (None, pesan_galat)."""
+    remote, rb = archive_remote(), _rclone_bin()
+    if not remote or not rb:
+        return None, "rclone/remote Google Drive belum disiapkan"
+    dest = f"{remote.rstrip('/')}/{month}/{os.path.basename(zip_path)}"
+    up = subprocess.run([rb, "copyto", zip_path, dest], capture_output=True, text=True, timeout=900)
+    if up.returncode != 0:
+        return None, f"unggah gagal: {(up.stderr or up.stdout).strip()[-300:]}"
+    md = subprocess.run([rb, "md5sum", dest], capture_output=True, text=True, timeout=120)
+    remote_md5 = (md.stdout.split() or [""])[0]
+    with open(zip_path, "rb") as f:
+        local_md5 = hashlib.md5(f.read()).hexdigest()
+    if md.returncode != 0 or remote_md5 != local_md5:
+        return None, f"verifikasi MD5 Drive tidak cocok (lokal {local_md5[:8]}, Drive {remote_md5[:8] or '-'})"
+    return dest, None
+
+
+def archive_queue_dir(rel_dir, item_id="", reason=""):
+    """Arsipkan satu folder content-queue. Folder asli dihapus hanya setelah zip lokal jadi; zip lokal dihapus hanya
+    setelah salinan Drive terverifikasi. Gagal unggah = zip lokal tetap ada dan dicoba lagi saat housekeeping."""
+    src = os.path.realpath(os.path.join(DATA_DIR, rel_dir))
+    root = os.path.realpath(CONTENT_QUEUE_DIR)
+    if os.path.commonpath([root, src]) != root or src == root or not os.path.isdir(src):
+        return {"ok": False, "error": f"folder arsip tidak valid: {rel_dir}"}
+    month = time.strftime("%Y-%m")
+    zip_path = os.path.join(ARCHIVE_DIR, month, os.path.basename(src) + ".zip")
+    with ARCHIVE_LOCK:
+        size_before = sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(src) for f in fs)
+        _zip_queue_dir(src, zip_path)
+        shutil.rmtree(src)
+        entry = {"itemId": item_id, "reason": reason, "archivedAt": time.strftime("%Y-%m-%d %H:%M:%S WITA"),
+                 "bytesBefore": size_before, "zipBytes": os.path.getsize(zip_path), "localZip": os.path.relpath(zip_path, DATA_DIR),
+                 "drive": "", "driveError": ""}
+        dest, err = _upload_archive_zip(zip_path, month)
+        if dest:
+            os.remove(zip_path)
+            entry.update(drive=dest, localZip="")
+        else:
+            entry["driveError"] = err
+        idx = _load_archive_index()
+        idx[rel_dir] = entry
+        _save_archive_index(idx)
+    if item_id:
+        with CONTENT_QUEUE_LOCK:
+            q = load_content_queue()
+            it = next((x for x in q if x.get("id") == item_id), None)
+            if it:
+                it["archive"] = {k: entry[k] for k in ("archivedAt", "drive", "localZip", "driveError")}
+                save_content_queue(q)
+    return {"ok": True, **entry}
+
+
+def run_content_archive_pass():
+    """Housekeeping arsip: item berstatus final, folder yatim (tidak ada lagi di antrean, lebih tua dari ambang),
+    dan zip lokal yang belum terunggah ke Drive."""
+    done = {"archived": 0, "uploaded": 0, "errors": []}
+    q = load_content_queue()
+    referenced = {str(it.get("dir")) for it in q if it.get("dir")}
+    for it in q:
+        rel = it.get("dir")
+        if it.get("status") in ARCHIVE_FINAL_STATUSES and rel and os.path.isdir(os.path.join(DATA_DIR, rel)):
+            r = archive_queue_dir(rel, it.get("id", ""), f"status {it.get('status')}")
+            if r.get("ok"):
+                done["archived"] += 1
+            else:
+                done["errors"].append(r.get("error"))
+    cutoff = time.time() - ARCHIVE_ORPHAN_MIN_AGE_DAYS * 86400
+    if os.path.isdir(CONTENT_QUEUE_DIR):
+        for name in sorted(os.listdir(CONTENT_QUEUE_DIR)):
+            rel = f"content-queue/{name}"
+            full = os.path.join(CONTENT_QUEUE_DIR, name)
+            if name.startswith("_") or rel in referenced or not os.path.isdir(full) or os.path.getmtime(full) > cutoff:
+                continue
+            r = archive_queue_dir(rel, "", "folder yatim (sudah keluar dari antrean)")
+            if r.get("ok"):
+                done["archived"] += 1
+            else:
+                done["errors"].append(r.get("error"))
+    idx = _load_archive_index()
+    for rel, entry in idx.items():
+        local = entry.get("localZip")
+        if local and not entry.get("drive") and os.path.isfile(os.path.join(DATA_DIR, local)):
+            month = os.path.basename(os.path.dirname(local))
+            dest, err = _upload_archive_zip(os.path.join(DATA_DIR, local), month)
+            if dest:
+                os.remove(os.path.join(DATA_DIR, local))
+                entry.update(drive=dest, localZip="", driveError="")
+                done["uploaded"] += 1
+            else:
+                entry["driveError"] = err
+            if entry.get("itemId"):
+                with CONTENT_QUEUE_LOCK:
+                    q_now = load_content_queue()
+                    it = next((x for x in q_now if x.get("id") == entry["itemId"]), None)
+                    if it:
+                        it["archive"] = {k: entry.get(k, "") for k in ("archivedAt", "drive", "localZip", "driveError")}
+                        save_content_queue(q_now)
+    with ARCHIVE_LOCK:
+        merged = _load_archive_index()
+        merged.update(idx)
+        _save_archive_index(merged)
+    return done
 
 
 def _slide_font(kind, size):
@@ -13586,12 +13771,19 @@ def run_office_housekeeping(force=False, archive_after_days=30, max_note_lines=1
     except Exception:
         pass
 
+    try:
+        content_archive = run_content_archive_pass()
+    except Exception as arch_err:
+        content_archive = {"archived": 0, "uploaded": 0, "errors": [str(arch_err)[:300]]}
+        print(f"[archive] gagal: {arch_err!r}", flush=True)
+
     new_st = {
         "lastRunDate": today_iso,
         "lastRunAt": time.strftime("%Y-%m-%d %H:%M:%S"),
         "archivedReports": archived_reports,
         "compactedNotes": compacted_notes,
         "archivedTasks": archived_tasks,
+        "contentArchive": content_archive,
     }
     try:
         os.makedirs(CONFIG_DIR, exist_ok=True)

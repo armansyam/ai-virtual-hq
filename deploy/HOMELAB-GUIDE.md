@@ -20,6 +20,21 @@ LUXENARY_REPO=https://github.com/<akun>/luxenary-invite.git LUXENARY_DIR=/opt/lu
 
 > Docker image saat ini hanya berisi Python (tanpa agy, Node, browser, mesin render). Untuk karyawan penuh gunakan **Opsi B (systemd native)**.
 
+### Arsip konten ke Google Drive (rclone)
+Saat CEO menandai konten **Sudah diposting / Dipakai / Ditolak**, folder di `content-queue/` otomatis dikompres (PNG → WebP), dizip,
+diunggah ke Google Drive, dicocokkan MD5-nya, lalu salinan lokal dihapus. Housekeeping harian juga mengarsipkan folder yang sudah
+keluar dari antrean (lebih tua dari 2 hari) dan mengunggah ulang zip yang sebelumnya gagal. Tanpa Drive, zip disimpan di `archive/YYYY-MM/`.
+
+`tools/setup.sh` memasang rclone ke `~/.local/bin/rclone`. Login Google sekali (token tersimpan di `~/.config/rclone/` milik host, bukan di HQ):
+1. (Disarankan) Buat client ID OAuth sendiri agar tidak kena batas client bawaan rclone: Google Cloud Console → APIs & Services →
+   aktifkan *Google Drive API* → Credentials → *OAuth client ID* tipe **Desktop app** → catat client ID & secret.
+2. Di host: `~/.local/bin/rclone config` → `n` (remote baru) → nama **`gdrive`** → storage **`drive`** → isi client ID/secret
+   (atau kosongkan) → scope **`drive.file`** (rclone hanya bisa melihat berkas yang ia unggah sendiri) → lewati opsi lanjutan.
+3. Homelab tanpa layar: jawab `n` pada *Use web browser to automatically authenticate*, jalankan `rclone authorize "drive"` di Mac
+   (yang ada browser), login, lalu tempel token yang dicetak ke terminal homelab.
+4. Arsip dikirim ke `gdrive:Luxvite-Arsip/YYYY-MM/`. Ganti tujuan dengan env `ARCHIVE_RCLONE_REMOTE` (mis. `gdrive:Arsip/Luxvite`).
+   Cek: `GET /api/tools/readiness` → `driveArchive: true`.
+
 ## Opsi A — Jalankan via Docker Compose (tampilan kantor saja, tanpa alat kerja)
 1. Salin folder proyek ke homelab (beserta `config/`, `memory/`, `reports/`, `skills/` agar seluruh histori & memori Obsidian ikut terbawa):
    ```bash
