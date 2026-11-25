@@ -5199,7 +5199,7 @@ def live_finance_inputs(max_age=600):
     except Exception as e:
         out["error"] = f"MCP luxvite.id gagal: {str(e)[:200]}"
         return out
-    pkgs = [{"name": str(p.get("name")), "price": int(p.get("price") or 0), "customDomain": "custom_domain" in (p.get("capabilities") or [])}
+    pkgs = [{"id": str(p.get("id") or ""), "name": str(p.get("name")), "price": int(p.get("price") or 0), "customDomain": "custom_domain" in (p.get("capabilities") or [])}
             for p in (biz.get("packages") or []) if p.get("name") and int(p.get("price") or 0) > 0]
     if not pkgs or not isinstance(rep, dict) or "summary" not in rep:
         out["error"] = "Harga paket atau laporan keuangan luxvite.id tidak terbaca."
@@ -5207,9 +5207,12 @@ def live_finance_inputs(max_age=600):
     ms = rep.get("marketingSummary") or {}
     out.update(
         ok=True, packages=sorted(pkgs, key=lambda p: p["price"]),
-        coupons=[{"type": str(c.get("discountType") or "PERCENT"), "value": float(c.get("discountValue") or 0)} for c in ms.get("activeCoupons") or []],
+        coupons=[{"type": str(c.get("discountType") or "PERCENT"), "value": float(c.get("discountValue") or 0),
+                  "code": str(c.get("code") or ""), "usageCount": int(c.get("usageCount") or 0),
+                  "quotaLimit": c.get("quotaLimit"), "validUntil": c.get("validUntil")} for c in ms.get("activeCoupons") or []],
         partners=[{"type": str(p.get("discountType") or "PERCENT"), "value": float(p.get("discountValue") or 0),
-                   "category": str(p.get("vendorCategory") or "Mitra")} for p in ms.get("activePartners") or []],
+                   "category": str(p.get("vendorCategory") or "Mitra"), "name": str(p.get("name") or ""),
+                   "clients": int(p.get("provisionedClientsCount") or 0)} for p in ms.get("activePartners") or []],
         prodOpex=int((rep.get("summary") or {}).get("totalOpex") or 0),
         prodRecurring=int((rep.get("recurringCommitments") or {}).get("estimatedMonthlyTotal") or 0),
     )
@@ -7288,6 +7291,30 @@ class LuxviteHQHandler(SimpleHTTPRequestHandler):
                 "live": True,
                 "snapshot": snap
             })
+            return
+
+        if self.path.startswith("/api/finance-report"):
+            # Laporan keuangan produksi (bulanan + rincian harian WIB) langsung dari luxvite.id; tanpa angka pengganti bila MCP gagal.
+            now_wib = time.localtime()
+            try:
+                year = int((qs_map.get("year") or [now_wib.tm_year])[0])
+                month = int((qs_map.get("month") or [now_wib.tm_mon])[0])
+            except ValueError:
+                self._send_json(400, {"ok": False, "error": "Parameter tahun/bulan tidak valid."})
+                return
+            if not (2024 <= year <= 2100 and 1 <= month <= 12):
+                self._send_json(400, {"ok": False, "error": "Tahun 2024–2100 dan bulan 1–12."})
+                return
+            try:
+                rep = call_remote_mcp_tool("luxvite_get_finance_report", {"year": year, "month": month}, room="FINANCE")
+            except Exception as e:
+                self._send_json(502, {"ok": False, "error": f"MCP luxvite.id gagal: {str(e)[:200]}"})
+                return
+            rep = rep.get("result") if isinstance(rep, dict) and isinstance(rep.get("result"), dict) else rep
+            if not isinstance(rep, dict) or "summary" not in rep:
+                self._send_json(502, {"ok": False, "error": f"Laporan keuangan tidak terbaca: {json.dumps(rep, ensure_ascii=False)[:200]}"})
+                return
+            self._send_json(200, {"ok": True, "report": rep, "hasDaily": isinstance(rep.get("daily"), list)})
             return
 
         if self.path.startswith("/api/finance-ledger"):
