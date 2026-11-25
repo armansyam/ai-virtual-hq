@@ -10432,8 +10432,10 @@ def run_agent_with_tool_loop(model_id, endpoint, api_key, sys_prompt, history, p
                 "HASIL EKSEKUSI TOOL NYATA:\n"
                 + "\n".join(tool_results_lines)
                 + (
-                    "\n\nINI GILIRAN TERAKHIR: dilarang memanggil tool atau tag apa pun lagi. Tulis SEKARANG hasil kerja final yang "
-                    "lengkap dan siap pakai berdasarkan data di atas. Data yang belum berhasil didapat tulis jelas sebagai "
+                    "\n\nINI GILIRAN TERAKHIR: dilarang memanggil tool lagi (TOOL_CALL, LOAD_SKILL, SEARCH_SKILLS, SAVE_SKILL, IMPORT_SKILL_URL). "
+                    "Tulis SEKARANG hasil kerja final yang lengkap dan siap pakai berdasarkan data di atas, dan SIMPAN hasilnya dengan tag "
+                    "hasil kerja yang diwajibkan departemenmu (OUTPUT_FILE / POST_PACKAGE / THEME_DRAFT / REEL_REQUEST) di jawaban ini juga, "
+                    "karena tag itu tetap diproses pada giliran terakhir. Data yang belum berhasil didapat tulis jelas sebagai "
                     "'belum terverifikasi', jangan dikarang dan jangan ditunda ke langkah berikutnya."
                     if is_last_turn
                     else "\n\nLanjutkan pekerjaanmu berdasarkan hasil nyata di atas. Jika semua langkah sudah selesai, berikan laporan final yang rapi kepada CEO (tanpa tag TOOL_CALL)."
