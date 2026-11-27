@@ -4865,7 +4865,17 @@ def test_remote_mcp_connection(url=None, api_key=None, slot="DEFAULT", server_id
 
     tools_res = call_remote_mcp("tools/list", {}, timeout=12, room=slot, api_key_override=target_key, url_override=target_url, server_id=sid)
     res_list = call_remote_mcp("resources/list", {}, timeout=12, room=slot, api_key_override=target_key, url_override=target_url, server_id=sid)
-    tool_names = [t.get("name") for t in ((tools_res or {}).get("tools") or []) if isinstance(t, dict) and t.get("name")]
+    tool_objs = [t for t in ((tools_res or {}).get("tools") or []) if isinstance(t, dict) and t.get("name")]
+    tool_names = [t["name"] for t in tool_objs]
+    # Skema ringkas (argumen + wajib) agar staf memanggil tool tulis dengan argumen yang benar, bukan menebak.
+    tool_schemas = {}
+    for t in tool_objs:
+        schema = t.get("inputSchema") if isinstance(t.get("inputSchema"), dict) else {}
+        props = schema.get("properties") if isinstance(schema.get("properties"), dict) else {}
+        tool_schemas[t["name"]] = {
+            "required": [str(r) for r in (schema.get("required") or [])],
+            "props": {k: str((v or {}).get("type") or "any") for k, v in props.items()},
+        }
     resources_cnt = len((res_list or {}).get("resources") or [])
     result_obj = {
         "ok": True,
@@ -4876,6 +4886,7 @@ def test_remote_mcp_connection(url=None, api_key=None, slot="DEFAULT", server_id
         "serverInfo": init_res.get("serverInfo") or {},
         "protocolVersion": init_res.get("protocolVersion") or "2025-03-26",
         "tools": tool_names,
+        "toolSchemas": tool_schemas,
         "toolsCount": len(tool_names),
         "resourcesCount": resources_cnt,
         "testedAt": time.strftime("%Y-%m-%d %H:%M:%S WITA"),
@@ -5026,6 +5037,14 @@ def build_dynamic_mcp_context_with_trace(user_prompt="", room="", agent_id=None)
                 t_names = list((lt_room.get("tools") or []) if isinstance(lt_room, dict) else [])
                 if t_names:
                     lines.append(f"- Remote MCP `{rs['id']}` ({rs['name']}): [{', '.join(t_names[:18])}]")
+                    # Tool tulis ditampilkan dengan argumennya (* = wajib) supaya agen tidak mengirim args kosong/salah nama.
+                    schemas = lt_room.get("toolSchemas") if isinstance(lt_room.get("toolSchemas"), dict) else {}
+                    for tn in t_names[:18]:
+                        sc = schemas.get(tn)
+                        if sc and not _is_read_only_mcp_tool(tn):
+                            req = set(sc.get("required") or [])
+                            arg_list = ", ".join(f"{k}{'*' if k in req else ''}:{v}" for k, v in (sc.get("props") or {}).items())
+                            lines.append(f"  · `{tn}` args: {{{arg_list}}}")
         if auth_folders:
             for fld in auth_folders:
                 perm_lbl = "READ & WRITE" if fld["permission"] == "read_write" else "READ-ONLY"
@@ -6255,7 +6274,9 @@ def record_model_health_event(model_id, ok, error="", ms=None):
         if ok:
             cached[mid] = {"ok": True, "ms": int(ms or 0), "errorType": "", "failStreak": 0, "ts": now_ts}
         else:
-            err_str = str(error or "Model tidak merespons")[:300]
+            raw_err = str(error or "Model tidak merespons")
+            # Galat subprocess diawali perintah + prompt panjang; penyebabnya (mis. "timed out after 300 seconds") ada di akhir.
+            err_str = raw_err if len(raw_err) <= 300 else f"{raw_err[:110]} … {raw_err[-185:]}"
             err_type = classify_llm_error_type(err_str)
             prev = cached.get(mid) if isinstance(cached.get(mid), dict) else {}
             prev_ok = bool(prev.get("ok"))
@@ -6302,6 +6323,9 @@ def _resolve_model_creds_by_id(model_id):
     return (m_obj.get("endpoint") or "").strip(), (m_obj.get("apiKey") or "").strip()
 
 
+FALLBACK_RETRY_COOLDOWN_SEC = 600
+
+
 def _resolve_fallback_model_for_agent(agent_id, primary_model_id, explicit_fallback=""):
     primary = (primary_model_id or "").strip()
     saved = load_saved_config()
@@ -6313,7 +6337,9 @@ def _resolve_fallback_model_for_agent(agent_id, primary_model_id, explicit_fallb
         if not c or c == primary:
             return False
         h = health.get(c)
-        if isinstance(h, dict) and h.get("ok") is False:
+        # Model yang baru gagal dilewati sementara saja; tanpa jeda ini satu timeout membuat fallback (mis. Claude lokal)
+        # tak pernah dicoba lagi karena status sehat hanya pulih lewat panggilan sukses.
+        if isinstance(h, dict) and h.get("ok") is False and (time.time() - float(h.get("ts") or 0)) < FALLBACK_RETRY_COOLDOWN_SEC:
             return False
         # Model tanpa jalur nyata (bukan Claude lokal, bukan agy, tanpa API key) akan jatuh ke agy dan gagal diam-diam.
         return c in CLAUDE_LOCAL_MODELS or c in MODEL_DISPLAY_TO_AGY_ID or c.startswith(("gemini-", "agy:")) or bool(_resolve_model_creds_by_id(c)[1])
